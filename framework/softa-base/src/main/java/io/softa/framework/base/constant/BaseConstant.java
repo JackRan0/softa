@@ -11,6 +11,8 @@ public interface BaseConstant {
 
     /** Debug parameter in request parameter */
     String DEBUG = "debug";
+    /** Debug request header */
+    String X_DEBUG = "X-Debug";
     /** The default top n value */
     Integer DEFAULT_TOP_N = 50;
     Integer DEFAULT_PAGE_NUMBER = 1;

@@ -65,7 +65,7 @@ public class ContextBuilder {
 
     /**
      * Setup user context with user info.
-     * Extract the `debug` parameter from the URI to enable debug mode.
+     * Extract the `debug` parameter or debug headers from the request to enable debug mode.
      *
      * @param request the current HTTP request
      */
@@ -186,10 +186,15 @@ public class ContextBuilder {
      * @param context the current context
      */
     private void setDebugModeFromRequest(HttpServletRequest request, Context context) {
-        String debug = request.getParameter(BaseConstant.DEBUG);
-        if (Boolean.parseBoolean(debug) || "1".equals(debug)) {
+        if (isDebugEnabled(request.getParameter(BaseConstant.DEBUG))
+                || isDebugEnabled(request.getHeader(BaseConstant.DEBUG))
+                || isDebugEnabled(request.getHeader(BaseConstant.X_DEBUG))) {
             context.setDebug(true);
         }
+    }
+
+    private boolean isDebugEnabled(String debug) {
+        return Boolean.parseBoolean(debug) || "1".equals(debug);
     }
 
     /**

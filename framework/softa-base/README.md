@@ -13,8 +13,9 @@
 
 ### 2. How to Enable
 
-1. Request parameter (Web API)
+1. Request parameter or header (Web API)
 - Add `?debug=true` or `?debug=1` to any API URL.
+- Or send `debug: true` / `debug: 1` / `X-Debug: true` / `X-Debug: 1` in request headers.
 - Examples:
   - `GET /api/demo/User/searchList?debug=true`
   - `POST /api/demo/User/searchPage?debug=1`
