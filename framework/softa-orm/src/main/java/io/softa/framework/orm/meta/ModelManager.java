@@ -969,10 +969,6 @@ public class ModelManager {
                 Assert.isTrue(FieldType.TO_ONE_TYPES.contains(metaField.getFieldType()),
                         "The field {0} in custom cascaded field {1} must be ManyToOne/OneToOne field!",
                         metaField.getFieldName(), fullFieldName);
-            } else {
-                Assert.notTrue(metaField.isDynamic(),
-                        "The last field {0} in custom cascaded field {1} must be a stored field in model {2}!",
-                        metaField.getFieldName(), fullFieldName, metaField.getModelName());
             }
             modelName = metaField.getRelatedModel();
         }
