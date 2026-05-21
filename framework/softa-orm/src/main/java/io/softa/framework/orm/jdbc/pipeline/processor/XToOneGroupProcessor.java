@@ -15,6 +15,7 @@ import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.SubQuery;
+import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.FieldType;
@@ -130,6 +131,13 @@ public class XToOneGroupProcessor extends BaseProcessor {
             FlexQuery relatedFlexQuery = new FlexQuery(this.expandFields, filters);
             if (flexQuery != null) {
                 relatedFlexQuery.setConvertType(flexQuery.getConvertType());
+                // FIX: propagate nested subQueries so the related model can resolve its own relational subQueries
+                SubQuery currentSubQuery = flexQuery.extractSubQuery(metaField.getFieldName());
+                if (currentSubQuery != null && !CollectionUtils.isEmpty(currentSubQuery.getSubQueries())) {
+                    SubQueries nestedSubQueries = new SubQueries();
+                    nestedSubQueries.setQueryMap(currentSubQuery.getSubQueries());
+                    relatedFlexQuery.setSubQueries(nestedSubQueries);
+                }
             }
             List<Map<String, Object>> relatedRows= ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery);
             relatedRows.forEach(row -> relatedValueMap.put((Serializable) row.get(ModelConstant.ID), row));
