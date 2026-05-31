@@ -75,6 +75,7 @@ public class TenantAspect {
                         Context ctx = parentContext.copy();
                         ctx.setTenantId(tenantId);
                         ctx.setSkipPermissionCheck(true);
+                        ctx.setCrossTenant(false);
                         ContextHolder.runWith(ctx, () -> {
                             try {
                                 joinPoint.proceed();
