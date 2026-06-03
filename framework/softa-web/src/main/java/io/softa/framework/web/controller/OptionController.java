@@ -36,7 +36,7 @@ public class OptionController {
         Assert.notBlank(optionSetCode, "Option set code cannot be empty.");
         List<MetaOptionItem> optionItems = OptionManager.getMetaOptionItems(optionSetCode);
         List<OptionReference> optionReferences = optionItems.stream()
-                .map(item -> OptionReference.of(item.getItemCode(), item.getItemName(),
+                .map(item -> OptionReference.of(item.getItemCode(), item.getLabel(),
                         item.getItemTone(), item.getItemIcon()))
                 .toList();
         return ApiResponse.success(optionReferences);
