@@ -26,7 +26,7 @@ public class ExportController {
     /**
      * Export data by dynamic fields and ExportParams, without export template.
      * The convertType is set to DISPLAY to get the display values of the fields.
-     * Such as displayName for ManyToOne/OneToOne fields, and itemName for Option fields.
+     * Such as displayName for ManyToOne/OneToOne fields, and label for Option fields.
      *
      * @param modelName the model name to be exported
      * @param exportParams the export parameters of the data to be exported
@@ -44,7 +44,7 @@ public class ExportController {
      * Export data by exportTemplate configured exported fields or a custom file template.
      * The custom file template is a template file that contains the variables to be filled in.
      * The convertType is set to DISPLAY to get the display values of the fields.
-     * Such as displayName for ManyToOne/OneToOne fields, and itemName for Option fields.
+     * Such as displayName for ManyToOne/OneToOne fields, and label for Option fields.
      *
      * @param exportTemplateId The ID of the export template
      * @param exportParams the export parameters of the data to be exported

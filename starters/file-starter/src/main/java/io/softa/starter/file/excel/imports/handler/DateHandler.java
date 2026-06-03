@@ -51,7 +51,7 @@ public class DateHandler extends BaseImportHandler {
         if (standardDateStr != null) {
             return standardDateStr;
         } else {
-            throw new ValidationException("The date field `{0}` is incorrect: `{1}`", labelName, dateStr);
+            throw new ValidationException("The date field `{0}` is incorrect: `{1}`", label, dateStr);
         }
     }
 

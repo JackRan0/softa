@@ -35,7 +35,7 @@ public class ExportByDynamic implements ExportStrategy {
     /**
      * Export data by dynamic fields and QueryParams, without export template.
      * The convertType should be set to DISPLAY to get the display values of the fields.
-     * Such as displayName for ManyToOne/OneToOne fields, and itemName for Option fields.
+     * Such as displayName for ManyToOne/OneToOne fields, and label for Option fields.
      *
      * @param modelName the model name to be exported
      * @param flexQuery the flex query to be used for data retrieval
@@ -44,7 +44,7 @@ public class ExportByDynamic implements ExportStrategy {
     public ExportResult export(String modelName, FlexQuery flexQuery) {
         List<String> headers = new ArrayList<>();
         List<List<Object>> rowsTable = this.extractDataTableFromDB(modelName, flexQuery, headers);
-        String modelLabel = ModelManager.getModel(modelName).getLabelName();
+        String modelLabel = ModelManager.getModel(modelName).getLabel();
         ExcelSheetData sheetData = new ExcelSheetData(modelLabel, headers, rowsTable, null);
         FileInfo fileInfo = excelUploadService.generateFileAndUpload(modelName, modelLabel, sheetData);
         return new ExportResult(fileInfo, rowsTable.size());
@@ -63,7 +63,7 @@ public class ExportByDynamic implements ExportStrategy {
     /**
      * Export multiple sheets of data by dynamic fields and QueryParams, without export template.
      * The convertType should be set to DISPLAY to get the display values of the fields.
-     * Such as displayName for ManyToOne/OneToOne fields, and itemName for Option fields.
+     * Such as displayName for ManyToOne/OneToOne fields, and label for Option fields.
      *
      * @param fileName the name of the Excel file to be exported
      * @param sheetInfoList the list of sheetInfo objects
@@ -94,7 +94,7 @@ public class ExportByDynamic implements ExportStrategy {
         List<String> fieldNames = flexQuery.getFields();
         fieldNames.forEach(fieldName -> {
             MetaField lastField = ModelManager.getLastFieldOfCascaded(modelName, fieldName);
-            headers.add(lastField.getLabelName());
+            headers.add(lastField.getLabel());
         });
         return ListUtils.convertToTableData(fieldNames, rows);
     }

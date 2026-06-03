@@ -59,7 +59,7 @@ public class ExportServiceImpl implements ExportService {
     /**
      * Export data by dynamic fields and ExportParams, without export template.
      * The convertType should be set to DISPLAY to get the display values of the fields.
-     * Such as displayName for ManyToOne/OneToOne fields, and itemName for Option fields.
+     * Such as displayName for ManyToOne/OneToOne fields, and label for Option fields.
      *
      * @param modelName the model name to be exported
      * @param flexQuery the flex query to be used for data retrieval
@@ -76,7 +76,7 @@ public class ExportServiceImpl implements ExportService {
     /**
      * Export multiple sheets of data by dynamic fields and ExportParams, without export template.
      * The convertType should be set to DISPLAY to get the display values of the fields.
-     * Such as displayName for ManyToOne/OneToOne fields, and itemName for Option fields.
+     * Such as displayName for ManyToOne/OneToOne fields, and label for Option fields.
      *
      * @param fileName the name of the Excel file to be exported
      * @param sheetInfoList the list of sheetInfo objects
@@ -100,7 +100,7 @@ public class ExportServiceImpl implements ExportService {
     /**
      * Export data by exportTemplate configured exported fields.
      * The convertType should be set to DISPLAY to get the display values of the fields.
-     * Such as displayName for ManyToOne/OneToOne fields, and itemName for Option fields.
+     * Such as displayName for ManyToOne/OneToOne fields, and label for Option fields.
      *
      * @param exportTemplateId the ID of the export template
      * @param flexQuery the flex query to be used for data retrieval
@@ -123,7 +123,7 @@ public class ExportServiceImpl implements ExportService {
     /**
      * Export multiple sheets merged to on Excel file by specifying multi export templates.
      * The convertType should be set to DISPLAY to get the display values of the fields.
-     * Such as displayName for ManyToOne/OneToOne fields, and itemName for Option fields.
+     * Such as displayName for ManyToOne/OneToOne fields, and label for Option fields.
      *
      * @param fileName the name of the Excel file to be exported
      * @param ids the list of export template id

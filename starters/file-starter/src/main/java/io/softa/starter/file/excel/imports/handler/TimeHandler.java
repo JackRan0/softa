@@ -45,7 +45,7 @@ public class TimeHandler extends BaseImportHandler {
         if (standardTimeStr != null) {
             return standardTimeStr;
         } else {
-            throw new ValidationException("The Time field `{0}` is incorrect: `{1}`", labelName, timeStr);
+            throw new ValidationException("The Time field `{0}` is incorrect: `{1}`", label, timeStr);
         }
     }
 

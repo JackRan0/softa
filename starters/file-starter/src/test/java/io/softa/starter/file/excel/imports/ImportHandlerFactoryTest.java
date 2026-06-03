@@ -23,7 +23,7 @@ class ImportHandlerFactoryTest {
         ImportHandlerFactory factory = new ImportHandlerFactory();
         MetaField metaField = new MetaField();
         ReflectionTestUtils.setField(metaField, "fieldType", FieldType.TIME);
-        ReflectionTestUtils.setField(metaField, "labelName", "Clock In");
+        ReflectionTestUtils.setField(metaField, "label", "Clock In");
         ReflectionTestUtils.setField(metaField, "fieldName", "clockIn");
         ReflectionTestUtils.setField(metaField, "modelName", "attendance");
 

@@ -524,11 +524,11 @@ public class ImportServiceImpl implements ImportService {
             Object defaultValue = this.getDefaultValue(lastField.getFieldType(), importTemplateField.getDefaultValue(), importTemplateDTO.getEnv());
             importFieldDTO.setDefaultValue(defaultValue);
         }
-        // If the custom header is not set, use the labelName of the field as the header
+        // If the custom header is not set, use the label of the field as the header
         if (StringUtils.isNotBlank(importTemplateField.getCustomHeader())) {
             importFieldDTO.setHeader(importTemplateField.getCustomHeader());
         } else {
-            importFieldDTO.setHeader(lastField.getLabelName());
+            importFieldDTO.setHeader(lastField.getLabel());
         }
         return importFieldDTO;
     }

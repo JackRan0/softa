@@ -48,7 +48,7 @@ public class ExportTemplateResolver {
             } else {
                 MetaField lastField = ModelManager.getLastFieldOfCascaded(exportTemplate.getModelName(),
                         exportField.getFieldName());
-                headers.add(lastField.getLabelName());
+                headers.add(lastField.getLabel());
             }
         });
         return new ResolvedTemplateSheet(headers, fetchFields, exportFields);

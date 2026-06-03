@@ -9,7 +9,7 @@ import io.softa.starter.file.dto.ImportFieldDTO;
 
 /**
  * OptionHandler
- * Compatible with the itemName and itemCode of OptionItem.
+ * Compatible with the label and itemCode of OptionItem.
  */
 public class OptionHandler extends BaseImportHandler {
 
@@ -29,10 +29,10 @@ public class OptionHandler extends BaseImportHandler {
             if (OptionManager.existsItemCode(optionSetCode, optionStr)) {
                 return optionStr;
             }
-            // Treat the option string as itemName
-            String optionItemCode = OptionManager.getItemCodeByName(optionSetCode, optionStr);
+            // Treat the option string as label
+            String optionItemCode = OptionManager.getItemCodeByLabel(optionSetCode, optionStr);
             if (optionItemCode == null) {
-                throw new ValidationException("The option field `{0}` does not exist item `{1}`", labelName, optionStr);
+                throw new ValidationException("The option field `{0}` does not exist item `{1}`", label, optionStr);
             }
             return optionItemCode;
         } else {

@@ -10,7 +10,7 @@ import io.softa.starter.file.dto.ImportFieldDTO;
 
 /**
  * BooleanHandler
- * Compatible with the itemName and itemCode of OptionItem.
+ * Compatible with the label and itemCode of OptionItem.
  */
 public class BooleanHandler extends BaseImportHandler {
 
@@ -30,10 +30,10 @@ public class BooleanHandler extends BaseImportHandler {
             if (OptionManager.existsItemCode(optionSetCode, valueStr)) {
                 return Boolean.valueOf(valueStr);
             } else {
-                // Treat the boolean string as itemName
-                String optionItemCode = OptionManager.getItemCodeByName(optionSetCode, valueStr);
+                // Treat the boolean string as label
+                String optionItemCode = OptionManager.getItemCodeByLabel(optionSetCode, valueStr);
                 if (optionItemCode == null) {
-                    throw new ValidationException("The Boolean field `{0}` is incorrect `{1}`", labelName, valueStr);
+                    throw new ValidationException("The Boolean field `{0}` is incorrect `{1}`", label, valueStr);
                 }
                 return Boolean.valueOf(optionItemCode);
             }

@@ -40,7 +40,7 @@ public class ExportByFieldTemplate implements ExportStrategy {
     /**
      * Export data by exportTemplate configured exported fields.
      * The convertType should be set to DISPLAY to get the display values of the fields.
-     * Such as displayName for ManyToOne/OneToOne fields, and itemName for Option fields.
+     * Such as displayName for ManyToOne/OneToOne fields, and label for Option fields.
      *
      * @param exportTemplate exportTemplate object
      * @param flexQuery the flex query to be used for data retrieval
@@ -73,7 +73,7 @@ public class ExportByFieldTemplate implements ExportStrategy {
     /**
      * Export multiple sheets of data by dynamic fields and QueryParams, without export template.
      * The convertType should be set to DISPLAY to get the display values of the fields.
-     * Such as displayName for ManyToOne/OneToOne fields, and itemName for Option fields.
+     * Such as displayName for ManyToOne/OneToOne fields, and label for Option fields.
      *
      * @param fileName the name of the Excel file to be exported
      * @param exportTemplates the list of exportTemplates

@@ -104,20 +104,20 @@ class ImportHandlersTest {
         assertThrows(ValidationException.class, () -> handler.handleValue("Missing"));
     }
 
-    private MetaField metaField(FieldType fieldType, String labelName, String fieldName, String optionSetCode) {
+    private MetaField metaField(FieldType fieldType, String label, String fieldName, String optionSetCode) {
         MetaField metaField = new MetaField();
         ReflectionTestUtils.setField(metaField, "fieldType", fieldType);
-        ReflectionTestUtils.setField(metaField, "labelName", labelName);
+        ReflectionTestUtils.setField(metaField, "label", label);
         ReflectionTestUtils.setField(metaField, "fieldName", fieldName);
         ReflectionTestUtils.setField(metaField, "modelName", "demo.model");
         ReflectionTestUtils.setField(metaField, "optionSetCode", optionSetCode);
         return metaField;
     }
 
-    private MetaOptionItem optionItem(String itemCode, String itemName) {
+    private MetaOptionItem optionItem(String itemCode, String label) {
         MetaOptionItem metaOptionItem = new MetaOptionItem();
         ReflectionTestUtils.setField(metaOptionItem, "itemCode", itemCode);
-        ReflectionTestUtils.setField(metaOptionItem, "itemName", itemName);
+        ReflectionTestUtils.setField(metaOptionItem, "label", label);
         return metaOptionItem;
     }
 

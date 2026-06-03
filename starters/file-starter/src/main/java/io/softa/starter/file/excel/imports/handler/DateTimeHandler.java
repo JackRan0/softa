@@ -47,7 +47,7 @@ public class DateTimeHandler extends BaseImportHandler {
         String dateStr = DateUtils.formatAndValidateDate(datetimeArray[0]);
         String timeStr = datetimeArray.length > 1 ? DateUtils.formatAndValidateTime(datetimeArray[1]) : "00:00:00";
         if (dateStr == null || timeStr == null) {
-            throw new ValidationException("The datetime field `{0}` is incorrect: `{1}`", labelName, datetimeStr);
+            throw new ValidationException("The datetime field `{0}` is incorrect: `{1}`", label, datetimeStr);
         }
         return dateStr + " " + timeStr;
     }

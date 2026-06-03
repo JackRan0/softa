@@ -11,7 +11,7 @@ import java.util.List;
 
 /**
  * MultiOptionHandler
- * Compatible with the itemName and itemCode of OptionItem.
+ * Compatible with the label and itemCode of OptionItem.
  */
 public class MultiOptionHandler extends BaseImportHandler {
 
@@ -33,11 +33,11 @@ public class MultiOptionHandler extends BaseImportHandler {
                 if (OptionManager.existsItemCode(optionSetCode, optionStr)) {
                     codeList.add(optionStr);
                 } else {
-                    // Treat the option string as itemName
-                    String optionItemCode = OptionManager.getItemCodeByName(optionSetCode, optionStr);
+                    // Treat the option string as label
+                    String optionItemCode = OptionManager.getItemCodeByLabel(optionSetCode, optionStr);
                     if (optionItemCode == null) {
                         throw new ValidationException("The multi-option field `{0}` does not exist item `{1}`",
-                                labelName, optionStr);
+                                label, optionStr);
                     }
                     codeList.add(optionItemCode);
                 }

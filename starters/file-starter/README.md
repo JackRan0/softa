@@ -316,7 +316,7 @@ This allows exporting fields from related models through ManyToOne/OneToOne asso
 - Maximum cascade depth: **4 levels** (`BaseConstant.CASCADE_LEVEL = 4`).
 - Each intermediate field must be **ManyToOne or OneToOne** type.
 - The last field must be a **stored field** (not dynamic/computed).
-- `ConvertType.DISPLAY` is used, so option fields show `itemName` and relation fields show `displayName`.
+- `ConvertType.DISPLAY` is used, so option fields show `label` and relation fields show `displayName`.
 
 **Example — Template export with cascaded fields:**
 

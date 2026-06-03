@@ -226,7 +226,7 @@ class RelationLookupResolverTest {
         ReflectionTestUtils.setField(mf, "modelName", modelName);
         ReflectionTestUtils.setField(mf, "fieldName", fieldName);
         ReflectionTestUtils.setField(mf, "fieldType", fieldType);
-        ReflectionTestUtils.setField(mf, "labelName", fieldName);
+        ReflectionTestUtils.setField(mf, "label", fieldName);
         if (relatedModel != null) {
             ReflectionTestUtils.setField(mf, "relatedModel", relatedModel);
         }
