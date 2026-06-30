@@ -34,6 +34,7 @@ public class OracleDialect implements DialectInterface {
         OPERATOR_MAP.put(Operator.IS_NOT_SET, "IS NULL");
         OPERATOR_MAP.put(Operator.PARENT_OF, "IN");
         OPERATOR_MAP.put(Operator.CHILD_OF, "LIKE");
+        OPERATOR_MAP.put(Operator.CHILD_OF_ID, "LIKE");
     }
 
     /**

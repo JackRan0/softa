@@ -112,6 +112,9 @@ public class FilterUnitParser {
             case CHILD_OF:
                 condition = parseChildOf(sqlWrapper, fieldAlias, operator, (Collection<?>) value);
                 break;
+            case CHILD_OF_ID:
+                condition = parseChildOfId(sqlWrapper, fieldAlias, metaField, operator, (Collection<?>) value);
+                break;
             default:
                 throw new IllegalArgumentException("FilterUnitParser currently does not support the operator {0}! ", operator.getName());
         }
@@ -245,6 +248,71 @@ public class FilterUnitParser {
         StringBuilder condition = new StringBuilder(fieldAlias).append(" ").append(DBUtil.getPredicate(operator)).append(" ?");
         idPath = idPath + "%";
         sqlWrapper.addArgValue(idPath);
+        return condition;
+    }
+
+    /**
+     * Parse the CHILD_OF_ID filter condition. Unlike {@link #parseChildOf}
+     * which expects a pre-resolved idPath string as the comparison value,
+     * this variant accepts the ROOT ENTITY'S PRIMARY KEY and lets the
+     * database resolve the idPath at SQL time via a correlated subquery.
+     *
+     * <p>Emits, per root id:
+     * <pre>
+     *   ( {fieldAlias} = (SELECT {pathCol} FROM {table} WHERE id = ?)
+     *     OR {fieldAlias} {LIKE} CONCAT((SELECT {pathCol} FROM {table} WHERE id = ?), '/%') )
+     * </pre>
+     * Multiple ids are OR-merged.
+     *
+     * <p>The {LIKE} predicate is dialect-aware (Postgres uses ILIKE).
+     * {CONCAT} works on all four supported dialects (MySQL, PostgreSQL,
+     * Oracle, SQL Server). The two-branch form (EQUAL + child-LIKE) is
+     * intentional — idPath values do not end with a trailing separator, so
+     * a single {@code LIKE 'idPath%'} would also match unrelated siblings
+     * whose path shares the same prefix (e.g. {@code /1/12} matching
+     * {@code /1/120}).
+     *
+     * @param sqlWrapper SQL wrapper
+     * @param fieldAlias resolved alias of the materialized-path column,
+     *                   e.g. {@code "d.id_path"} after cascade-JOIN
+     * @param metaField  the resolved meta-field (its {@code modelName} is the
+     *                   related model that owns the path column — used to look
+     *                   up the table name for the subquery)
+     * @param operator   {@link Operator#CHILD_OF_ID}
+     * @param rootIds    one or more primary keys of root entities
+     * @return SQL condition
+     */
+    private static StringBuilder parseChildOfId(SqlWrapper sqlWrapper, String fieldAlias, MetaField metaField,
+                                                Operator operator, Collection<?> rootIds) {
+        Assert.notEmpty(rootIds,
+                "The rootIds of [{0}, {1}] cannot be empty!", fieldAlias, operator);
+        // The path column's owning model — e.g. "Department" — gives us the
+        // table to read the root entity's idPath from at SQL time.
+        String relatedModel = metaField.getModelName();
+        String relatedTable = ModelManager.getModelTable(relatedModel);
+        String pathColumn = metaField.getColumnName();
+        String predicate = DBUtil.getPredicate(operator);
+        StringBuilder condition = new StringBuilder();
+        int size = rootIds.size();
+        if (size > 1) condition.append("(");
+        int i = 0;
+        for (Object rootId : rootIds) {
+            if (i > 0) condition.append(" OR ");
+            condition.append("(")
+                    .append(fieldAlias).append(" = (SELECT ").append(pathColumn)
+                    .append(" FROM ").append(relatedTable)
+                    .append(" WHERE ").append(ModelConstant.ID).append(" = ?)")
+                    .append(" OR ")
+                    .append(fieldAlias).append(" ").append(predicate)
+                    .append(" CONCAT((SELECT ").append(pathColumn)
+                    .append(" FROM ").append(relatedTable)
+                    .append(" WHERE ").append(ModelConstant.ID).append(" = ?), '/%')")
+                    .append(")");
+            sqlWrapper.addArgValue(rootId);
+            sqlWrapper.addArgValue(rootId);
+            i++;
+        }
+        if (size > 1) condition.append(")");
         return condition;
     }
 

@@ -157,6 +157,9 @@ public abstract class ESServiceImpl<T> implements ESService<T> {
             case IS_NOT_SET -> criteria.not().exists();
             case PARENT_OF -> buildParentOf(filterUnit);
             case CHILD_OF -> buildChildOf(filterUnit);
+            case CHILD_OF_ID -> throw new io.softa.framework.base.exception.IllegalArgumentException(
+                    "Elasticsearch does not support CHILD_OF_ID — pre-resolve the root idPath and use CHILD_OF: {0}",
+                    filterUnit);
         };
     }
 

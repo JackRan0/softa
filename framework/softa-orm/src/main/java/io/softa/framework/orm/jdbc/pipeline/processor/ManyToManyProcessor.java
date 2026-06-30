@@ -328,10 +328,14 @@ public class ManyToManyProcessor extends BaseProcessor {
         // Count is automatically added during the groupBy operation
         joinModelFlexQuery.setGroupBy(metaField.getJoinLeft());
         List<Map<String, Object>> countRows = ReflectTool.searchList(metaField.getJoinModel(), joinModelFlexQuery);
+        // COUNT(*) comes back from MySQL JDBC as Long. The previous
+        // `(Integer)` cast threw ClassCastException — see the matching fix
+        // in OneToManyProcessor.expandRowsWithRelatedCount for the
+        // explanation.
         Map<Serializable, Integer> countMap = countRows.stream()
                 .collect(Collectors.toMap(
                         row -> (Serializable) row.get(metaField.getJoinLeft()),
-                        row -> (Integer) row.get(ModelConstant.COUNT)));
+                        row -> ((Number) row.get(ModelConstant.COUNT)).intValue()));
         rows.forEach(row -> row.put(fieldName, countMap.get((Serializable) row.get(ModelConstant.ID))));
     }
 

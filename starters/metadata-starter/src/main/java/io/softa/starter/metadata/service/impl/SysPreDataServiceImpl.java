@@ -31,6 +31,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.FileType;
+import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
@@ -311,8 +312,19 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         if (optionalPreData.isEmpty()) {
             // Create the data and return the data ID
             String preId = (String) row.get(ID);
-            row.remove(ID);
-            Serializable rowId = modelService.createOne(model, row);
+            Serializable rowId;
+            if (IdStrategy.EXTERNAL_ID.equals(ModelManager.getIdStrategy(model))) {
+                // ExternalID models (Navigation / Permission / SensitiveFieldSet / etc.)
+                // require the caller to supply the id — it IS the row id. Keep `id`
+                // in the row so IdProcessor.formatExternalIds doesn't reject the
+                // insert, and reuse the preId verbatim as the rowId in sys_pre_data.
+                rowId = modelService.createOne(model, row);
+            } else {
+                // DB / framework-generated id strategies — drop the JSON's preId so
+                // IdProcessor can fill the real rowId, then map preId → rowId below.
+                row.remove(ID);
+                rowId = modelService.createOne(model, row);
+            }
             generatePreData(model, preId, rowId);
             return rowId;
         } else {

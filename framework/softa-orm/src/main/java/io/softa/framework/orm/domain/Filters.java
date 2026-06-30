@@ -656,6 +656,56 @@ public class Filters implements Serializable {
     }
 
     /**
+     * Add a CHILD_OF_ID filter — find rows whose materialized-path column is in
+     * the subtree of the given root entity, looked up by primary key. Unlike
+     * {@link #childOf(String, String)} which expects a pre-resolved idPath
+     * string, this variant lets the database resolve the idPath at SQL time via
+     * a correlated subquery. Application code only supplies the root entity ID.
+     *
+     * <p>The {@code field} MUST be a cascade dot-path ending on the related
+     * model's path column — e.g. {@code "departmentId.idPath"}. The parser
+     * uses the resolved {@code MetaField.modelName} to locate the related
+     * table for the subquery.
+     *
+     * @param field cascade dot-path field, e.g. {@code "departmentId.idPath"}
+     * @param rootId primary key of the root entity (Long, String, etc.)
+     * @return the updated filters
+     */
+    public Filters childOfId(String field, Object rootId) {
+        Assert.notNull(rootId, "The rootId cannot be null.");
+        return this.add(field, Operator.CHILD_OF_ID, Collections.singletonList(rootId));
+    }
+
+    /**
+     * Add a CHILD_OF_ID filter with multiple root IDs — OR-merged. See
+     * {@link #childOfId(String, Object)} for single-value semantics.
+     *
+     * @param field cascade dot-path field, e.g. {@code "departmentId.idPath"}
+     * @param rootIds collection of root entity primary keys
+     * @return the updated filters
+     */
+    public Filters childOfId(String field, Collection<?> rootIds) {
+        return this.add(field, Operator.CHILD_OF_ID, rootIds);
+    }
+
+    /**
+     * Add a CHILD_OF_ID filter using a method reference for the field.
+     * See {@link #childOfId(String, Object)} for semantics.
+     */
+    public <T, R> Filters childOfId(SFunction<T, R> method, Object rootId) {
+        Assert.notNull(rootId, "The rootId cannot be null.");
+        return this.add(method, Operator.CHILD_OF_ID, Collections.singletonList(rootId));
+    }
+
+    /**
+     * Add a CHILD_OF_ID filter using a method reference for the field, with
+     * multiple root IDs.
+     */
+    public <T, R> Filters childOfId(SFunction<T, R> method, Collection<?> rootIds) {
+        return this.add(method, Operator.CHILD_OF_ID, rootIds);
+    }
+
+    /**
      * Determine if the filters object is empty, including null, []
      *
      * @param filters object

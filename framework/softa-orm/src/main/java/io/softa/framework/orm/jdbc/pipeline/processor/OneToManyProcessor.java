@@ -342,10 +342,15 @@ public class OneToManyProcessor extends BaseProcessor {
         // Count is automatically added during the groupBy operation
         relatedFlexQuery.setGroupBy(metaField.getRelatedField());
         List<Map<String, Object>> countRows = ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery);
+        // COUNT(*) comes back from MySQL JDBC as Long. The previous
+        // `(Integer)` cast threw ClassCastException on rows whose count
+        // exceeded int width or whose JDBC driver typed BIGINT explicitly.
+        // Normalize via Number.intValue() — safe up to Integer.MAX_VALUE,
+        // which any real per-group count will never approach.
         Map<Serializable, Integer> relatedCountMap = countRows.stream()
                 .collect(Collectors.toMap(
                         row -> (Serializable) row.get(metaField.getRelatedField()),
-                        row -> (Integer) row.get(ModelConstant.COUNT)));
+                        row -> ((Number) row.get(ModelConstant.COUNT)).intValue()));
         rows.forEach(row -> row.put(fieldName, relatedCountMap.get((Serializable) row.get(ModelConstant.ID))));
     }
 

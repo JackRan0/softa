@@ -46,7 +46,22 @@ public enum Operator {
     PARENT_OF("PARENT OF", "parentOf"),
 
     /** Query multi-level child nodes, supports multiple values */
-    CHILD_OF("CHILD OF", "childOf");
+    CHILD_OF("CHILD OF", "childOf"),
+
+    /**
+     * Query multi-level child nodes by ROOT ENTITY ID instead of pre-resolved
+     * idPath. Value is the root entity's primary key (single value or list).
+     *
+     * <p>Field must be a cascade dot-path that ends on the related model's
+     * materialized path column — e.g. {@code "departmentId.idPath"}. The
+     * parser resolves the related model + table at SQL-emit time and emits
+     * a correlated-subquery LIKE so the database performs the id → idPath
+     * lookup in the same statement. Eliminates the need for application
+     * code to pre-query the root's path string.
+     *
+     * <p>See {@code FilterUnitParser.parseChildOfId} for the emitted SQL.
+     */
+    CHILD_OF_ID("CHILD OF ID", "childOfId");
 
     @JsonValue
     private final String name;
@@ -59,7 +74,7 @@ public enum Operator {
 
     public static final Set<Operator> ASSIGNED_OPERATORS = Sets.newHashSet(IS_SET, IS_NOT_SET);
 
-    public static final Set<Operator> COLLECTION_OPERATORS = Sets.newHashSet(IN, NOT_IN, BETWEEN, NOT_BETWEEN, PARENT_OF, CHILD_OF);
+    public static final Set<Operator> COLLECTION_OPERATORS = Sets.newHashSet(IN, NOT_IN, BETWEEN, NOT_BETWEEN, PARENT_OF, CHILD_OF, CHILD_OF_ID);
 
     /** Tuple predicates only support row-value IN / NOT IN */
     public static final Set<Operator> TUPLE_OPERATORS = Sets.newHashSet(IN, NOT_IN);

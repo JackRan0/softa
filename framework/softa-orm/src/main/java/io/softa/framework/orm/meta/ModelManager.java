@@ -778,6 +778,28 @@ public class ModelManager {
     }
 
     /**
+     * Resolve the related model name for a relational FK field. Returns
+     * null for scalar fields, missing metadata, non-relational field types,
+     * or unknown models — callers can use this to short-circuit nested
+     * recursion (e.g. mask / write-guard descending into sub-objects).
+     *
+     * <p>Covers all four relational kinds via {@link FieldType#RELATED_TYPES}:
+     * ManyToOne / OneToOne / OneToMany / ManyToMany.
+     *
+     * @param modelName parent model name
+     * @param fieldName field name on the parent model
+     * @return related model name, or null when the field is not a relation
+     */
+    public static String resolveRelatedModel(String modelName, String fieldName) {
+        if (modelName == null || fieldName == null) return null;
+        if (!existModel(modelName)) return null;
+        MetaField mf = getModelFieldOrNull(modelName, fieldName);
+        if (mf == null || mf.getFieldType() == null) return null;
+        if (!FieldType.RELATED_TYPES.contains(mf.getFieldType())) return null;
+        return mf.getRelatedModel();
+    }
+
+    /**
      * Get the column name by model name and field name.
      *
      * @param modelName model name

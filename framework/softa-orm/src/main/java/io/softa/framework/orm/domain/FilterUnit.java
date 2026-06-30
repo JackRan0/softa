@@ -164,7 +164,7 @@ public class FilterUnit implements Serializable {
 
     /**
      * Validate the comparison value of the collection type.
-     * Operators: IN, NOT_IN, BETWEEN, NOT_BETWEEN, PARENT_OF, CHILD_OF
+     * Operators: IN, NOT_IN, BETWEEN, NOT_BETWEEN, PARENT_OF, CHILD_OF, CHILD_OF_ID
      * @param filterUnit FilterUnit
      */
     private static void validateCollectionValue(FilterUnit filterUnit) {
@@ -173,6 +173,11 @@ public class FilterUnit implements Serializable {
             if ((Operator.PARENT_OF.equals(operator) || Operator.CHILD_OF.equals(operator))) {
                 valueList.forEach(v -> Assert.isTrue(v instanceof String strVal && StringUtils.isNotBlank(strVal),
                         "The value of {0} operator can only be a list of non-empty strings: {1}", operator, filterUnit));
+            } else if (Operator.CHILD_OF_ID.equals(operator)) {
+                // CHILD_OF_ID accepts the related model's primary key values — typically
+                // Long, but could be String for UUID keys. Only require non-null.
+                valueList.forEach(v -> Assert.notNull(v,
+                        "The value of {0} operator cannot contain null: {1}", operator, filterUnit));
             } else if (Operator.BETWEEN.equals(operator) || Operator.NOT_BETWEEN.equals(operator)) {
                 Assert.isTrue(valueList.size() == 2,
                         "The value of the {0} operator must be a list of two values: {1}", operator, filterUnit);
