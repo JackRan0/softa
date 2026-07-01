@@ -363,11 +363,13 @@ Rules:
 
 ### When to use it
 
-When an entity model is owned by a different microservice (e.g. `Order` lives in
-the `payments` service but is read from this app), set
-`@Model(serviceName = "payments")` and the framework redirects ORM calls for
-that model over HTTP to the owning service. Your code keeps calling
-`JdbcService` as if the model were local.
+When an entity model is owned by a different app (e.g. `Order` lives in the
+`payments` app but is read from this app), the framework redirects ORM calls for
+that model over HTTP to the owning app. Routing is automatic and keyed on the
+model's `appCode` (ADR-0015, projected from `sys_model.app_code`): when a model's
+`appCode` differs from this runtime's `system.app-code`, the call is routed to
+the owning app; otherwise it runs locally. There is no per-model routing flag to
+set. Your code keeps calling `JdbcService` as if the model were local.
 
 This is not a general-purpose RPC mechanism — only `JdbcService` methods on
 metadata-driven models are RPC-able. For arbitrary cross-service calls, use a
@@ -375,20 +377,17 @@ plain `RestClient`.
 
 ### Quick start
 
-1. Annotate the entity in the **caller** with the target service name:
+1. Nothing to annotate — a model's owning app is its `appCode`, stamped
+   server-side (ADR-0015). The caller only needs to know which apps it routes to.
 
-   ```java
-   @Model(label = "Order", serviceName = "payments")
-   public class Order extends AuditableModel { ... }
-   ```
-
-2. Configure the **caller's** `application.yml`:
+2. Configure the **caller's** `application.yml`, keyed by the **owning app's
+   `appCode`** (its `system.app-code`):
 
    ```yaml
    rpc:
      enable: true
      services:
-       payments:
+       payments:                     # key = owning app's appCode
          api-url: http://payments.internal:8080
          api-key: <shared>
          api-secret: <shared>
@@ -405,13 +404,15 @@ plain `RestClient`.
 
    ```java
    List<Map<String, Object>> rows = jdbcService.getList("Order", filters);
-   // empty serviceName → local; non-empty → HTTP POST to the owning service
+   // model's appCode == this runtime's system.app-code → local;
+   // differs → HTTP POST to the owning app
    ```
 
-**How it works**: ORM calls on models with a non-empty `serviceName` are
-intercepted and POSTed to `/rpc/{modelName}/{methodName}` on the target
-service. The caller's request `Context` (tenant / user / language) is
-propagated so the remote invocation runs with the same identity.
+**How it works**: `SwitchServiceAspect` intercepts `JdbcService` calls; when the
+model's `appCode` differs from this runtime's `system.app-code`, the call is
+POSTed to `/rpc/{modelName}/{methodName}` on the owning app (resolved via
+`rpc.services.<appCode>`). The caller's request `Context` (tenant / user /
+language) is propagated so the remote invocation runs with the same identity.
 
 ### Configuration
 
@@ -421,7 +422,7 @@ propagated so the remote invocation runs with the same identity.
 rpc:
   enable: true
   services:
-    payments:                       # key matches @Model.serviceName
+    payments:                       # key = owning app's appCode (system.app-code)
       api-url: http://payments.internal:8080
       api-key: <shared>
       api-secret: <shared>
@@ -473,9 +474,9 @@ resilience4j:
 | Field | Required | Description |
 |---|---|---|
 | `rpc.enable` | yes | Gates the dispatcher (caller) and the `/rpc` endpoint (receiver) |
-| `rpc.services.<name>.api-url` | yes (caller) | Base URL; framework appends `/rpc/{model}/{method}` |
-| `rpc.services.<name>.api-key` | yes (caller) | Sent as `X-Api-Key` header |
-| `rpc.services.<name>.api-secret` | yes (caller) | Sent as `X-Api-Secret` header |
+| `rpc.services.<appCode>.api-url` | yes (caller) | Base URL; framework appends `/rpc/{model}/{method}` |
+| `rpc.services.<appCode>.api-key` | yes (caller) | Sent as `X-Api-Key` header |
+| `rpc.services.<appCode>.api-secret` | yes (caller) | Sent as `X-Api-Secret` header |
 | `resilience4j.retry.instances.softa-rpc.*` | no | Overrides the default retry policy |
 | `resilience4j.circuitbreaker.instances.softa-rpc.*` | no | Overrides the default circuit-breaker policy |
 
@@ -486,13 +487,12 @@ resilience4j:
   not transparently RPC-able.
 - **Java serialization on the wire**: all method arguments and return values
   must implement `Serializable`. Cross-language consumers are not supported.
-- **Static service registry**: service-name → URL is resolved from YAML only;
+- **Static service registry**: appCode → URL is resolved from YAML only;
   no service discovery. Switch per environment via `application-{profile}.yml`.
 - **One Resilience4j policy for all targets**: every RPC call shares the
   `softa-rpc` retry + circuit-breaker instance — you can't tune SLAs per target.
 - **System models never redirect**: `sys_*` catalog rows always serve locally,
-  even if their model metadata carries a `serviceName`. Prevents circular
-  routing during bootstrap.
+  regardless of `appCode`. Prevents circular routing during bootstrap.
 
 ### Failure handling
 

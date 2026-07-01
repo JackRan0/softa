@@ -39,9 +39,13 @@ public class ModelManager {
     @Autowired
     private JdbcService<?> jdbcService;
 
-    private record MetadataSnapshot(Map<String, MetaModel> modelMap, Map<String, Map<String, MetaField>> modelFields) {
+    // indexMap is an independent registry keyed by the globally-unique index name — NOT mounted
+    // under a model — so a violated index name resolves in one hop (see getIndex / the friendly
+    // duplicate-key resolver).
+    private record MetadataSnapshot(Map<String, MetaModel> modelMap, Map<String, Map<String, MetaField>> modelFields,
+                                    Map<String, MetaIndex> indexMap) {
         private static MetadataSnapshot empty() {
-            return new MetadataSnapshot(Map.of(), Map.of());
+            return new MetadataSnapshot(Map.of(), Map.of(), Map.of());
         }
     }
 
@@ -58,15 +62,20 @@ public class ModelManager {
         return currentSnapshot().modelFields();
     }
 
+    private static Map<String, MetaIndex> indexMap() {
+        return currentSnapshot().indexMap();
+    }
+
     private static MetadataSnapshot createMutableSnapshot() {
-        return new MetadataSnapshot(new HashMap<>(200), new HashMap<>(200));
+        return new MetadataSnapshot(new HashMap<>(200), new HashMap<>(200), new HashMap<>(64));
     }
 
     private static MetadataSnapshot freezeSnapshot(MetadataSnapshot draft) {
         Map<String, MetaModel> frozenModelMap = Collections.unmodifiableMap(new HashMap<>(draft.modelMap()));
         Map<String, Map<String, MetaField>> frozenModelFields = draft.modelFields().entrySet().stream()
                 .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> Map.copyOf(entry.getValue())));
-        return new MetadataSnapshot(frozenModelMap, frozenModelFields);
+        Map<String, MetaIndex> frozenIndexMap = Collections.unmodifiableMap(new HashMap<>(draft.indexMap()));
+        return new MetadataSnapshot(frozenModelMap, frozenModelFields, frozenIndexMap);
     }
 
     /**
@@ -79,6 +88,7 @@ public class ModelManager {
             BUILDING_SNAPSHOT.set(draft);
             List<MetaModel> models = jdbcService.selectMetaEntityList("SysModel", MetaModel.class, null);
             List<MetaField> fields = jdbcService.selectMetaEntityList("SysField", MetaField.class, null);
+            List<MetaIndex> indexes = jdbcService.selectMetaEntityList("SysModelIndex", MetaIndex.class, null);
             if (ListUtils.allNotNull(models, fields)) {
                 this.initModels(models);
                 // Initialize basic field information
@@ -87,6 +97,10 @@ public class ModelManager {
                 this.validateModelAttributes(models);
                 // Validate field attributes
                 this.validateFieldAttributes(fields);
+                // Register indexes into the independent global registry, failing fast on a duplicate name.
+                // Index metadata is secondary (backs the friendly duplicate-key resolver), so a null read
+                // must not block model loading — treat it as no indexes.
+                this.initIndexes(indexes == null ? List.of() : indexes);
                 // Identify composition relationships and build childModels
                 this.identifyChildModels();
                 // Build the inbound TO_ONE reverse-reference index (delete strategy)
@@ -115,6 +129,38 @@ public class ModelManager {
             modelMap().put(model.getModelName(), model);
             modelFields().put(model.getModelName(), new HashMap<>(4));
         });
+    }
+
+    /**
+     * Register every index into the independent global registry (index name &rarr; index).
+     * Index names must be globally unique — PostgreSQL namespaces index / constraint names per
+     * schema, and the friendly duplicate-key resolver keys on the name alone — so a duplicate
+     * fails fast at load, naming both owning models.
+     *
+     * @param indexes index metadata
+     */
+    private void initIndexes(List<MetaIndex> indexes) {
+        assertIndexNamesGloballyUnique(indexes);
+        indexes.forEach(index -> indexMap().put(index.getIndexName(), index));
+    }
+
+    /**
+     * Reject a duplicate index name across models. PostgreSQL namespaces index / constraint names
+     * per schema, and the friendly duplicate-key resolver keys on the name alone, so index names
+     * must be globally unique; a duplicate fails fast, naming both owning models. Package-visible
+     * so the uniqueness validation is unit-testable (mirrors {@link #assertCascadeAcyclic}).
+     *
+     * @param indexes index metadata
+     */
+    static void assertIndexNamesGloballyUnique(List<MetaIndex> indexes) {
+        Map<String, String> nameToModel = new HashMap<>(indexes.size());
+        for (MetaIndex index : indexes) {
+            String previousModel = nameToModel.putIfAbsent(index.getIndexName(), index.getModelName());
+            Assert.isTrue(previousModel == null,
+                    "Duplicate index name ''{0}'' declared on both model ''{1}'' and ''{2}'' — index names "
+                            + "must be globally unique; rename one (or drop the explicit indexName to auto-derive).",
+                    index.getIndexName(), previousModel, index.getModelName());
+        }
     }
 
     /**
@@ -780,6 +826,18 @@ public class ModelManager {
     public static MetaModel getModel(String modelName) {
         validateModel(modelName);
         return modelMap().get(modelName);
+    }
+
+    /**
+     * Look up an index by its globally-unique name, or null if none. Backs the friendly
+     * duplicate-key resolver: a violated index name resolves to its member fields and
+     * optional custom message.
+     *
+     * @param indexName the globally-unique index name
+     * @return the index metadata, or null if no such index exists
+     */
+    public static MetaIndex getIndex(String indexName) {
+        return indexMap().get(indexName);
     }
 
     /**

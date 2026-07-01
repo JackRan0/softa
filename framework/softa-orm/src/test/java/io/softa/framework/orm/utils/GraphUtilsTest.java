@@ -49,7 +49,12 @@ class GraphUtilsTest {
                 "A", List.of("B"),
                 "B", List.of("C"),
                 "C", List.of("B"));
-        assertThat(GraphUtils.findCycle(graph)).containsExactly("B", "C", "B");
+        // The reported rotation depends on key iteration order (Map.of / DFS root); assert a valid
+        // closed cycle over the back edge, not one specific rotation. The acyclic prefix A is excluded.
+        List<String> cycle = GraphUtils.findCycle(graph);
+        assertThat(cycle).hasSize(3);
+        assertThat(cycle.getFirst()).isEqualTo(cycle.getLast());
+        assertThat(cycle).contains("B", "C").doesNotContain("A");
     }
 
     // ---- longestPath ---------------------------------------------------------------------------

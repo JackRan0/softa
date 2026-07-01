@@ -9,6 +9,10 @@ import io.swagger.v3.oas.models.media.StringSchema;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.annotation.Field;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.MaskingType;
+import io.softa.framework.orm.enums.OnDelete;
+import io.softa.framework.orm.enums.WidgetType;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -81,7 +85,8 @@ class FieldAnnotationCustomizerTest {
             @Override public Class<? extends Annotation> annotationType() { return Field.class; }
             @Override public String label() { return label; }
             @Override public String description() { return description; }
-            @Override public io.softa.framework.orm.enums.FieldType[] fieldType() { return new io.softa.framework.orm.enums.FieldType[0]; }
+            @Override public FieldType[] fieldType() { return new FieldType[0]; }
+            @Override public String renamedFrom() { return ""; }
             @Override public String columnName() { return ""; }
             @Override public int length() { return length; }
             @Override public int scale() { return 0; }
@@ -94,18 +99,19 @@ class FieldAnnotationCustomizerTest {
             @Override public String expression() { return ""; }
             @Override public boolean dynamic() { return false; }
             @Override public boolean encrypted() { return false; }
-            @Override public io.softa.framework.orm.enums.MaskingType[] maskingType() { return new io.softa.framework.orm.enums.MaskingType[0]; }
+            @Override public MaskingType[] maskingType() { return new MaskingType[0]; }
             @Override public String defaultValue() { return ""; }
             @Override public Class<?> relatedModel() { return Void.class; }
             @Override public String relatedModelName() { return ""; }
             @Override public String relatedField() { return ""; }
+            @Override public OnDelete[] onDelete() { return new OnDelete[0]; }
             @Override public Class<?> joinModel() { return Void.class; }
             @Override public String joinModelName() { return ""; }
             @Override public String joinLeft() { return ""; }
             @Override public String joinRight() { return ""; }
             @Override public String cascadedField() { return ""; }
             @Override public String filters() { return ""; }
-            @Override public io.softa.framework.orm.enums.WidgetType[] widgetType() { return new io.softa.framework.orm.enums.WidgetType[0]; }
+            @Override public WidgetType[] widgetType() { return new WidgetType[0]; }
         };
     }
 

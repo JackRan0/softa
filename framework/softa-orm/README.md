@@ -67,7 +67,7 @@ public enum CustomerTier {
 | `tableName` | `snake_case(modelName)` | `@Model.tableName` |
 | `columnName` | `snake_case(fieldName)` | `@Field.columnName` |
 | `fieldType` | Java type via `TypeInference` (e.g. `String`→`STRING`, enum→`OPTION`, `List<enum>`→`MULTI_OPTION`, `@Model` POJO→`MANY_TO_ONE`) | `@Field.fieldType = FieldType.X` (single value, no braces); **`OPTION` / `MULTI_OPTION` cannot be written explicitly** |
-| index `indexName` | `idx_<table>_<col>...` / `uk_<table>_<col>...` for unique | `@Index.name` |
+| index `indexName` | `idx_<table>_<col>...` / `uk_<table>_<col>...` for unique; **globally unique** (boot-enforced), ≤60 chars | `@Index.indexName` |
 
 ### `@Model` ↔ `SysModel`
 
@@ -215,10 +215,10 @@ multi-tenant child**, is rejected (see the matrix above).
 | `@Index` attribute | Type | Default | `SysModelIndex` column | Notes |
 |---|---|---|---|---|
 | (enclosing class) | — | — | `modelName` | inferred |
-| `name` | String | `""` | `name` | display title; auto-derived from fields when empty |
-| `name` (or auto-derived) | — | — | `indexName` | `idx_<table>_<col>...` / `uk_<table>_<col>...` for unique |
+| `indexName` (or auto-derived) | String | `""` | `indexName` | `idx_<table>_<col>...` / `uk_<table>_<col>...` for unique; **globally unique** (boot-enforced), ≤60 chars |
 | `fields` | String[] | required | `indexFields` | **camelCase Java field names**, not column names |
 | `unique` | boolean | `false` | `uniqueIndex` | |
+| `message` | String | `""` | `message` | end-user text on a unique-constraint violation (**only when `unique`**); its own i18n key; empty → composed from the member fields' labels |
 | (scanner sets) | — | — | `appCode` / `id` / `ownership` | |
 | (FK fixup post-init) | — | — | `modelId` | |
 

@@ -106,13 +106,13 @@ public class RPCClientImpl implements RemoteApiClient {
     }
 
     @Override
-    public <T> T modelRPC(String serviceName, String modelName, String methodName, Object[] methodArgs) {
-        if (StringUtils.isBlank(serviceName)) {
-            throw new IllegalStateException("Service name cannot be blank");
+    public <T> T modelRPC(String appCode, String modelName, String methodName, Object[] methodArgs) {
+        if (StringUtils.isBlank(appCode)) {
+            throw new IllegalStateException("Target appCode cannot be blank");
         }
-        RPCProperties.ServiceConfig serviceConfig = rpcProperties.getServiceConfig(serviceName);
+        RPCProperties.ServiceConfig serviceConfig = rpcProperties.getServiceConfig(appCode);
         if (serviceConfig == null || StringUtils.isBlank(serviceConfig.getApiUrl())) {
-            throw new IllegalStateException("Service config not valid for service: " + serviceName);
+            throw new IllegalStateException("No rpc.services config for appCode: " + appCode);
         }
         String url = this.buildApiUrl(serviceConfig, modelName, methodName);
         HttpHeaders headers = buildHeaders(serviceConfig);

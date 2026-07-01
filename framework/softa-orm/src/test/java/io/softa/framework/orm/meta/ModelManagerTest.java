@@ -182,4 +182,28 @@ class ModelManagerTest {
         ModelManager.assertCascadeAcyclic(Map.of(
                 "A", List.of("B", "C"), "B", List.of("D"), "C", List.of("D"), "D", List.of("E")));
     }
+
+    private static MetaIndex index(String indexName, String modelName) {
+        MetaIndex idx = new MetaIndex();
+        idx.setIndexName(indexName);
+        idx.setModelName(modelName);
+        return idx;
+    }
+
+    @Test
+    void duplicateIndexName_acrossModels_failsFast() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> ModelManager.assertIndexNamesGloballyUnique(List.of(
+                        index("idx_dup", "ModelA"),
+                        index("idx_dup", "ModelB"))));
+        assertTrue(ex.getMessage().contains("idx_dup"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("ModelA") && ex.getMessage().contains("ModelB"), ex.getMessage());
+    }
+
+    @Test
+    void uniqueIndexNames_acrossModels_pass() {
+        ModelManager.assertIndexNamesGloballyUnique(List.of(
+                index("idx_a", "ModelA"),
+                index("idx_b", "ModelB")));
+    }
 }

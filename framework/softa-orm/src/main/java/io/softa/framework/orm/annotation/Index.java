@@ -40,21 +40,18 @@ import java.lang.annotation.*;
 public @interface Index {
 
     /**
-     * SQL index identifier; empty = parser auto-derives as
+     * SQL index identifier. Empty = parser auto-derives as
      * {@code uk_<table>_<col1>_<col2>...} (unique) or
-     * {@code idx_<table>_<col1>_<col2>...} (non-unique), truncated to the
-     * dialect's identifier limit (MySQL 64, PostgreSQL 63). Maps to
+     * {@code idx_<table>_<col1>_<col2>...} (non-unique). An explicit name is
+     * trusted as the developer's unique name; an auto-derived name embeds the
+     * table, so it is unique by construction. Index names must be
+     * <b>globally unique</b> across all models (PostgreSQL namespaces index
+     * names per schema); a collision fails fast at boot. Capped at 60 chars
+     * (safe under both MySQL 64 and PostgreSQL 63); an over-length name (explicit
+     * or derived) is rejected — supply a shorter explicit name. Maps to
      * {@code SysModelIndex.indexName} / {@code sys_model_index.index_name}.
      */
     String indexName() default "";
-
-    /**
-     * Human-readable label for the index (Studio UI / metadata display).
-     * Empty = parser fills it with the final {@link #indexName()} value
-     * (explicit or auto-derived). Maps to {@code SysModelIndex.label} /
-     * {@code sys_model_index.label}.
-     */
-    String label() default "";
 
     /**
      * Field names (in the model's {@code @Field} domain — camelCase Java
@@ -66,4 +63,15 @@ public @interface Index {
      * Unique constraint. Default false (regular non-unique index).
      */
     boolean unique() default false;
+
+    /**
+     * End-user message shown when <b>this</b> unique constraint is violated.
+     * Only valid when {@link #unique()} is true (a message on a non-unique
+     * index is rejected at boot). A complete, self-contained English sentence
+     * with no {@code {0}} arguments — it doubles as its own i18n key (resolved
+     * via {@code I18n.get(message)}). Empty (the common case) = fall back to a
+     * message composed from the member fields' labels. Maps to
+     * {@code SysModelIndex.message} / {@code sys_model_index.message}.
+     */
+    String message() default "";
 }

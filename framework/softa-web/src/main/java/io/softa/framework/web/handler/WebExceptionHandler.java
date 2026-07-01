@@ -1,6 +1,7 @@
 package io.softa.framework.web.handler;
 
 import java.util.List;
+import java.util.Optional;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.ValidationException;
 import lombok.extern.slf4j.Slf4j;
@@ -182,7 +183,21 @@ public class WebExceptionHandler {
      */
     @ExceptionHandler(value = DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<Void>> handleException(DataIntegrityViolationException e) {
-        return handler(ResponseCode.BAD_SQL_STATEMENT, e);
+        // One handler for the whole family: DuplicateKeyException is a subclass, and a unique
+        // violation can also surface as a plain DataIntegrityViolationException depending on the
+        // dialect/translator. Try the friendly per-index message first; otherwise fall back.
+        Optional<DuplicateKeyMessageResolver.DuplicateKeyMessage> friendly = DuplicateKeyMessageResolver.resolve(e);
+        if (friendly.isPresent()) {
+            log.info("Unique constraint violation [{}]{}", friendly.get().logDetail(), messageHandler.getRequestInfo());
+            return wrapResponse(ResponseCode.BAD_REQUEST, friendly.get().userMessage());
+        }
+        // Unmapped: a duplicate is a client conflict; other integrity violations are a bad statement.
+        // Generic, value-free fallbacks — never the raw driver text.
+        boolean duplicate = e instanceof DuplicateKeyException;
+        String fallback = duplicate
+                ? "A record with a duplicate value already exists."
+                : "The operation violates a data integrity constraint.";
+        return handler(duplicate ? ResponseCode.BAD_REQUEST : ResponseCode.BAD_SQL_STATEMENT, e, fallback);
     }
 
     /**
@@ -282,21 +297,6 @@ public class WebExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleException(BadSqlGrammarException e) {
         String errorMessage = "SQL Syntax Error";
         return handler(ResponseCode.ERROR, e, errorMessage);
-    }
-
-    /**
-     * Handle DuplicateKeyException
-     *
-     * @param e Exception
-     * @return ResponseEntity
-     */
-    @ExceptionHandler(value = DuplicateKeyException.class)
-    public ResponseEntity<ApiResponse<Void>> handleException(DuplicateKeyException e) {
-        String errorMessage = "Duplicate Key Error";
-        if (e.getCause() instanceof Exception) {
-            errorMessage = e.getCause().getMessage();
-        }
-        return handler(ResponseCode.BAD_REQUEST, e, errorMessage);
     }
 
 }
