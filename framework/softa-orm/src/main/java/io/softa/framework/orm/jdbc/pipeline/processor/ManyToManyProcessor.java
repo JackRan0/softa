@@ -327,7 +327,10 @@ public class ManyToManyProcessor extends BaseProcessor {
         joinModelFlexQuery.setFilterControl(FilterControl.bypassAll());
         // Count is automatically added during the groupBy operation
         joinModelFlexQuery.setGroupBy(metaField.getJoinLeft());
-        List<Map<String, Object>> countRows = ReflectTool.searchList(metaField.getJoinModel(), joinModelFlexQuery);
+        // Bypass join-model row-scope: this is a per-row count against the
+        // outer query's returned ids; scope was enforced on the outer read.
+        List<Map<String, Object>> countRows = RelationExpansions.withoutRowScope(
+                () -> ReflectTool.searchList(metaField.getJoinModel(), joinModelFlexQuery));
         // COUNT(*) comes back from MySQL JDBC as Long. The previous
         // `(Integer)` cast threw ClassCastException — see the matching fix
         // in OneToManyProcessor.expandRowsWithRelatedCount for the
@@ -355,7 +358,10 @@ public class ManyToManyProcessor extends BaseProcessor {
         if (CollectionUtils.isEmpty(rightIds)) {
             return Collections.emptyList();
         }
-        Map<Serializable, String> displayNames = ReflectTool.getDisplayNames(metaField.getRelatedModel(), rightIds);
+        // Bypass related-model row-scope: display-name expansion for join rows
+        // the outer query already resolved.
+        Map<Serializable, String> displayNames = RelationExpansions.withoutRowScope(
+                () -> ReflectTool.getDisplayNames(metaField.getRelatedModel(), rightIds));
         if (ConvertType.DISPLAY.equals(flexQuery.getConvertType())) {
             joinRows.forEach(row -> {
                 Serializable rightId = (Serializable) row.get(joinRight);
@@ -430,7 +436,11 @@ public class ManyToManyProcessor extends BaseProcessor {
                 joinModelFlexQuery.setAggregate(false);
             }
         }
-        return ReflectTool.searchList(metaField.getJoinModel(), joinModelFlexQuery);
+        // Bypass join-model row-scope: this loads the join rows keyed by
+        // the outer query's ids; the join model is transport-only and has
+        // no natural row-scope of its own.
+        return RelationExpansions.withoutRowScope(
+                () -> ReflectTool.searchList(metaField.getJoinModel(), joinModelFlexQuery));
     }
 
     /**
@@ -460,7 +470,10 @@ public class ManyToManyProcessor extends BaseProcessor {
         }
         rightFlexQuery.setConvertType(flexQuery.getConvertType());
         rightFlexQuery.setFilterControl(FilterControl.bypassAll());
-        return ReflectTool.searchList(rightModel, rightFlexQuery);
+        // Bypass right-model row-scope: rightIds came from join rows the
+        // outer query already resolved.
+        return RelationExpansions.withoutRowScope(
+                () -> ReflectTool.searchList(rightModel, rightFlexQuery));
     }
 
     /**

@@ -1,7 +1,6 @@
 package io.softa.starter.user.service;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -139,18 +138,11 @@ public class EndpointIndex {
      *  request threads. No reload — seed-only data; redeploy to update. */
     private Map<String, Set<String>> exactIndex = Map.of();
     private List<PatternEntry> patternEntries = List.of();
-    /** {@code permissionId → set of models the permission grants lookup access to
-     *  via L1 / L2 derivation}. Populated at {@link #init}; consulted by
-     *  {@code PermissionInfoEnricher} to inject implicit ALL scope for lookup
-     *  models (Known-Issues R13). Never includes the permission's own primary
-     *  model — only derived reference models (Department, JobPosition, etc.). */
-    private Map<String, Set<String>> derivedModelsByPermissionId = Map.of();
 
     @PostConstruct
     void init() {
         Map<String, Set<String>> exact = new HashMap<>();
         List<PatternEntry> patterns = new ArrayList<>();
-        Map<String, Set<String>> derivedModels = new HashMap<>();
 
         for (Permission p : modelService.searchList("Permission", new FlexQuery(), Permission.class)) {
             List<String> endpoints = explicitOrDerive(p);
@@ -163,13 +155,6 @@ public class EndpointIndex {
                     exact.computeIfAbsent(ep, k -> new HashSet<>()).add(p.getId());
                 }
             }
-            // Reverse index: permissionId → derived-lookup models. Skipped
-            // for permissions with explicit `endpoints` (no derivation)
-            // and for non-lookup-trigger actions (delete / export / copy).
-            Set<String> models = computeDerivedLookupModels(p);
-            if (!models.isEmpty()) {
-                derivedModels.put(p.getId(), Set.copyOf(models));
-            }
         }
         // Freeze: wrap each inner Set as unmodifiable + the outer Map too.
         Map<String, Set<String>> frozenExact = new HashMap<>(exact.size());
@@ -178,105 +163,10 @@ public class EndpointIndex {
         }
         this.exactIndex = Collections.unmodifiableMap(frozenExact);
         this.patternEntries = List.copyOf(patterns);
-        this.derivedModelsByPermissionId = Map.copyOf(derivedModels);
-        log.info("EndpointIndex built: {} exact + {} pattern entries + {} permissions with lookup derivations",
-                exact.size(), patterns.size(), derivedModels.size());
+        log.info("EndpointIndex built: {} exact + {} pattern entries",
+                exact.size(), patterns.size());
     }
 
-    /**
-     * Compute the set of models a permission grants IMPLICIT ALL scope on.
-     * Feeds {@code PermissionInfoEnricher} — without this, Layer B's post-R5
-     * fail-closed NEVER trips legitimate cross-model queries the permission
-     * would otherwise reach (Known-Issues R13).
-     *
-     * <p>Two branches:
-     * <ul>
-     *   <li><b>Explicit endpoints</b> — parse each {@code VERB /Model/action}
-     *       entry, keep the {@code Model} segment. Applies to custom
-     *       permissions whose endpoints target sibling models (wizard-read
-     *       pattern: {@code roles.view} bundles {@code POST /RoleNavigation/searchList}
-     *       — the sibling has no natural {@code modelScopeMap} entry since
-     *       the nav's primary is {@code Role}).</li>
-     *   <li><b>Standard-derivation endpoints</b> — walk the primary model's
-     *       L1 / L2 lookup fan-out (Department picker under Employee.view,
-     *       etc.). Non-lookup-trigger actions (delete / export / copy) drop
-     *       out empty.</li>
-     * </ul>
-     *
-     * <p>In both branches the nav's own primary model is stripped — it goes
-     * through the normal grant path with the caller's explicit scope rules.
-     * Non-model URL segments ({@code /admin/xxx}, {@code /me/xxx}) drop via
-     * {@link ModelManager#existModel(String)}; that keeps admin-controller
-     * helpers (which don't encode a model in the URL) from silently claiming
-     * a model called "admin".
-     *
-     * <p><b>Safety invariant</b>: {@code PermissionInfoEnricher.enrich} only
-     * writes implicit ALL when {@code modelScopeMap.containsKey(model)} is
-     * false — any explicit scope from another nav's grant on the same model
-     * (own_department etc.) still wins over this injection.
-     */
-    private Set<String> computeDerivedLookupModels(Permission p) {
-        Navigation nav = navResolver.findNavigation(p.getNavigationId());
-        String primaryModel = (nav == null) ? null : nav.getModel();
-        JsonNode explicit = p.getEndpoints();
-        if (explicit != null && explicit.isArray() && !explicit.isEmpty()) {
-            Set<String> models = new HashSet<>();
-            for (JsonNode node : explicit) {
-                String ep = node.asString();
-                String model = extractModelFromEndpoint(ep);
-                if (model == null) continue;
-                if (model.equals(primaryModel)) continue;
-                if (!ModelManager.existModel(model)) continue;
-                models.add(model);
-            }
-            return models;
-        }
-        if (primaryModel == null) return Set.of();
-        String action = lastSegment(p.getId());
-        List<String> derivedEndpoints = deriveLookupEndpoints(primaryModel, action);
-        if (derivedEndpoints.isEmpty()) return Set.of();
-        Set<String> models = new HashSet<>();
-        for (String entry : derivedEndpoints) {
-            String model = extractModelFromEndpoint(entry);
-            if (model != null && !model.equals(primaryModel)) {
-                models.add(model);
-            }
-        }
-        return models;
-    }
-
-    /** Parse {@code "POST /ModelName/suffix"} → {@code ModelName}. Returns
-     *  null on malformed input (defensive; derivation output shape is
-     *  controlled but the extractor is used at boot-time so no throws). */
-    private static String extractModelFromEndpoint(String entry) {
-        int space = entry.indexOf(' ');
-        if (space < 0 || space == entry.length() - 1) return null;
-        String path = entry.substring(space + 1);
-        if (!path.startsWith("/")) return null;
-        int nextSlash = path.indexOf('/', 1);
-        if (nextSlash < 0) return null;
-        return path.substring(1, nextSlash);
-    }
-
-    /**
-     * Union the derived-lookup-model sets across a collection of
-     * permission ids. Used by {@code PermissionInfoEnricher.enrich} to
-     * compute "which reference models does this user reach via lookup
-     * propagation only" — those get an implicit ALL scope rule so the
-     * post-R5 fail-closed NEVER doesn't trip a legitimate cross-model
-     * picker query.
-     *
-     * <p>Missing permission ids (revoked or seed lag) drop silently.
-     */
-    public Set<String> derivedLookupModelsFor(Collection<String> permissionIds) {
-        if (permissionIds == null || permissionIds.isEmpty()) return Set.of();
-        Set<String> out = new HashSet<>();
-        for (String pid : permissionIds) {
-            Set<String> models = derivedModelsByPermissionId.get(pid);
-            if (models != null) out.addAll(models);
-        }
-        return out;
-    }
 
     /**
      * @param uri    in-app request path (servletPath, e.g. {@code "/Employee/searchPage"})
@@ -321,8 +211,8 @@ public class EndpointIndex {
             List<String> out = new ArrayList<>(explicit.size());
             for (JsonNode node : explicit) {
                 String ep = node.asString();
-                // Known-Issues M1: reject entries that don't match the
-                // documented "VERB /Model/action" format. The two common
+                // Reject entries that don't match the documented
+                // "VERB /Model/action" format. The two common
                 // misconfigurations are (a) a leading "/api" prefix left over
                 // from someone's copy from `@Schema` docs (EndpointIndex
                 // matches servletPath which already has the app context
@@ -340,7 +230,9 @@ public class EndpointIndex {
 
     /**
      * Validate the shape of an explicit {@code permission.endpoints} entry.
-     * See Known-Issues M1 for the two common failure modes.
+     * Two common failure modes: (a) leading {@code /api} left over from
+     * {@code @Schema} doc examples (EndpointIndex matches servletPath,
+     * already context-stripped) and (b) missing {@code '/'} after the verb.
      */
     private static void validateExplicitEndpoint(String permissionId, String ep) {
         if (ep == null || ep.isBlank()) {
@@ -377,20 +269,20 @@ public class EndpointIndex {
         if (nav == null || nav.getModel() == null) return List.of();
 
         String action = lastSegment(p.getId());
-        // Standard action → list of "VERB suffix" entries. Known-Issues M2:
-        // an action name that's not in STANDARD_ACTION_MAP means "custom
-        // action with no explicit endpoints" — the previous fallback derived
-        // "POST /<Model>/<action>" from the id's last segment, which
-        // sometimes matched the controller and sometimes didn't (different
-        // verbs, kebab-vs-camel casing, path parameters, etc.). Rather than
-        // guess, log ERROR and register nothing — the permission stays inert
-        // but at least ops has a loud signal to add explicit endpoints.
+        // Standard action → list of "VERB suffix" entries. An action name
+        // that's not in STANDARD_ACTION_MAP means "custom action with no
+        // explicit endpoints" — the old fallback derived "POST /<Model>/<action>"
+        // from the id's last segment, which sometimes matched the controller
+        // and sometimes didn't (different verbs, kebab-vs-camel casing, path
+        // parameters, etc.). Rather than guess, log ERROR and register
+        // nothing — the permission stays inert but ops has a loud signal
+        // to add explicit endpoints.
         List<String> entries = STANDARD_ACTION_MAP.get(action);
         if (entries == null) {
             log.error(
                     "Permission {} has a non-standard action '{}' and no explicit endpoints — refusing to register. "
                             + "Set permission.endpoints explicitly (e.g. ['POST /{Model}/{action}']) to make this permission "
-                            + "match a real controller (Known-Issues M2).",
+                            + "match a real controller.",
                     p.getId(), action);
             return List.of();
         }
@@ -406,7 +298,7 @@ public class EndpointIndex {
         // implicitly grants the READ endpoints of related models referenced
         // through relational fields, so the admin doesn't have to grant
         // Department.view / LegalEntity.view separately just to populate
-        // pickers in the form. Scope (Layer B) + FieldFilter (Layer C) still
+        // pickers in the form. Row-scope filter + field mask still
         // protect the underlying data.
         //
         // Lookup propagation per triggering action:

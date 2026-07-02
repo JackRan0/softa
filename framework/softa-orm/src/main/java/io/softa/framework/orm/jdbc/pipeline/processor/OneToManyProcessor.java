@@ -341,7 +341,10 @@ public class OneToManyProcessor extends BaseProcessor {
         relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
         // Count is automatically added during the groupBy operation
         relatedFlexQuery.setGroupBy(metaField.getRelatedField());
-        List<Map<String, Object>> countRows = ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery);
+        // Bypass related-model row-scope: this count is a per-row count of
+        // rows the outer query already retrieved; scope is enforced there.
+        List<Map<String, Object>> countRows = RelationExpansions.withoutRowScope(
+                () -> ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery));
         // COUNT(*) comes back from MySQL JDBC as Long. The previous
         // `(Integer)` cast threw ClassCastException on rows whose count
         // exceeded int width or whose JDBC driver typed BIGINT explicitly.
@@ -367,7 +370,10 @@ public class OneToManyProcessor extends BaseProcessor {
         relatedFlexQuery.setConvertType(ConvertType.REFERENCE);
         relatedFlexQuery.select(metaField.getRelatedField());
         relatedFlexQuery.setKeepIdField(metaField.getRelatedField());
-        return ReflectTool.searchName(metaField.getRelatedModel(), relatedFlexQuery);
+        // Bypass related-model row-scope: display-name expansion for the
+        // outer query's returned ids.
+        return RelationExpansions.withoutRowScope(
+                () -> ReflectTool.searchName(metaField.getRelatedModel(), relatedFlexQuery));
     }
 
     /**
@@ -412,7 +418,9 @@ public class OneToManyProcessor extends BaseProcessor {
         // When get the related model rows of OneToMany field, the `relatedField` field of the related model is only
         // needed to get the ID for GroupBy, which might be a ManyToOne field defined in the related model.
         relatedFlexQuery.setKeepIdField(metaField.getRelatedField());
-        return ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery);
+        // Bypass related-model row-scope: expansion of the outer query's rows.
+        return RelationExpansions.withoutRowScope(
+                () -> ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery));
     }
 
     /**

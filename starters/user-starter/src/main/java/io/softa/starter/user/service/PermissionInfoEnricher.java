@@ -43,8 +43,9 @@ import io.softa.starter.user.util.JsonArrayUtils;
  *   <li><b>Request-scoped</b> — stashes the resolved snapshot on the
  *       current {@link RequestAttributes} so repeated lookups inside one
  *       HTTP request hit only memory. A single list request typically
- *       calls {@link #enrich} 4+ times (Layer A interceptor + Layer B/C/D
- *       AOP invocations); without this layer every one round-trips Redis.</li>
+ *       calls {@link #enrich} 4+ times (endpoint interceptor plus the
+ *       row-scope / field-mask / write-guard AOP invocations); without
+ *       this layer every one round-trips Redis.</li>
  *   <li><b>Redis-backed</b> — TTL 1 hour. Survives the populating request
  *       so subsequent requests from the same user skip the DB. Targeted
  *       evictions by {@code PermissionCacheInvalidator} keep it tight
@@ -127,15 +128,6 @@ public class PermissionInfoEnricher {
     // Cache layer.
     private final CacheService cacheService;
 
-    /** Known-Issues R13: consulted after the explicit modelScopeMap is built,
-     *  to inject implicit ALL scope for models reachable only via L1 / L2
-     *  lookup derivation. {@code @Lazy} because {@link EndpointIndex}
-     *  {@code @PostConstruct} calls {@code ModelService.searchList} which
-     *  routes through {@code PermissionServiceImpl}, and that in turn
-     *  {@code @Lazy}-holds this enricher — a plain injection would create a
-     *  bean-init cycle. */
-    private final EndpointIndex endpointIndex;
-
     public PermissionInfoEnricher(
             RoleService roleService,
             UserRoleRelService userRoleRelService,
@@ -143,8 +135,7 @@ public class PermissionInfoEnricher {
             NavigationModelResolver navigationModelResolver,
             SensitiveFieldSetCache sensitiveFieldSetCache,
             List<PrincipalEnrichmentContributor> enrichmentContributors,
-            CacheService cacheService,
-            @org.springframework.context.annotation.Lazy EndpointIndex endpointIndex) {
+            CacheService cacheService) {
         this.roleService = roleService;
         this.userRoleRelService = userRoleRelService;
         this.roleNavigationService = roleNavigationService;
@@ -152,7 +143,6 @@ public class PermissionInfoEnricher {
         this.sensitiveFieldSetCache = sensitiveFieldSetCache;
         this.enrichmentContributors = enrichmentContributors;
         this.cacheService = cacheService;
-        this.endpointIndex = endpointIndex;
     }
 
     /** leafNavId → root→leaf ancestor chain (inclusive of the leaf).
@@ -169,9 +159,10 @@ public class PermissionInfoEnricher {
     public PermissionInfo enrich(Long tenantId, Long userId) {
         String key = cacheKey(tenantId, userId);
 
-        // Layer 1: request-scoped fast path. Same request, same user
-        // (the common case — Layer A/B/C/D all call enrich for
-        // ctx.getUserId()) → return the already-resolved snapshot. The
+        // Cache tier 1: request-scoped fast path. Same request, same user
+        // (the common case — every permission check + the endpoint gate
+        // all call enrich for ctx.getUserId()) → return the already-resolved
+        // snapshot. The
         // RequestAttributes container is automatically cleared at request
         // end by Spring's RequestContextFilter — no manual cleanup needed.
         // Note: ra == null in non-request contexts (scheduled jobs,
@@ -185,7 +176,7 @@ public class PermissionInfoEnricher {
             }
         }
 
-        // Layer 2: Redis. Across requests, same user → memory hit.
+        // Cache tier 2: Redis. Across requests, same user → memory hit.
         try {
             PermissionInfo cached = cacheService.get(key, PermissionInfo.class);
             if (cached != null) {
@@ -200,7 +191,7 @@ public class PermissionInfoEnricher {
             log.warn("PermissionInfo cache read failed for key={}; falling through to DB", key, t);
         }
 
-        // Layer 3: DB.
+        // Cache tier 3: DB.
         PermissionInfo fresh = loadFromDb(tenantId, userId);
         if (fresh != null) {
             try {
@@ -338,25 +329,6 @@ public class PermissionInfoEnricher {
         // 5. Ancestor expansion — a granted child implies its container is
         //    visible in the sidebar.
         Set<String> expandedNavigations = expandAncestors(navigations);
-
-        // 6. Known-Issues R13: inject implicit ALL scope for models the user
-        //    can only reach via L1 / L2 lookup derivation (e.g. granting
-        //    `Employee.view` gives lookup access to Department to populate
-        //    the dept picker in the Employee form). Post-R5 the framework
-        //    fail-closes on `modelScopeMap.get(model) == null` — without
-        //    this injection, the derived lookup would return zero rows even
-        //    though Layer A endpoint permission passes.
-        //
-        //    Only inject when the user has NO explicit scope rule on the
-        //    derived model — an explicit grant (however narrow, or even
-        //    degrading to NEVER) always wins.
-        Set<String> derivedLookupModels = endpointIndex.derivedLookupModelsFor(permissions);
-        for (String derivedModel : derivedLookupModels) {
-            if (modelScopeMap.containsKey(derivedModel)) continue;
-            ScopeRule allRule = new ScopeRule();
-            allRule.setScopeType(ScopeType.ALL);
-            modelScopeMap.put(derivedModel, List.of(allRule));
-        }
 
         PermissionInfo info = new PermissionInfo();
         info.setPrincipal(principal);

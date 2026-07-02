@@ -144,7 +144,10 @@ public class XToOneGroupProcessor extends BaseProcessor {
                     relatedFlexQuery.setSubQueries(nestedSubQueries);
                 }
             }
-            List<Map<String, Object>> relatedRows= ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery);
+            // Bypass related-model row-scope: this expansion is triggered by
+            // the outer query and only touches ids that query already returned.
+            List<Map<String, Object>> relatedRows= RelationExpansions.withoutRowScope(
+                    () -> ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery));
             relatedRows.forEach(row -> relatedValueMap.put((Serializable) row.get(ModelConstant.ID), row));
         }
         return relatedValueMap;
