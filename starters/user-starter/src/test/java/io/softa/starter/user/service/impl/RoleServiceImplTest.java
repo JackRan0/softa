@@ -5,28 +5,42 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.entity.Role;
+import io.softa.starter.user.event.RoleNavigationChangedEvent;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class RoleServiceImplTest {
 
     private RoleServiceImpl svc;
+    private ApplicationEventPublisher events;
 
     @BeforeEach
     void setUp() {
         // Spy so we can stub inherited super.* and searchList / getById.
-        svc = spy(new RoleServiceImpl());
+        events = mock(ApplicationEventPublisher.class);
+        svc = spy(new RoleServiceImpl(events));
     }
 
     // ─── guardAdminCreatedCode: reject non-null code on create ───
@@ -197,6 +211,44 @@ class RoleServiceImplTest {
         doReturn(true).when(svc).updateOne(any(Role.class));
         Role patch = new Role();
         assertThatCode(() -> svc.updateOne(patch)).doesNotThrowAnyException();
+    }
+
+    // ─── cache eviction: Role write publishes a per-role event ───
+
+    @Test
+    void updateOne_nonSystemRole_publishesEvictionEvent() {
+        // Run the REAL updateOne so the publish path fires: inject a mock
+        // modelService for super.updateOne, and make getById return a
+        // non-system role so the guard passes.
+        ModelService<Long> modelService = mock(ModelService.class);
+        ReflectionTestUtils.setField(svc, "modelService", modelService);
+        when(modelService.updateOne(eq("Role"), anyMap())).thenReturn(true);
+        doReturn(Optional.empty()).when(svc).getById(anyLong());
+
+        Role patch = new Role();
+        patch.setId(500L);
+        patch.setActive(false);  // the documented "revoke" flip
+
+        Context ctx = new Context();
+        ctx.setTenantId(9L);
+        ContextHolder.runWith(ctx, () -> svc.updateOne(patch));
+
+        // A holder's cached PermissionInfo must be evicted immediately.
+        verify(events).publishEvent(new RoleNavigationChangedEvent(9L, 500L));
+    }
+
+    @Test
+    void deleteById_nonSystemRole_publishesEvictionEvent() {
+        ModelService<Long> modelService = mock(ModelService.class);
+        ReflectionTestUtils.setField(svc, "modelService", modelService);
+        when(modelService.deleteById("Role", 500L)).thenReturn(true);
+        doReturn(List.of()).when(svc).searchList(any(Filters.class));  // no system role hit
+
+        Context ctx = new Context();
+        ctx.setTenantId(9L);
+        ContextHolder.runWith(ctx, () -> svc.deleteById(500L));
+
+        verify(events).publishEvent(new RoleNavigationChangedEvent(9L, 500L));
     }
 
     // ─── helpers ───

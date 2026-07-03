@@ -14,7 +14,7 @@ import io.softa.starter.user.constant.RoleConstant;
 /**
  * Runtime permission snapshot for one user — built once at login by
  * PermissionInfoEnricher and cached in Redis (key: perm:{tenantId}:user:{userId},
- * TTL 30min).
+ * TTL 1h).
  *
  * Does NOT carry URL allowed set — URL → permissionId resolution lives in the
  * system-level EndpointIndex singleton (built once at app startup). Interceptor

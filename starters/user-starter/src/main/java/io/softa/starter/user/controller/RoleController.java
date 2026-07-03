@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import lombok.RequiredArgsConstructor;
 import tools.jackson.databind.JsonNode;
 
+import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.dto.WizardSaveDTO;
@@ -121,6 +122,25 @@ public class RoleController {
         writeManualUserRoleRels(id, body.userIds());
         dynamicRoleSyncJob.syncRole(id);
         return ApiResponse.success();
+    }
+
+    @PutMapping("/{id}/active")
+    @Transactional
+    @Operation(summary = "Enable / disable a role. Routes through the typed RoleService so it publishes "
+            + "RoleNavigationChangedEvent — every holder's PermissionInfo cache is evicted on commit and "
+            + "the status change takes effect immediately. The generic /Role/updateOne path publishes no "
+            + "event (holders would stay authorised until the 1h cache TTL), so status MUST be changed here.")
+    public ApiResponse<Boolean> setActive(@PathVariable Long id, @RequestBody JsonNode payload) {
+        JsonNode active = payload == null ? null : payload.get("active");
+        Assert.isTrue(active != null && !active.isNull(), "`active` (boolean) is required");
+        Role patch = new Role();
+        patch.setId(id);
+        patch.setActive(active.asBoolean());
+        // ignoreNull=true → writes only `active`, leaving name / code / tenantId
+        // untouched. The typed updateOne runs guardSystemMutation (blocks
+        // deactivating a system role) and publishRoleGrantChange, whose
+        // AFTER_COMMIT listener evicts every holder's PermissionInfo snapshot.
+        return ApiResponse.success(roleService.updateOne(patch, true));
     }
 
     /** True when {@code payload} contains {@code field} as a JSON null

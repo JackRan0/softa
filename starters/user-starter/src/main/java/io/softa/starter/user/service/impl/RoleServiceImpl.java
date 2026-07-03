@@ -1,14 +1,21 @@
 package io.softa.starter.user.service.impl;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import lombok.extern.slf4j.Slf4j;
 
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.entity.Role;
+import io.softa.starter.user.event.RoleNavigationChangedEvent;
 import io.softa.starter.user.service.RoleService;
 
 /**
@@ -26,8 +33,15 @@ import io.softa.starter.user.service.RoleService;
  * {@code (tenant_id, code) UNIQUE} index as a belt-and-braces defence
  * against direct SQL writes.
  */
+@Slf4j
 @Service
 public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements RoleService {
+
+    private final ApplicationEventPublisher events;
+
+    public RoleServiceImpl(ApplicationEventPublisher events) {
+        this.events = events;
+    }
 
     @Override
     public Long createOne(Role entity) {
@@ -44,37 +58,49 @@ public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements Ro
     @Override
     public boolean deleteById(Long id) {
         guardSystemRole(List.of(id), "Delete");
-        return super.deleteById(id);
+        boolean ok = super.deleteById(id);
+        if (ok && id != null) publishRoleGrantChange(Set.of(id));
+        return ok;
     }
 
     @Override
     public boolean deleteByIds(List<Long> ids) {
         guardSystemRole(ids, "Delete");
-        return super.deleteByIds(ids);
+        boolean ok = super.deleteByIds(ids);
+        if (ok && ids != null) publishRoleGrantChange(ids);
+        return ok;
     }
 
     @Override
     public boolean updateOne(Role entity) {
         guardSystemMutation(entity);
-        return super.updateOne(entity);
+        boolean ok = super.updateOne(entity);
+        if (ok) publishRoleGrantChange(idsOf(entity));
+        return ok;
     }
 
     @Override
     public boolean updateOne(Role entity, boolean ignoreNull) {
         guardSystemMutation(entity);
-        return super.updateOne(entity, ignoreNull);
+        boolean ok = super.updateOne(entity, ignoreNull);
+        if (ok) publishRoleGrantChange(idsOf(entity));
+        return ok;
     }
 
     @Override
     public boolean updateList(List<Role> entities) {
         if (entities != null) entities.forEach(this::guardSystemMutation);
-        return super.updateList(entities);
+        boolean ok = super.updateList(entities);
+        if (ok) publishRoleGrantChange(idsOf(entities));
+        return ok;
     }
 
     @Override
     public boolean updateList(List<Role> entities, boolean ignoreNull) {
         if (entities != null) entities.forEach(this::guardSystemMutation);
-        return super.updateList(entities, ignoreNull);
+        boolean ok = super.updateList(entities, ignoreNull);
+        if (ok) publishRoleGrantChange(idsOf(entities));
+        return ok;
     }
 
     /** Reject when caller (admin UI / API client) submits a non-null code on
@@ -122,6 +148,37 @@ public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements Ro
         if (patch.getDynamicFilter() != null && !patch.getDynamicFilter().isNull()) {
             throw new BusinessException(
                     "System role '" + persisted.getName() + "' cannot have a dynamic membership rule");
+        }
+    }
+
+    private static Set<Long> idsOf(Role entity) {
+        return entity == null || entity.getId() == null ? Set.of() : Set.of(entity.getId());
+    }
+
+    private static Set<Long> idsOf(List<Role> entities) {
+        if (entities == null) return Set.of();
+        Set<Long> ids = new HashSet<>();
+        for (Role r : entities) {
+            if (r != null && r.getId() != null) ids.add(r.getId());
+        }
+        return ids;
+    }
+
+    /** Evict every holder's cached PermissionInfo for the touched role(s).
+     *  Mirrors {@code RoleNavigationServiceImpl}'s publisher — the AFTER_COMMIT
+     *  listener fans out {@code evictByRole}. A null tenant context can't be
+     *  evicted (the listener keys by tenant), so we warn rather than fail the
+     *  write; the snapshot then self-heals at the 1h TTL. */
+    private void publishRoleGrantChange(Collection<Long> roleIds) {
+        if (roleIds == null || roleIds.isEmpty()) return;
+        Long tenantId = ContextHolder.getContext() == null ? null
+                : ContextHolder.getContext().getTenantId();
+        if (tenantId == null) {
+            log.warn("Role change publisher — null tenantId; cache eviction will be skipped "
+                    + "for roleIds={}. Wrap the caller in ContextHolder.callWith(...).", roleIds);
+        }
+        for (Long roleId : roleIds) {
+            if (roleId != null) events.publishEvent(new RoleNavigationChangedEvent(tenantId, roleId));
         }
     }
 }
