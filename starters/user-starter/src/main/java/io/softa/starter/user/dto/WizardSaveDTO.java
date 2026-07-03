@@ -11,8 +11,8 @@ import tools.jackson.databind.JsonNode;
  * <p>Submitted by the FE Role Wizard (basic info + permission matrix +
  * member assignment) at:
  * <ul>
- *   <li>{@code POST /admin/role/wizard}     — RoleController.createWithWizard</li>
- *   <li>{@code PUT  /admin/role/{id}/wizard} — RoleController.saveWizard</li>
+ *   <li>{@code POST /Role/wizard}     — RoleController.createWithWizard</li>
+ *   <li>{@code PUT  /Role/{id}/wizard} — RoleController.saveWizard</li>
  * </ul>
  *
  * <p>Fields stay as {@link JsonNode} (not strongly-typed entities) because:
