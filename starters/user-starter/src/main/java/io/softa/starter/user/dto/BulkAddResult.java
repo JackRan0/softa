@@ -59,7 +59,11 @@ public class BulkAddResult {
         @Schema(description = "Role ID")
         private Long roleId;
 
-        @Schema(description = "Skip reason: USER_INACTIVE / ROLE_INACTIVE / USER_NOT_FOUND / ROLE_NOT_FOUND / ALREADY_ASSIGNED / CROSS_TENANT")
+        @Schema(description = "Skip reason: INVALID_PAIR (null userId/roleId) / NOT_FOUND "
+                + "(user or role absent, or in another tenant — the two are intentionally "
+                + "merged to avoid a cross-tenant existence oracle) / ALREADY_ASSIGNED "
+                + "(row already exists for this source) / DUPLICATE_IN_REQUEST (same pair "
+                + "appeared earlier in the same payload)")
         private String reason;
     }
 

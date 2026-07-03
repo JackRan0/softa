@@ -124,7 +124,6 @@ public class BulkUserRoleServiceImpl implements BulkUserRoleService {
         // duplicate pairs to a single row so a sloppy client payload
         // doesn't trip the unique key after our pre-check passes.
         Map<String, UserRoleRel> toInsert = new HashMap<>();
-        Map<String, UserRolePair> insertOrderHint = new HashMap<>();
         for (UserRolePair p : pairs) {
             if (p == null || p.getUserId() == null || p.getRoleId() == null) {
                 skipped.add(BulkAddResult.SkippedItem.builder()
@@ -155,14 +154,23 @@ public class BulkUserRoleServiceImpl implements BulkUserRoleService {
                         .build());
                 continue;
             }
-            if (toInsert.containsKey(key)) continue; // duplicate within request
+            if (toInsert.containsKey(key)) {
+                // Same pair appeared earlier in this payload — folded to one
+                // row, but recorded so requested == added + skipped holds and
+                // the client can account for every submitted pair.
+                skipped.add(BulkAddResult.SkippedItem.builder()
+                        .userId(p.getUserId())
+                        .roleId(p.getRoleId())
+                        .reason("DUPLICATE_IN_REQUEST")
+                        .build());
+                continue;
+            }
             UserRoleRel row = new UserRoleRel();
             row.setTenantId(tenantId);
             row.setUserId(p.getUserId());
             row.setRoleId(p.getRoleId());
             row.setSource(src);
             toInsert.put(key, row);
-            insertOrderHint.put(key, p);
         }
 
         Set<Long> evictUsers = new HashSet<>();

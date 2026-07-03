@@ -157,10 +157,13 @@ class BulkUserRoleServiceImplTest {
         b.setRoleId(500L);   // duplicate
 
         BulkAddResult r = svc.bulkAdd(List.of(a, b), RoleSource.MANUAL);
-        // 2 requested, 1 added, 1 skipped-as-INVALID-nor-NOT-FOUND (the
-        // dedup happens inline — the duplicate silently drops without a
-        // "skipped" entry per the current implementation).
+        // 2 requested → 1 inserted row; the duplicate is folded but RECORDED
+        // as skipped(DUPLICATE_IN_REQUEST) so requested == added + skipped.
         assertThat(r.getAdded()).hasSize(1);
+        assertThat(r.getSkipped()).hasSize(1);
+        assertThat(r.getSkipped().get(0).getReason()).isEqualTo("DUPLICATE_IN_REQUEST");
+        assertThat(r.getSummary().getRequested())
+                .isEqualTo(r.getSummary().getAdded() + r.getSummary().getSkipped());
     }
 
     @Test
