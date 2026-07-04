@@ -9,7 +9,6 @@ import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.enums.Ownership;
 
 /**
  * SysOptionSet — metadata catalog row describing an OptionSet (enum domain).
@@ -32,30 +31,31 @@ public class SysOptionSet extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "App ID")
-    private Long appId;
+    @Field
+    private String appCode;
 
-    @Field(label = "Label", required = true)
+    @Field(required = true)
     private String label;
 
-    @Field(label = "Option Set Code", required = true)
+    @Field(required = true)
     private String optionSetCode;
 
-    @Field(label = "Description")
+    /** Single immediately-prior option-set code for a declared rename; excluded from checksum/diff. */
+    @Field
+    private String renamedFrom;
+
+    @Field(length = 256)
     private String description;
 
-    @Field(label = "Ownership")
-    private Ownership ownership;
-
-    @Field(label = "Active")
+    @Field
     private Boolean active;
 
     /**
-     * One-to-many to {@link SysOptionItem} (joins on business key {@code optionSetCode}, not id).
+     * One-to-many to {@link SysOptionItem} (joins on the surrogate FK {@code optionSetId}).
      * Has NO {@code sys_option_set} column — SysCatalog and the DDL builder both
      * exclude X-to-many — but is emitted as a {@code sys_field} row. Populated in
-     * memory by {@code OptionManager}.
+     * memory by {@code OptionManager} (by {@code optionSetCode}).
      */
-    @Field(label = "Option Items", fieldType = FieldType.ONE_TO_MANY, relatedModel = SysOptionItem.class, relatedField = "optionSetCode")
+    @Field(fieldType = FieldType.ONE_TO_MANY, relatedModel = SysOptionItem.class, relatedField = "optionSetId")
     private List<SysOptionItem> optionItems;
 }

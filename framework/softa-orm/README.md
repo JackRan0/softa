@@ -92,9 +92,8 @@ public enum CustomerTier {
 | `dataSource` | String | `""` | `dataSource` | empty → primary datasource |
 | `businessKey` | String[] | `{}` | `businessKey` | composite supported |
 | `partitionField` | String | `""` | `partitionField` | |
-| (scanner sets) | — | — | `appCode` | always set by scanner / Studio |
+| (scanner sets) | — | — | `appCode` | stamped server-side from `system.app-code` |
 | (DB auto) | — | — | `id` | primary key |
-| (scanner sets) | — | — | `ownership` | `PLATFORM_MAINTAINED` for scanner writes |
 
 Audit fields (`createdTime` / `createdBy` / `createdId` / `updatedTime` /
 `updatedBy` / `updatedId`) come from `AuditableModel` and are **not** declared
@@ -136,7 +135,7 @@ extends `AuditableModel`.
 | `widgetType` | `WidgetType[]` | `{}` | `widgetType` | single-element override |
 | (scanner sets) | — | — | `modelName` | from enclosing `@Model` class |
 | (scanner sets) | — | — | `optionSetCode` | derived from enum type when fieldType is `OPTION`/`MULTI_OPTION` |
-| (scanner sets) | — | — | `appCode` / `id` / `ownership` | |
+| (scanner sets) | — | — | `appCode` / `id` | |
 | (FK fixup post-init) | — | — | `modelId` | |
 | (not exposed via `@Field`) | — | — | `hidden` | UI-only flag set via Studio |
 
@@ -190,7 +189,7 @@ multi-tenant child**, is rejected (see the matrix above).
 | (enum simple name) | — | — | `optionSetCode` | inferred, no override |
 | `name` | String | `""` | `name` | display label; empty → humanized enum name (`TenantStatus`→"Tenant Status") |
 | `description` | String | `""` | `description` | |
-| (scanner sets) | — | — | `appCode` / `id` / `ownership` | |
+| (scanner sets) | — | — | `appCode` / `id` | |
 | (Studio toggle) | — | — | `deleted` / `optionItems` | runtime aggregation |
 
 ### `@OptionItem` ↔ `SysOptionItem`
@@ -205,7 +204,7 @@ multi-tenant child**, is rejected (see the matrix above).
 | `parentItemCode` | String | `""` | `parentItemCode` | hierarchy |
 | `itemTone` | `OptionItemTone[]` | `{}` | `itemTone` | single element |
 | `itemIcon` | `OptionItemIcon[]` | `{}` | `itemIcon` | single element |
-| (scanner sets) | — | — | `appCode` / `id` / `ownership` / `optionSetId` | |
+| (scanner sets) | — | — | `appCode` / `id` / `optionSetId` | |
 | (Studio toggle) | — | — | `active` | |
 
 ### `@Index` ↔ `SysModelIndex`
@@ -219,7 +218,7 @@ multi-tenant child**, is rejected (see the matrix above).
 | `fields` | String[] | required | `indexFields` | **camelCase Java field names**, not column names |
 | `unique` | boolean | `false` | `uniqueIndex` | |
 | `message` | String | `""` | `message` | end-user text on a unique-constraint violation (**only when `unique`**); its own i18n key; empty → composed from the member fields' labels |
-| (scanner sets) | — | — | `appCode` / `id` / `ownership` | |
+| (scanner sets) | — | — | `appCode` / `id` | |
 | (FK fixup post-init) | — | — | `modelId` | |
 
 **Note**: `@Model.businessKey` does **not** auto-create a UNIQUE index.
@@ -230,23 +229,32 @@ declare such indexes explicitly:
 @Index(fields = {"tenantId", "code"}, unique = true)
 ```
 
-## Row ownership (`Ownership` enum)
+## Runtime catalog identity (`app_code`)
 
-Every row in `sys_model` / `sys_field` / `sys_option_set` / `sys_option_item`
-/ `sys_model_index` carries an `ownership` column
-(`io.softa.framework.orm.enums.Ownership`):
+Rows in `sys_model` / `sys_field` / `sys_option_set` / `sys_option_item` /
+`sys_model_index` are scoped by **`app_code`**, stamped server-side from
+`system.app-code` (ADR-0015). The retired `ownership` tier column is gone from
+the baseline — the annotation lane and the Studio no-code lane reconcile the
+**same rows matched by business key** (`modelName` / `fieldName` /
+`optionSetCode` / `itemCode`, plus `renamedFrom`).
 
-| Value | Writer | Tenants may modify? |
-|---|---|---|
-| `PLATFORM_MAINTAINED` | Scanner (from `@Model` / `@Field` / `@OptionSet` / `@OptionItem` / `@Index`) | ❌ |
-| `PLATFORM_DEFAULT` | DML seed (currently narrow: framework enums like `Language` that can't carry `@OptionSet`). Reserved for future business-data scenarios (roles, templates, default categories). | ✅ in principle, but on `sys_*` rarely exercised |
-| `TENANT` (default) | Studio UI / Open API | ✅ |
+In development, packages listed in `scanner-scope` reconcile annotation-derived
+metadata into `sys_*` for this app. In production, Studio/connector publish
+applies the app-scoped design catalog. Per-tenant runtime metadata
+customization is not represented as separate `sys_*` rows (ADR-0013).
 
-The scanner reads / writes are filtered with
-`WHERE ownership = 'PLATFORM_MAINTAINED'`, so platform defaults and tenant
-customizations are never clobbered by an annotation reconcile.
+Verify after boot:
 
-See `Ownership.java` javadoc for the full merge-rule contract.
+```sql
+SELECT model_name, app_code FROM sys_model WHERE app_code = '<system.app-code>';
+```
+
+The `Ownership` enum (`io.softa.framework.orm.enums.Ownership`) remains in code
+as a reserved business-data concept; nothing reads or writes an `ownership`
+column on current runtime `sys_*` tables.
+
+See [`starters/metadata-starter/README.md`](../../starters/metadata-starter/README.md)
+for scanner-scope, DDL policy, and `renamedFrom` handling.
 
 ## Runtime control annotations
 ### `@DataSource`

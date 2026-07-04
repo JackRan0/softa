@@ -15,7 +15,7 @@ import io.softa.framework.base.annotation.OptionSet;
  * {@code Boolean.toString(value)} — i.e. the literal strings {@code "true"} /
  * {@code "false"} — and the Excel import {@code BooleanHandler} expects the same
  * two codes. The engine therefore depends on these exact item codes existing, so
- * the enum is the source of truth and the option set is {@code PLATFORM_MAINTAINED}.
+ * the enum is the source of truth.
  *
  * <p>Lives in {@code softa-orm} (next to {@link FieldType} and its primary
  * consumer {@code BooleanExpandProcessor}), not flow-starter — boolean rendering

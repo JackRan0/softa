@@ -3,7 +3,6 @@ package io.softa.framework.web.task;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.exception.JSONException;
@@ -27,7 +26,6 @@ public class AsyncTaskFactory<T extends TaskHandlerParams> {
      * @param asyncTaskHandlers Spring auto-wired collection, automatically collects
      *                          all implementations of AsyncTaskHandler.
      */
-    @Autowired
     public AsyncTaskFactory(List<AsyncTaskHandler<T>> asyncTaskHandlers) {
         for (AsyncTaskHandler<T> asyncTaskHandler : asyncTaskHandlers) {
             taskHandlerMap.put(asyncTaskHandler.getAsyncTaskHandlerCode(), asyncTaskHandler);

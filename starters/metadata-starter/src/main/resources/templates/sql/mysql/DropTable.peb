@@ -1,0 +1,14 @@
+{#
+Template: DropTable.peb
+Root:
+- model: ModelDdlCtx
+
+Used model fields:
+- tableName
+- label
+
+Notes:
+- This template renders a dropped table only.
+#}
+/* Drop table for model: {{ model.label }} */
+DROP TABLE {{ model.tableName }};

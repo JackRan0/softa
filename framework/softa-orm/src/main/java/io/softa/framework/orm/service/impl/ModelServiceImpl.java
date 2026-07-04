@@ -2,9 +2,10 @@ package io.softa.framework.orm.service.impl;
 
 import java.io.Serializable;
 import java.util.*;
-import java.util.stream.Collectors;
 import com.google.common.collect.Sets;
 import jakarta.validation.constraints.NotNull;
+import java.math.BigDecimal;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NonNull;
@@ -285,7 +286,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             case INTEGER -> value instanceof Number number ? number.intValue() : Integer.parseInt(value.toString());
             case LONG, STRING -> IdUtils.formatId(fieldType, value);
             case DOUBLE -> value instanceof Number number ? number.doubleValue() : Double.parseDouble(value.toString());
-            case BIG_DECIMAL -> value instanceof java.math.BigDecimal decimal ? decimal : new java.math.BigDecimal(value.toString());
+            case BIG_DECIMAL -> value instanceof BigDecimal decimal ? decimal : new BigDecimal(value.toString());
             default -> value;
         };
     }

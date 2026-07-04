@@ -8,15 +8,16 @@ public interface MetadataConstant {
     /** Servlet URL pattern (filter form) for the signed prefix. */
     String SIGNED_URL_PATTERN = "/upgrade/runtime/*";
 
-    String METADATA_UPGRADE_API = "/upgrade/runtime/upgradeMetadata";
     String METADATA_EXPORT_API = "/upgrade/runtime/exportRuntimeMetadata";
-    String METADATA_UPGRADE_STATUS_API = "/upgrade/runtime/upgradeStatus";
+    String METADATA_CHECKSUMS_API = "/upgrade/runtime/exportRuntimeChecksums";
+    String METADATA_APPLY_DESIRED_API = "/upgrade/runtime/applyDesiredAggregates";
 
-    /** Server-relative callback path — single source of truth for runtime → studio webhooks. */
-    String CALLBACK_PATH = "/upgrade/callback";
-
-    /** Version control model mapping relationship between design time and runtime */
-    Map<String, String> VERSION_CONTROL_MODELS = ImmutableMap.<String, String>builder()
+    /**
+     * Maps each design-time meta-model name to its runtime ({@code Sys*}) counterpart. Insertion
+     * order is parent→child, so iterating the key set gives a FK-safe apply order (and its reverse a
+     * FK-safe delete order). Used by the drift-import apply path.
+     */
+    Map<String, String> DESIGN_TO_RUNTIME_MODELS = ImmutableMap.<String, String>builder()
             .put("DesignModel", "SysModel")
             .put("DesignModelTrans", "SysModelTrans")
             .put("DesignField", "SysField")

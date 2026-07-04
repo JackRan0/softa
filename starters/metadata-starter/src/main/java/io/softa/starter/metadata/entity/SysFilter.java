@@ -23,15 +23,15 @@ public class SysFilter extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Name", required = true, length = 64)
+    @Field(required = true)
     private String name;
 
-    @Field(label = "Filters", required = true)
+    @Field(length = 256, required = true)
     private Filters filters;
 
-    @Field(label = "Model", required = true, length = 64)
+    @Field(required = true)
     private String model;
 
-    @Field(label = "Query", length = 256)
+    @Field(length = 256)
     private String query;
 }

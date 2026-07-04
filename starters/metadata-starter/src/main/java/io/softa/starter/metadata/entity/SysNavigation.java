@@ -22,27 +22,27 @@ public class SysNavigation extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "App ID")
-    private Long appId;
+    @Field
+    private String appCode;
 
-    @Field(label = "Name", required = true, length = 64)
+    @Field(required = true)
     private String name;
 
-    @Field(label = "Type", required = true, length = 64)
+    @Field(required = true)
     private String type;
 
-    @Field(label = "Code", required = true, length = 64)
+    @Field(required = true)
     private String code;
 
-    @Field(label = "Model Name", length = 256)
+    @Field(length = 256)
     private String modelName;
 
     @Field(label = "Parent ID")
     private Long parentId;
 
-    @Field(label = "Description", length = 256)
+    @Field(length = 256)
     private String description;
 
-    @Field(label = "Filter", length = 256)
+    @Field(length = 256)
     private String filter;
 }

@@ -1,19 +1,20 @@
 package io.softa.starter.metadata.service.impl;
 
 import java.io.Serializable;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.CollectionUtils;
 
-import io.softa.framework.base.config.SystemConfig;
-import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.Cast;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -23,32 +24,36 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
-import io.softa.framework.orm.utils.IdUtils;
-import io.softa.starter.metadata.constant.MetadataConstant;
+import io.softa.starter.metadata.checksum.AggregateChecksumIndex;
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
 import io.softa.starter.metadata.controller.dto.PathResolution;
 import io.softa.starter.metadata.controller.dto.ResolveCascadedPathsResponse;
-import io.softa.starter.metadata.dto.MetadataUpgradePackage;
+import io.softa.starter.metadata.dto.RuntimeChecksumsDTO;
+import io.softa.starter.metadata.entity.*;
 import io.softa.starter.metadata.message.InnerBroadcastProducer;
 import io.softa.starter.metadata.message.dto.InnerBroadcastMessage;
 import io.softa.starter.metadata.message.enums.InnerBroadcastType;
 import io.softa.starter.metadata.service.MetadataService;
 
 /**
- * Metadata upgrade service implementation.
+ * Metadata query + runtime-export service (the read half of the studio↔runtime contract). Applying an
+ * incremental change set is {@link MetadataApplyServiceImpl}.
  */
 @Slf4j
 @Service
 public class MetadataServiceImpl implements MetadataService {
 
-    @Autowired
-    private ModelService<Serializable> modelService;
+    private final ModelService<Serializable> modelService;
+    private final InnerBroadcastProducer innerBroadcastProducer;
+    private final PermissionService permissionService;
 
-    @Autowired
-    private InnerBroadcastProducer innerBroadcastProducer;
-
-    @Autowired
-    private PermissionService permissionService;
+    public MetadataServiceImpl(ModelService<Serializable> modelService,
+                               InnerBroadcastProducer innerBroadcastProducer,
+                               PermissionService permissionService) {
+        this.modelService = modelService;
+        this.innerBroadcastProducer = innerBroadcastProducer;
+        this.permissionService = permissionService;
+    }
 
     /**
      * Get the MetaModelDTO object by modelName
@@ -100,15 +105,15 @@ public class MetadataServiceImpl implements MetadataService {
                 }
             };
 
-            CascadeFieldWalker.Result result = CascadeFieldWalker.walk(rootModel, path, collector);
-            if (result instanceof CascadeFieldWalker.Result.Ok(MetaField leaf)) {
-                closure.addAll(localClosure);
-                localAccess.forEach((model, fields) ->
-                        accessFields.computeIfAbsent(model, k -> new HashSet<>()).addAll(fields));
-                resolutions.add(PathResolution.success(path, MetadataDtoMapper.toFieldDTO(leaf)));
-            } else {
-                CascadeFieldWalker.Result.Failure f = (CascadeFieldWalker.Result.Failure) result;
-                resolutions.add(PathResolution.failure(path, f.kind(), f.errorAt(), f.message()));
+            switch (CascadeFieldWalker.walk(rootModel, path, collector)) {
+                case CascadeFieldWalker.Result.Ok(MetaField leaf) -> {
+                    closure.addAll(localClosure);
+                    localAccess.forEach((model, fields) ->
+                            accessFields.computeIfAbsent(model, k -> new HashSet<>()).addAll(fields));
+                    resolutions.add(PathResolution.success(path, MetadataDtoMapper.toFieldDTO(leaf)));
+                }
+                case CascadeFieldWalker.Result.Failure f ->
+                        resolutions.add(PathResolution.failure(path, f.kind(), f.errorAt(), f.message()));
             }
         }
 
@@ -117,124 +122,8 @@ public class MetadataServiceImpl implements MetadataService {
 
         List<MetaModelDTO> metaModels = closure.stream()
                 .map(MetadataDtoMapper::toModelDTO)
-                .collect(Collectors.toList());
-        return new ResolveCascadedPathsResponse(metaModels, resolutions);
-    }
-
-    /**
-     * The size of operation data in a single API call cannot exceed the MAX_BATCH_SIZE.
-     *
-     * @param size data size
-     */
-    private void validateBatchSize(int size) {
-        Assert.isTrue(size <= BaseConstant.MAX_BATCH_SIZE,
-                "The size of operation data cannot exceed the maximum {0} limit.",
-                BaseConstant.MAX_BATCH_SIZE);
-    }
-
-    /**
-     * Validate if the model is enabled for version control.
-     */
-    private void validateRuntimeModel(String modelName) {
-        Assert.isTrue(MetadataConstant.VERSION_CONTROL_MODELS.containsValue(modelName),
-                "Model {0} is not enabled for version control, and the upgrade API cannot be invoked.", modelName);
-    }
-
-    /**
-     * Create metadata.
-     *
-     * @param modelName The name of the model
-     * @param createRows The list of metadata to be created
-     */
-    private void createMetadata(String modelName, List<Map<String, Object>> createRows) {
-        if (!CollectionUtils.isEmpty(createRows)) {
-            this.validateBatchSize(createRows.size());
-            this.validateInsertIdEnabled();
-            modelService.createList(modelName, createRows);
-        }
-    }
-
-    /**
-     * Update metadata by unique id
-     *
-     * @param modelName The name of the model
-     * @param updateRows The list of data to be updated
-     */
-    private void updateById(String modelName, List<Map<String, Object>> updateRows) {
-        if (!CollectionUtils.isEmpty(updateRows)) {
-            this.validateBatchSize(updateRows.size());
-            List<Long> ids = this.extractIds(updateRows, modelName, AccessType.UPDATE);
-            this.lowMissedRowIds(modelName, ids, AccessType.UPDATE);
-            modelService.updateList(modelName, updateRows);
-        }
-    }
-
-    /**
-     * Delete metadata by unique id
-     *
-     * @param modelName The name of the model
-     * @param ids The list of codes for the data to be deleted
-     */
-    private void deleteByIds(String modelName, List<Long> ids) {
-        if (!CollectionUtils.isEmpty(ids)) {
-            this.validateBatchSize(ids.size());
-            List<Long> requestedIds = new ArrayList<>(ids);
-            this.lowMissedRowIds(modelName, requestedIds, AccessType.DELETE);
-            modelService.deleteByIds(modelName, Cast.of(ids));
-        }
-    }
-
-    private void validateInsertIdEnabled() {
-        Assert.notNull(SystemConfig.env, "System configuration has not been initialized.");
-        Assert.isTrue(SystemConfig.env.isEnableInsertId(),
-                "system.enableInsertId must be enabled when upgrading runtime metadata.");
-    }
-
-    private List<Long> extractIds(List<Map<String, Object>> rows, String modelName, AccessType operation) {
-        List<Long> ids = new ArrayList<>(rows.size());
-        for (Map<String, Object> row : rows) {
-            Object id = row.get(ModelConstant.ID);
-            Assert.notNull(id, "When {0} metadata of model {1}, each row must contain id. {2}",
-                    operation, modelName, row);
-            ids.add(IdUtils.convertIdToLong(id));
-        }
-        return ids;
-    }
-
-    private void lowMissedRowIds(String modelName, List<Long> ids, AccessType operation) {
-        Set<Long> distinctIds = new LinkedHashSet<>(ids);
-        FlexQuery flexQuery = new FlexQuery(List.of(ModelConstant.ID), new Filters().in(ModelConstant.ID, distinctIds));
-        List<Map<String, Object>> existingRows = modelService.searchList(modelName, flexQuery);
-        Set<Long> existingIds = existingRows.stream()
-                .map(row -> (Long) row.get(ModelConstant.ID))
-                .collect(Collectors.toSet());
-        List<Long> missingIds = distinctIds.stream()
-                .filter(id -> !existingIds.contains(id))
                 .toList();
-        if (!missingIds.isEmpty()) {
-            log.error("Missing ids {} for operation {}", missingIds, operation);
-        }
-    }
-
-    /**
-     * Upgrades the metadata of multiple models, all within a single transaction
-     * to avoid refreshing the model pool repeatedly and missing dependency data.
-     *
-     * @param metadataPackages the metadata packages to upgrade
-     */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void upgradeMetadata(List<MetadataUpgradePackage> metadataPackages) {
-        metadataPackages.forEach(modelPackage -> {
-            String modelName = modelPackage.getModelName();
-            this.validateRuntimeModel(modelName);
-            // create
-            this.createMetadata(modelName, modelPackage.getCreateRows());
-            // update
-            this.updateById(modelName, modelPackage.getUpdateRows());
-            // delete
-            this.deleteByIds(modelName, modelPackage.getDeleteIds());
-        });
+        return new ResolveCascadedPathsResponse(metaModels, resolutions);
     }
 
     /**
@@ -252,42 +141,89 @@ public class MetadataServiceImpl implements MetadataService {
     }
 
     /**
-     * Export runtime metadata rows for the given version-controlled model, scoped to an app.
+     * Export runtime metadata rows for the given studio-managed model, scoped to
+     * the requested app identity.
      * <p>
-     * Main entities carry {@code appId} directly — filter on that. Translation entities
-     * (suffix {@code Trans}) do not; the parent model does, so a two-step query resolves
-     * the parent row ids for this app and filters the Trans rows by {@code rowId}.
+     * Scope is {@code appCode} ONLY: studio is the complete source of truth for the
+     * app's metadata, so the export returns the full app catalog (framework / system
+     * models included). The requested {@code appCode} must match this runtime's
+     * configured identity (handshake).
+     * <p>
+     * Main entities carry {@code appCode} directly — filter on that. Translation
+     * entities (suffix {@code Trans}) do not; the parent model does, so a two-step
+     * query resolves the parent row ids for this app and filters the Trans rows by
+     * {@code rowId}.
      */
     @Override
-    public List<Map<String, Object>> exportRuntimeMetadata(String modelName, Long appId) {
+    public List<Map<String, Object>> exportRuntimeMetadata(String modelName, String appCode,
+                                                           String keyColumn, Collection<String> keyValues) {
         Assert.notBlank(modelName, "Model name cannot be empty.");
-        Assert.notNull(appId, "App id cannot be null.");
-        Filters filters = buildAppScopedFilter(modelName, appId);
+        Assert.notBlank(appCode, "App code cannot be empty.");
+        String configured = MetadataAppIdentity.configured();
+        Assert.isEqual(configured, appCode,
+                "Requested appCode {0} does not match this runtime's system.app-code {1}; "
+                        + "the export was addressed to a different app.",
+                appCode, configured);
+        Filters filters = buildAppScopedFilter(modelName, appCode);
         if (filters == null) {
             return List.of();
+        }
+        // Incremental fetch: narrow to the requested aggregate business keys. An empty
+        // key set is "fetch nothing" (the studio has no aggregate of this root to pull) — distinct from
+        // a null keyColumn, which is the full app-scoped export.
+        if (keyColumn != null) {
+            if (keyValues == null || keyValues.isEmpty()) {
+                return List.of();
+            }
+            Assert.isTrue(ModelManager.existField(modelName, keyColumn),
+                    "Runtime model {0} has no column {1} to narrow the export by.", modelName, keyColumn);
+            filters.in(keyColumn, keyValues);
         }
         FlexQuery flexQuery = new FlexQuery(ModelManager.getModelFieldsWithoutXToMany(modelName), filters);
         return modelService.searchList(modelName, flexQuery);
     }
 
+    @Override
+    public RuntimeChecksumsDTO exportRuntimeChecksums(String appCode) {
+        // Both lanes are code-linked on the runtime side: a child's modelName / optionSetCode
+        // matches its parent's. exportRuntimeMetadata enforces the appCode handshake and returns
+        // the FULL app catalog: studio is the complete source
+        // of truth for the app's metadata (framework / system models included), so the desired-state
+        // diff converges the whole catalog and a runtime-only aggregate is a genuinely removed one.
+        String byModelName = LambdaUtils.getAttributeName(SysField::getModelName);
+        String byOptionSetCode = LambdaUtils.getAttributeName(SysOptionItem::getOptionSetCode);
+        Map<String, String> models = AggregateChecksumIndex.models(
+                exportRuntimeMetadata(SysModel.class.getSimpleName(), appCode),
+                exportRuntimeMetadata(SysField.class.getSimpleName(), appCode),
+                exportRuntimeMetadata(SysModelIndex.class.getSimpleName(), appCode),
+                byModelName, byModelName);
+        Map<String, String> optionSets = AggregateChecksumIndex.optionSets(
+                exportRuntimeMetadata(SysOptionSet.class.getSimpleName(), appCode),
+                exportRuntimeMetadata(SysOptionItem.class.getSimpleName(), appCode),
+                byOptionSetCode, byOptionSetCode);
+        return new RuntimeChecksumsDTO(models, optionSets);
+    }
+
     /**
-     * Build an appId-scoped {@link Filters} for the runtime model.
+     * Build an app-scoped {@link Filters} for the runtime model: {@code appCode}
+     * attribution only. Studio is the complete source of truth for the app's
+     * metadata, so the export returns the full catalog.
      * <p>
      * Returns {@code null} when the scope resolves to "no possible rows" (e.g. a Trans
      * model whose parent has no rows for this app) so the caller can short-circuit
      * instead of issuing a query that the filter layer would reject for being empty.
      */
-    private Filters buildAppScopedFilter(String modelName, Long appId) {
+    private Filters buildAppScopedFilter(String modelName, String appCode) {
         if (!modelName.endsWith(ModelConstant.MODEL_TRANS_SUFFIX)) {
-            Assert.isTrue(ModelManager.existField(modelName, "appId"),
-                    "Runtime model {0} has no appId column and is not a translation model; cannot scope by app.",
+            Assert.isTrue(ModelManager.existField(modelName, MetadataAppIdentity.APP_CODE_FIELD),
+                    "Runtime model {0} has no appCode column and is not a translation model; cannot scope by app.",
                     modelName);
-            return new Filters().eq("appId", appId);
+            return scopedFilter(appCode);
         } else {
             String businessModel = modelName.substring(0, modelName.length() - ModelConstant.MODEL_TRANS_SUFFIX.length());
-            Assert.isTrue(ModelManager.existField(businessModel, "appId"),
-                    "Business model {0} must carry appId to scope its translations.", businessModel);
-            FlexQuery flexQuery = new FlexQuery(List.of(ModelConstant.ID), new Filters().eq("appId", appId));
+            Assert.isTrue(ModelManager.existField(businessModel, MetadataAppIdentity.APP_CODE_FIELD),
+                    "Business model {0} must carry appCode to scope its translations.", businessModel);
+            FlexQuery flexQuery = new FlexQuery(List.of(ModelConstant.ID), scopedFilter(appCode));
             List<Map<String, Object>> rows = modelService.searchList(businessModel, flexQuery);
             List<Serializable> businessIds = rows.stream()
                     .map(row -> (Serializable) row.get(ModelConstant.ID))
@@ -297,5 +233,13 @@ public class MetadataServiceImpl implements MetadataService {
             }
             return new Filters().in("rowId", businessIds);
         }
+    }
+
+    private Filters scopedFilter(String appCode) {
+        // appCode (app identity) is the ONLY export scope: studio is the COMPLETE source of truth
+        // for the app's metadata — framework / system models are maintained through studio too —
+        // so the export returns the full catalog and the desired-state diff converges it (a
+        // runtime-only aggregate is genuinely removed).
+        return new Filters().eq(MetadataAppIdentity.APP_CODE_FIELD, appCode);
     }
 }

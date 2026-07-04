@@ -1,5 +1,6 @@
 package io.softa.framework.orm.jdbc;
 
+import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -51,7 +52,7 @@ public class ModelRowMapper implements RowMapper<Map<String, Object>> {
                 }
             }
             Object value = JdbcUtils.getResultSetValue(rs, i);
-            if (value instanceof java.sql.Date sqlDate) {
+            if (value instanceof Date sqlDate) {
                 // Auto-convert java.sql.Date to LocalDate
                 value = sqlDate.toLocalDate();
             }

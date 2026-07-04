@@ -20,5 +20,7 @@ public class MetaModelDTO {
     private List<String> searchName;
     private Orders defaultOrder;
     private boolean timeline;
+    /** Model-level copy switch — false ⇒ hide the Duplicate action and reject copy APIs. */
+    private boolean copyable;
     private Map<String, MetaFieldDTO> modelFields;
 }

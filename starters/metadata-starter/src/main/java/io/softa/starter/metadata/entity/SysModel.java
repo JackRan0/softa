@@ -11,7 +11,6 @@ import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
-import io.softa.framework.orm.enums.Ownership;
 import io.softa.framework.orm.enums.StorageType;
 
 /**
@@ -39,25 +38,29 @@ public class SysModel extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "App ID")
-    private Long appId;
+    @Field
+    private String appCode;
 
-    @Field(label = "Label")
+    @Field
     private String label;
 
-    @Field(label = "Model Name", required = true)
+    @Field(required = true)
     private String modelName;
 
-    @Field(label = "Display Name")
+    /** Single immediately-prior model name for a declared rename; excluded from checksum/diff. */
+    @Field
+    private String renamedFrom;
+
+    @Field
     private List<String> displayName;
 
-    @Field(label = "Search Name")
+    @Field
     private List<String> searchName;
 
-    @Field(label = "Default Order")
+    @Field
     private Orders defaultOrder;
 
-    @Field(label = "Table Name")
+    @Field
     private String tableName;
 
     @Field(label = "Enable Soft Delete")
@@ -75,7 +78,7 @@ public class SysModel extends AuditableModel {
     @Field(label = "ID Strategy")
     private IdStrategy idStrategy;
 
-    @Field(label = "Storage Type")
+    @Field
     private StorageType storageType;
 
     @Field(label = "Enable Version Lock")
@@ -84,30 +87,38 @@ public class SysModel extends AuditableModel {
     @Field(label = "Enable Multi-tenancy")
     private Boolean multiTenant;
 
-    @Field(label = "Data Source")
-    private String dataSource;
+    // Initialized to true (the column is NOT NULL DEFAULT 1) so hand-constructed
+    // instances — scanner paths go through AnnotationParser — never insert NULL.
+    @Field(defaultValue = "true")
+    private Boolean copyable = Boolean.TRUE;
 
-    @Field(label = "Service Name")
-    private String serviceName;
+    @Field
+    private String dataSource;
 
     @Field(label = "Business Primary Key")
     private List<String> businessKey;
 
-    @Field(label = "Partition Field")
+    @Field
     private String partitionField;
 
-    @Field(label = "Description")
+    @Field(length = 256)
     private String description;
 
-    @Field(label = "Ownership")
-    private Ownership ownership;
-
     /**
-     * One-to-many to {@link SysField} (joins on business key {@code modelName}, not id).
+     * One-to-many to {@link SysField} (joins on the surrogate FK {@code modelId}).
      * Has NO {@code sys_model} column — SysCatalog and the DDL builder both exclude
      * X-to-many — but is emitted as a {@code sys_field} row, so the meta-model is
-     * self-describing. Populated in memory by {@code ModelManager}.
+     * self-describing. Populated in memory by {@code ModelManager} (by {@code modelName}).
      */
-    @Field(label = "Model Fields", fieldType = FieldType.ONE_TO_MANY, relatedModel = SysField.class, relatedField = "modelName")
+    @Field(fieldType = FieldType.ONE_TO_MANY, relatedModel = SysField.class, relatedField = "modelId")
     private List<SysField> modelFields;
+
+    /**
+     * One-to-many to {@link SysModelIndex} (joins on the surrogate FK {@code modelId}).
+     * Makes the index a first-class child of the Model aggregate, mirroring
+     * {@code DesignModel.modelIndexes}; like {@link #modelFields} it has no physical
+     * {@code sys_model} column and is populated in memory by {@code ModelManager}.
+     */
+    @Field(fieldType = FieldType.ONE_TO_MANY, relatedModel = SysModelIndex.class, relatedField = "modelId")
+    private List<SysModelIndex> modelIndexes;
 }

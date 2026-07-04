@@ -1,6 +1,5 @@
 package io.softa.starter.metadata.cron;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -16,8 +15,11 @@ import io.softa.framework.orm.meta.AppStartup;
 @EnableScheduling
 public class ReloadLocalMetadataCron {
 
-    @Autowired
-    private AppStartup appStartup;
+    private final AppStartup appStartup;
+
+    public ReloadLocalMetadataCron(AppStartup appStartup) {
+        this.appStartup = appStartup;
+    }
 
     /**
      * Trigger metadata reload every minute.

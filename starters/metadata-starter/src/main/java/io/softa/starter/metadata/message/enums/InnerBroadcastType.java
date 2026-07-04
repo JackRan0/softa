@@ -7,11 +7,9 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum InnerBroadcastType {
-    RELOAD_METADATA("ReloadMetadata", "Reload Metadata");
+    RELOAD_METADATA("ReloadMetadata");
 
     @JsonValue
     private final String type;
-
-    private final String name;
 
 }

@@ -31,24 +31,24 @@ public class SysConfig extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "App ID")
-    private Long appId;
+    @Field
+    private String appCode;
 
-    @Field(label = "Name", required = true, length = 64)
+    @Field(required = true)
     private String name;
 
-    @Field(label = "Code", required = true, length = 64)
+    @Field(required = true, copyable = false)
     private String code;
 
-    @Field(label = "Value", required = true)
+    @Field(required = true)
     private JsonNode value;
 
-    @Field(label = "Value Type", length = 64)
+    @Field
     private String valueType;
 
-    @Field(label = "Description", length = 256)
+    @Field(length = 256)
     private String description;
 
-    @Field(label = "Active")
+    @Field
     private Boolean active;
 }

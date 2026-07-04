@@ -21,7 +21,7 @@ import java.lang.annotation.*;
  * {@link Field#columnName()} (or {@code snake_case(fieldName)} default).
  *
  * <p>The {@code MetadataAnnotationScanner} writes resulting {@code sys_model_index}
- * rows with {@code ownership = PLATFORM_MAINTAINED}; the DDL orchestrator emits
+ * rows; the DDL orchestrator emits
  * {@code CREATE INDEX} / {@code ADD INDEX} (auto-executed) or {@code DROP INDEX}
  * (warn-only, never auto-executed).
  *

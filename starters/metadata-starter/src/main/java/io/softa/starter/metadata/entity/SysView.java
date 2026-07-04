@@ -26,42 +26,42 @@ public class SysView extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "App ID")
-    private Long appId;
+    @Field
+    private String appCode;
 
-    @Field(label = "Model Name", length = 64)
+    @Field
     private String modelName;
 
-    @Field(label = "Name", required = true, length = 64)
+    @Field(required = true)
     private String name;
 
-    @Field(label = "Code", length = 64)
+    @Field
     private String code;
 
-    @Field(label = "Type", required = true)
+    @Field(required = true)
     private ViewType type;
 
-    @Field(label = "Sequence")
+    @Field
     private Integer sequence;
 
-    @Field(label = "Structure", required = true)
+    @Field(required = true)
     private JsonNode structure;
 
-    @Field(label = "Default Filter")
+    @Field
     private Filters defaultFilter;
 
-    @Field(label = "Default Order")
+    @Field
     private Orders defaultOrder;
 
     @Field(label = "Nav ID")
     private Long navId;
 
-    @Field(label = "Public View")
+    @Field
     private Boolean publicView;
 
-    @Field(label = "Default View")
+    @Field
     private Boolean defaultView;
 
-    @Field(label = "Deleted")
+    @Field
     private Boolean deleted;
 }

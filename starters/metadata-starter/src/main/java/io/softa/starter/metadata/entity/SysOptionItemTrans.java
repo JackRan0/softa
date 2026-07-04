@@ -28,15 +28,15 @@ public class SysOptionItemTrans extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Language Code", required = true)
+    @Field(required = true)
     private String languageCode;
 
     @Field(label = "Row ID", required = true)
     private Long rowId;
 
-    @Field(label = "Label")
+    @Field
     private String label;
 
-    @Field(label = "Description")
+    @Field(length = 256)
     private String description;
 }

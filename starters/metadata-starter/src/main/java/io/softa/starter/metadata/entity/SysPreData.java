@@ -22,16 +22,16 @@ public class SysPreData extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Model", length = 64)
+    @Field
     private String model;
 
-    @Field(label = "Pre ID", required = true, length = 64)
+    @Field(label = "Pre ID", required = true)
     private String preId;
 
-    @Field(label = "Row ID", length = 64)
+    @Field(label = "Row ID")
     private String rowId;
 
-    @Field(label = "Frozen")
+    @Field
     private Boolean frozen;
 
     @Field(label = "Tenant ID")

@@ -7,9 +7,9 @@ import lombok.EqualsAndHashCode;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.framework.orm.enums.OptionItemIcon;
-import io.softa.framework.orm.enums.OptionItemTone;
-import io.softa.framework.orm.enums.Ownership;
+import io.softa.framework.base.enums.OptionItemIcon;
+import io.softa.framework.base.enums.OptionItemTone;
+import io.softa.framework.orm.enums.FieldType;
 
 /**
  * SysOptionItem — metadata catalog row describing an OptionSet member.
@@ -32,39 +32,44 @@ public class SysOptionItem extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "App ID")
-    private Long appId;
+    @Field
+    private String appCode;
 
-    @Field(label = "Option Set ID")
-    private Long optionSetId;
-
-    @Field(label = "Option Set Code", required = true)
+    // The owning option set's business code — a plain attribute (half of businessKey) and the column
+    // the post-scan populator joins on to resolve optionSetId.
+    @Field(required = true)
     private String optionSetCode;
 
-    @Field(label = "Sequence")
+    // Surrogate FK to the owning option set. relatedField defaults to id (BIGINT). Nullable
+    // and EXCLUDED from the scanner diff: resolved post-scan from optionSetCode — see SysReferenceSql.
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = SysOptionSet.class)
+    private Long optionSetId;
+
+    @Field
     private Integer sequence;
 
-    @Field(label = "Item Code", required = true)
+    @Field(required = true)
     private String itemCode;
 
-    @Field(label = "Label", required = true)
+    /** Single immediately-prior item code for a declared rename; excluded from checksum/diff. */
+    @Field
+    private String renamedFrom;
+
+    @Field(required = true)
     private String label;
 
-    @Field(label = "Parent Item Code")
+    @Field
     private String parentItemCode;
 
-    @Field(label = "Item Tone")
+    @Field
     private OptionItemTone itemTone;
 
-    @Field(label = "Item Icon")
+    @Field
     private OptionItemIcon itemIcon;
 
-    @Field(label = "Description")
+    @Field(length = 256)
     private String description;
 
-    @Field(label = "Ownership")
-    private Ownership ownership;
-
-    @Field(label = "Active")
+    @Field
     private Boolean active;
 }

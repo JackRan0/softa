@@ -5,6 +5,7 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -215,7 +216,7 @@ public class HttpDownloadUtils {
                 String encoded = contentDisposition.substring(start);
                 if (encoded.contains("''")) {
                     fileName = encoded.substring(encoded.indexOf("''") + 2);
-                    fileName = java.net.URLDecoder.decode(fileName, StandardCharsets.UTF_8);
+                    fileName = URLDecoder.decode(fileName, StandardCharsets.UTF_8);
                 }
             } else if (contentDisposition.contains("filename=")) {
                 // Standard format: filename="file name.txt" or filename=file name.txt

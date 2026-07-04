@@ -1,4 +1,4 @@
-id,optionSetId, optionSetCode, sequence, itemCode, itemName
+id,optionSetId, optionSetCode, sequence, itemCode, label
 SysOptionItem.FileType.1,SysOptionSet.FileType, FileType,1, jpg, jpg
 SysOptionItem.FileType.2,SysOptionSet.FileType, FileType,2, png, png
 SysOptionItem.FileType.3,SysOptionSet.FileType, FileType,3, jpg, jpg

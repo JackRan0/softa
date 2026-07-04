@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.exception.IllegalArgumentException;
@@ -24,11 +23,13 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
+import io.softa.starter.metadata.checksum.AggregateChecksumIndex;
 import io.softa.starter.metadata.controller.dto.MetaFieldDTO;
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
 import io.softa.starter.metadata.controller.dto.PathResolution;
 import io.softa.starter.metadata.controller.dto.ResolveCascadedPathsResponse;
-import io.softa.starter.metadata.dto.MetadataUpgradePackage;
+import io.softa.starter.metadata.dto.*;
+import io.softa.starter.metadata.message.InnerBroadcastProducer;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -44,40 +45,117 @@ class MetadataServiceImplTest {
         if (SystemConfig.env == null) {
             SystemConfig.env = new SystemConfig();
         }
-    }
-
-    @Test
-    void exportRuntimeMetadataScopesMainModelByAppId() {
-        MetadataServiceImpl service = new MetadataServiceImpl();
-        @SuppressWarnings("unchecked")
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
-
-        List<Map<String, Object>> rows = List.of(Map.of("id", 1L, "fieldName", "name", "appId", 42L));
-        when(modelService.searchList(eq("SysField"), Mockito.any(FlexQuery.class))).thenReturn(rows);
-
-        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
-            modelManager.when(() -> ModelManager.existField("SysField", "appId")).thenReturn(true);
-            modelManager.when(() -> ModelManager.getModelFieldsWithoutXToMany("SysField"))
-                    .thenReturn(Set.of("id", "fieldName", "appId"));
-
-            List<Map<String, Object>> result = service.exportRuntimeMetadata("SysField", 42L);
-
-            assertEquals(rows, result);
-            verify(modelService).searchList(eq("SysField"), Mockito.argThat(query ->
-                    query != null
-                            && query.getFields().containsAll(Set.of("id", "fieldName", "appId"))
-                            && query.getFilters() != null
-                            && query.getFilters().toString().contains("appId")));
+        // exportRuntimeMetadata's identity handshake reads system.app-code.
+        if (SystemConfig.env.getAppCode() == null) {
+            SystemConfig.env.setAppCode("demo-app");
         }
     }
 
     @Test
+    void exportRuntimeMetadataScopesMainModelByAppCodeOnly() {
+        ModelService<Serializable> modelService = mockModelService();
+        MetadataServiceImpl service = serviceWithModelService(modelService);
+
+        List<Map<String, Object>> rows = List.of(Map.of("id", 1L, "fieldName", "name", "appCode", "demo-app"));
+        when(modelService.searchList(eq("SysField"), Mockito.any(FlexQuery.class))).thenReturn(rows);
+
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            modelManager.when(() -> ModelManager.existField("SysField", "appCode")).thenReturn(true);
+            modelManager.when(() -> ModelManager.getModelFieldsWithoutXToMany("SysField"))
+                    .thenReturn(Set.of("id", "fieldName", "appCode"));
+
+            List<Map<String, Object>> result = service.exportRuntimeMetadata("SysField", "demo-app");
+
+            assertEquals(rows, result);
+            // Scope is appCode ONLY: studio is the complete source of truth for the app's
+            // metadata, so the export returns the full catalog.
+            verify(modelService).searchList(eq("SysField"), Mockito.argThat(query ->
+                    query != null
+                            && query.getFields().containsAll(Set.of("id", "fieldName", "appCode"))
+                            && query.getFilters() != null
+                            && query.getFilters().toString().contains("appCode")));
+        }
+    }
+
+    @Test
+    void exportRuntimeMetadataNarrowsByAggregateKeys() {
+        // Incremental fetch: a non-null keyColumn ANDs keyColumn IN keyValues onto the
+        // app scope, so the export returns only the requested aggregates.
+        ModelService<Serializable> modelService = mockModelService();
+        MetadataServiceImpl service = serviceWithModelService(modelService);
+
+        List<Map<String, Object>> rows = List.of(Map.of("id", 1L, "modelName", "Account"));
+        when(modelService.searchList(eq("SysField"), Mockito.any(FlexQuery.class))).thenReturn(rows);
+
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            modelManager.when(() -> ModelManager.existField("SysField", "appCode")).thenReturn(true);
+            modelManager.when(() -> ModelManager.existField("SysField", "modelName")).thenReturn(true);
+            modelManager.when(() -> ModelManager.getModelFieldsWithoutXToMany("SysField"))
+                    .thenReturn(Set.of("id", "modelName", "appCode"));
+
+            List<Map<String, Object>> result = service.exportRuntimeMetadata(
+                    "SysField", "demo-app", "modelName", List.of("Account", "Order"));
+
+            assertEquals(rows, result);
+            verify(modelService).searchList(eq("SysField"), Mockito.argThat(query ->
+                    query != null
+                            && query.getFilters() != null
+                            && query.getFilters().toString().contains("appCode")
+                            && query.getFilters().toString().contains("modelName")));
+        }
+    }
+
+    @Test
+    void exportRuntimeMetadataReturnsEmptyForEmptyAggregateKeySet() {
+        // An empty key set with a non-null keyColumn means "fetch nothing" — no query is issued at all
+        // (distinct from a null keyColumn, the full export).
+        ModelService<Serializable> modelService = mockModelService();
+        MetadataServiceImpl service = serviceWithModelService(modelService);
+
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            modelManager.when(() -> ModelManager.existField("SysField", "appCode")).thenReturn(true);
+
+            List<Map<String, Object>> result = service.exportRuntimeMetadata(
+                    "SysField", "demo-app", "modelName", List.of());
+
+            assertEquals(List.of(), result);
+            verify(modelService, never()).searchList(Mockito.anyString(), Mockito.any(FlexQuery.class));
+        }
+    }
+
+    @Test
+    void exportRuntimeMetadataRejectsUnknownNarrowingColumn() {
+        // A client-supplied narrowing column that is not a real column is rejected (defense-in-depth on
+        // a signed-but-still-external request).
+        ModelService<Serializable> modelService = mockModelService();
+        MetadataServiceImpl service = serviceWithModelService(modelService);
+
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            modelManager.when(() -> ModelManager.existField("SysField", "appCode")).thenReturn(true);
+            modelManager.when(() -> ModelManager.existField("SysField", "bogus")).thenReturn(false);
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.exportRuntimeMetadata("SysField", "demo-app", "bogus", List.of("x")));
+            verify(modelService, never()).searchList(Mockito.anyString(), Mockito.any(FlexQuery.class));
+        }
+    }
+
+    @Test
+    void exportRuntimeMetadataRejectsForeignAppCode() {
+        ModelService<Serializable> modelService = mockModelService();
+        MetadataServiceImpl service = serviceWithModelService(modelService);
+
+        // The handshake must fail-closed before any query when the requested
+        // identity is not this runtime's app.
+        assertThrows(IllegalArgumentException.class,
+                () -> service.exportRuntimeMetadata("SysField", "other-app"));
+        verify(modelService, never()).searchList(Mockito.anyString(), Mockito.any(FlexQuery.class));
+    }
+
+    @Test
     void exportRuntimeMetadataResolvesTransModelViaParentIds() {
-        MetadataServiceImpl service = new MetadataServiceImpl();
-        @SuppressWarnings("unchecked")
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
+        ModelService<Serializable> modelService = mockModelService();
+        MetadataServiceImpl service = serviceWithModelService(modelService);
 
         List<Map<String, Object>> parentRows = List.of(Map.of("id", 7L), Map.of("id", 8L));
         List<Map<String, Object>> transRows = List.of(Map.of("id", 100L, "rowId", 7L, "languageCode", "en"));
@@ -85,19 +163,18 @@ class MetadataServiceImplTest {
         when(modelService.searchList(eq("SysFieldTrans"), Mockito.any(FlexQuery.class))).thenReturn(transRows);
 
         try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
-            modelManager.when(() -> ModelManager.existField("SysFieldTrans", "appId")).thenReturn(false);
-            modelManager.when(() -> ModelManager.existField("SysField", "appId")).thenReturn(true);
+            modelManager.when(() -> ModelManager.existField("SysField", "appCode")).thenReturn(true);
             modelManager.when(() -> ModelManager.getModelFieldsWithoutXToMany("SysFieldTrans"))
                     .thenReturn(Set.of("id", "rowId", "languageCode"));
 
-            List<Map<String, Object>> result = service.exportRuntimeMetadata("SysFieldTrans", 42L);
+            List<Map<String, Object>> result = service.exportRuntimeMetadata("SysFieldTrans", "demo-app");
 
             assertEquals(transRows, result);
             verify(modelService).searchList(eq("SysField"), Mockito.argThat(query ->
                     query != null
                             && query.getFields().contains(ModelConstant.ID)
                             && query.getFilters() != null
-                            && query.getFilters().toString().contains("appId")));
+                            && query.getFilters().toString().contains("appCode")));
             verify(modelService).searchList(eq("SysFieldTrans"), Mockito.argThat(query ->
                     query != null
                             && query.getFilters() != null
@@ -107,18 +184,15 @@ class MetadataServiceImplTest {
 
     @Test
     void exportRuntimeMetadataReturnsEmptyWhenTransParentHasNoRows() {
-        MetadataServiceImpl service = new MetadataServiceImpl();
-        @SuppressWarnings("unchecked")
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
+        ModelService<Serializable> modelService = mockModelService();
+        MetadataServiceImpl service = serviceWithModelService(modelService);
 
         when(modelService.searchList(eq("SysField"), Mockito.any(FlexQuery.class))).thenReturn(List.of());
 
         try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
-            modelManager.when(() -> ModelManager.existField("SysFieldTrans", "appId")).thenReturn(false);
-            modelManager.when(() -> ModelManager.existField("SysField", "appId")).thenReturn(true);
+            modelManager.when(() -> ModelManager.existField("SysField", "appCode")).thenReturn(true);
 
-            List<Map<String, Object>> result = service.exportRuntimeMetadata("SysFieldTrans", 42L);
+            List<Map<String, Object>> result = service.exportRuntimeMetadata("SysFieldTrans", "demo-app");
 
             assertEquals(List.of(), result);
             verify(modelService, never()).searchList(eq("SysFieldTrans"), Mockito.any(FlexQuery.class));
@@ -127,94 +201,53 @@ class MetadataServiceImplTest {
 
     @Test
     void exportRuntimeMetadataRejectsUnscopableModel() {
-        MetadataServiceImpl service = new MetadataServiceImpl();
-        @SuppressWarnings("unchecked")
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
+        ModelService<Serializable> modelService = mockModelService();
+        MetadataServiceImpl service = serviceWithModelService(modelService);
 
         try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
-            modelManager.when(() -> ModelManager.existField("SomeOtherModel", "appId")).thenReturn(false);
+            modelManager.when(() -> ModelManager.existField("SomeOtherModel", "appCode")).thenReturn(false);
 
             assertThrows(IllegalArgumentException.class,
-                    () -> service.exportRuntimeMetadata("SomeOtherModel", 42L));
+                    () -> service.exportRuntimeMetadata("SomeOtherModel", "demo-app"));
             verify(modelService, never()).searchList(Mockito.anyString(), Mockito.any(FlexQuery.class));
         }
     }
 
     @Test
-    void upgradeMetadataRequiresInsertIdWhenCreatingRows() {
-        MetadataServiceImpl service = new MetadataServiceImpl();
-        @SuppressWarnings("unchecked")
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
+    void exportRuntimeChecksumsAssemblesAggregatesByCode() {
+        ModelService<Serializable> modelService = mockModelService();
+        MetadataServiceImpl service = serviceWithModelService(modelService);
 
-        MetadataUpgradePackage metadataPackage = new MetadataUpgradePackage();
-        metadataPackage.setModelName("SysField");
-        metadataPackage.setCreateRows(List.of(Map.of(ModelConstant.ID, 10L, "fieldName", "name")));
+        Map<String, Object> modelRow = Map.of("id", 1L, "modelName", "Customer",
+                "tableName", "customer", "appCode", "demo-app");
+        Map<String, Object> fieldRow = Map.of("id", 10L, "modelName", "Customer",
+                "fieldName", "code", "columnName", "code", "appCode", "demo-app");
+        when(modelService.searchList(eq("SysModel"), any(FlexQuery.class))).thenReturn(List.of(modelRow));
+        when(modelService.searchList(eq("SysField"), any(FlexQuery.class))).thenReturn(List.of(fieldRow));
+        when(modelService.searchList(eq("SysModelIndex"), any(FlexQuery.class))).thenReturn(List.of());
+        when(modelService.searchList(eq("SysOptionSet"), any(FlexQuery.class))).thenReturn(List.of());
+        when(modelService.searchList(eq("SysOptionItem"), any(FlexQuery.class))).thenReturn(List.of());
 
-        SystemConfig previous = SystemConfig.env;
-        SystemConfig config = new SystemConfig();
-        config.setEnableInsertId(false);
-        SystemConfig.env = config;
-        try {
-            assertThrows(IllegalArgumentException.class, () -> service.upgradeMetadata(List.of(metadataPackage)));
-            verify(modelService, never()).createList(eq("SysField"), Mockito.anyList());
-        } finally {
-            SystemConfig.env = previous;
+        try (MockedStatic<ModelManager> modelManager = Mockito.mockStatic(ModelManager.class)) {
+            for (String m : List.of("SysModel", "SysField", "SysModelIndex", "SysOptionSet", "SysOptionItem")) {
+                modelManager.when(() -> ModelManager.existField(m, "appCode")).thenReturn(true);
+                modelManager.when(() -> ModelManager.getModelFieldsWithoutXToMany(m)).thenReturn(Set.of("id", "modelName"));
+            }
+
+            RuntimeChecksumsDTO dto = service.exportRuntimeChecksums("demo-app");
+
+            // The runtime aggregate checksum equals the shared assembler over the same rows (code-linked).
+            String expected = AggregateChecksumIndex.models(List.of(modelRow), List.of(fieldRow), List.of(),
+                    "modelName", "modelName").get("Customer");
+            assertEquals(expected, dto.models().get("Customer"));
+            assertTrue(dto.optionSets().isEmpty());
         }
     }
 
-    @Test
-    void upgradeMetadataValidatesCreatedIdsMatchRequestedIds() {
-        MetadataServiceImpl service = new MetadataServiceImpl();
-        @SuppressWarnings("unchecked")
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
-
-        MetadataUpgradePackage metadataPackage = new MetadataUpgradePackage();
-        metadataPackage.setModelName("SysField");
-        metadataPackage.setCreateRows(List.of(Map.of(ModelConstant.ID, 10L, "fieldName", "name")));
-        when(modelService.createList(eq("SysField"), Mockito.anyList())).thenReturn(List.of(99L));
-
-        SystemConfig previous = SystemConfig.env;
-        SystemConfig config = new SystemConfig();
-        config.setEnableInsertId(true);
-        SystemConfig.env = config;
-        try {
-            assertThrows(IllegalArgumentException.class, () -> service.upgradeMetadata(List.of(metadataPackage)));
-        } finally {
-            SystemConfig.env = previous;
-        }
+    @SuppressWarnings("unchecked")
+    private static ModelService<Serializable> mockModelService() {
+        return mock(ModelService.class);
     }
-
-    @Test
-    void upgradeMetadataFailsWhenUpdateTargetsDoNotExist() {
-        MetadataServiceImpl service = new MetadataServiceImpl();
-        @SuppressWarnings("unchecked")
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
-
-        MetadataUpgradePackage metadataPackage = new MetadataUpgradePackage();
-        metadataPackage.setModelName("SysField");
-        metadataPackage.setUpdateRows(List.of(
-                Map.of(ModelConstant.ID, 10L, "fieldName", "name"),
-                Map.of(ModelConstant.ID, 11L, "fieldName", "code")));
-        when(modelService.searchList(eq("SysField"), Mockito.any(FlexQuery.class)))
-                .thenReturn(List.of(Map.of(ModelConstant.ID, 10L)));
-
-        SystemConfig previous = SystemConfig.env;
-        SystemConfig config = new SystemConfig();
-        config.setEnableInsertId(true);
-        SystemConfig.env = config;
-        try {
-            assertThrows(IllegalArgumentException.class, () -> service.upgradeMetadata(List.of(metadataPackage)));
-            verify(modelService, never()).updateList(eq("SysField"), Mockito.anyList());
-        } finally {
-            SystemConfig.env = previous;
-        }
-    }
-
-    // ───────── resolveCascadedPaths ─────────
 
     private static MetaField mockField(String modelName, String fieldName, FieldType type, String relatedModel) {
         MetaField metaField = mock(MetaField.class);
@@ -245,10 +278,14 @@ class MetadataServiceImplTest {
         });
     }
 
+    private static MetadataServiceImpl serviceWithModelService(ModelService<Serializable> modelService) {
+        return new MetadataServiceImpl(modelService, mock(InnerBroadcastProducer.class),
+                mock(PermissionService.class));
+    }
+
     private static MetadataServiceImpl serviceWithPermission(PermissionService permissionService) {
-        MetadataServiceImpl service = new MetadataServiceImpl();
-        ReflectionTestUtils.setField(service, "permissionService", permissionService);
-        return service;
+        return new MetadataServiceImpl(mockModelService(), mock(InnerBroadcastProducer.class),
+                permissionService);
     }
 
     @Test
@@ -497,28 +534,4 @@ class MetadataServiceImplTest {
         }
     }
 
-    @Test
-    void upgradeMetadataFailsWhenDeleteTargetsDoNotExist() {
-        MetadataServiceImpl service = new MetadataServiceImpl();
-        @SuppressWarnings("unchecked")
-        ModelService<Serializable> modelService = mock(ModelService.class);
-        ReflectionTestUtils.setField(service, "modelService", modelService);
-
-        MetadataUpgradePackage metadataPackage = new MetadataUpgradePackage();
-        metadataPackage.setModelName("SysField");
-        metadataPackage.setDeleteIds(List.of(10L, 11L));
-        when(modelService.searchList(eq("SysField"), Mockito.any(FlexQuery.class)))
-                .thenReturn(List.of(Map.of(ModelConstant.ID, 10L)));
-
-        SystemConfig previous = SystemConfig.env;
-        SystemConfig config = new SystemConfig();
-        config.setEnableInsertId(true);
-        SystemConfig.env = config;
-        try {
-            assertThrows(IllegalArgumentException.class, () -> service.upgradeMetadata(List.of(metadataPackage)));
-            verify(modelService, never()).deleteByIds(eq("SysField"), Mockito.anyList());
-        } finally {
-            SystemConfig.env = previous;
-        }
-    }
 }

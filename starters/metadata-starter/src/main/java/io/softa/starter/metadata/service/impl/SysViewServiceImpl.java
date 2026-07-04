@@ -2,7 +2,6 @@ package io.softa.starter.metadata.service.impl;
 
 import java.util.List;
 import java.util.Optional;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.context.ContextHolder;
@@ -21,8 +20,11 @@ import io.softa.starter.metadata.service.UserDefaultViewService;
 @Service
 public class SysViewServiceImpl extends EntityServiceImpl<SysView, Long> implements SysViewService {
 
-    @Autowired
-    private UserDefaultViewService viewDefaultService;
+    private final UserDefaultViewService viewDefaultService;
+
+    public SysViewServiceImpl(UserDefaultViewService viewDefaultService) {
+        this.viewDefaultService = viewDefaultService;
+    }
 
     /**
      * Set the default view for current user.

@@ -1,6 +1,7 @@
 package io.softa.framework.orm.meta;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.AfterAll;
@@ -61,7 +62,7 @@ class ModelManagerCopyableTest {
     private static List<MetaModel> models() {
         // ArrayList, not List.of: ListUtils.allNotNull probes contains(null),
         // which immutable collections reject with NPE.
-        return new java.util.ArrayList<>(List.of(
+        return new ArrayList<>(List.of(
                 model("CopyDoc", "copy_doc", true, false),
                 model("CopyProfile", "copy_profile", true, false),
                 model("CopyLine", "copy_line", true, false),
@@ -70,7 +71,7 @@ class ModelManagerCopyableTest {
     }
 
     private static List<MetaField> fields() {
-        return new java.util.ArrayList<>(List.of(
+        return new ArrayList<>(List.of(
                 // CopyDoc — the model under test
                 field("CopyDoc", "id", "id", FieldType.LONG),
                 field("CopyDoc", "name", "name", FieldType.STRING),

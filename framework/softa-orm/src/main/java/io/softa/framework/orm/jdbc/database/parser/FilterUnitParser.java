@@ -85,6 +85,9 @@ public class FilterUnitParser {
                 break;
             case IN:
             case NOT_IN:
+                if (value instanceof Collection<?> objects && objects.isEmpty()) {
+                    return emptyInCondition(operator);
+                }
                 condition.append(" ").append(DBUtil.getPredicate(operator)).append(" (");
                 StringBuilder inSql = new StringBuilder();
                 if (value instanceof Collection<?> objects) {
@@ -130,7 +133,7 @@ public class FilterUnitParser {
             tuples.add(new ArrayList<>((Collection<?>) tupleValue));
         }
         if (tuples.isEmpty()) {
-            return new StringBuilder(Operator.NOT_IN.equals(operator) ? "1 = 1" : "1 = 0");
+            return emptyInCondition(operator);
         }
         if (DBUtil.getDbDialect().supportsTuplePredicate()) {
             return buildNativeTupleCondition(sqlWrapper, fieldAliases, operator, tuples);
@@ -304,5 +307,9 @@ public class FilterUnitParser {
             }
             condition.append("?");
         }
+    }
+
+    private static StringBuilder emptyInCondition(Operator operator) {
+        return new StringBuilder(Operator.NOT_IN.equals(operator) ? "1 = 1" : "1 = 0");
     }
 }

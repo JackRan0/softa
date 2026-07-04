@@ -26,5 +26,21 @@
             <version>1.14.1</version>
         </dependency>
 
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.4.240</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Parser tests use reference-data-starter entities as fixtures.
+             Test-scope so it never affects runtime classpath. -->
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>reference-data-starter</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 </project>

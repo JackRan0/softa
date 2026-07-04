@@ -13,7 +13,7 @@ import io.softa.framework.orm.entity.AuditableModel;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(label = "User Default View")
+@Model
 public class UserDefaultView extends AuditableModel {
 
     @Serial
@@ -25,12 +25,12 @@ public class UserDefaultView extends AuditableModel {
     @Field(label = "View ID")
     private Long viewId;
 
-    @Field(label = "View Code", required = true, length = 64)
+    @Field(required = true)
     private String viewCode;
 
     @Field(label = "Nav ID")
     private Long navId;
 
-    @Field(label = "Model Name", required = true, length = 64)
+    @Field(required = true)
     private String modelName;
 }

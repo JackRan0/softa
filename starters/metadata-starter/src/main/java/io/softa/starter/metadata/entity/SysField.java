@@ -9,7 +9,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.MaskingType;
-import io.softa.framework.orm.enums.Ownership;
+import io.softa.framework.orm.enums.OnDelete;
 import io.softa.framework.orm.enums.WidgetType;
 
 /**
@@ -32,40 +32,54 @@ public class SysField extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "App ID")
-    private Long appId;
+    @Field
+    private String appCode;
 
-    @Field(label = "Label")
+    @Field
     private String label;
 
-    @Field(label = "Field Name", required = true)
+    @Field(required = true)
     private String fieldName;
 
-    @Field(label = "Column Name")
+    /** Single immediately-prior field name for a declared rename; excluded from checksum/diff. */
+    @Field
+    private String renamedFrom;
+
+    @Field
     private String columnName;
 
-    @Field(label = "Model Name", required = true)
+    // The owning model's business name — a plain attribute (half of businessKey) and the column the
+    // post-scan populator joins on to resolve modelId. The metamodel links fields to models by this
+    // name in ModelManager, independent of the surrogate FK below.
+    @Field(required = true)
     private String modelName;
 
-    @Field(label = "Model ID")
+    // Surrogate FK to the owning model. relatedField defaults to id (BIGINT). Nullable and
+    // EXCLUDED from the scanner diff (SysCatalog.EXCLUDED): the parser cannot set it (the parent's
+    // surrogate id is DB-assigned), so it is resolved post-scan from modelName — see SysReferenceSql.
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = SysModel.class)
     private Long modelId;
 
-    @Field(label = "Description")
+    @Field(length = 256)
     private String description;
 
-    @Field(label = "Field Type", required = true)
+    @Field(required = true)
     private FieldType fieldType;
 
-    @Field(label = "Option Set Code")
+    @Field
     private String optionSetCode;
 
-    @Field(label = "Related Model")
+    @Field
     private String relatedModel;
 
-    @Field(label = "Related Field")
+    @Field
     private String relatedField;
 
-    @Field(label = "Join Model")
+    // FK delete strategy for a TO_ONE relation; null = KEEP (default).
+    @Field
+    private OnDelete onDelete;
+
+    @Field
     private String joinModel;
 
     @Field(label = "Join Model Left Key")
@@ -74,19 +88,19 @@ public class SysField extends AuditableModel {
     @Field(label = "Join Model Right Key")
     private String joinRight;
 
-    @Field(label = "Cascaded Field")
+    @Field(length = 256)
     private String cascadedField;
 
-    @Field(label = "Filters")
+    @Field(length = 256)
     private String filters;
 
-    @Field(label = "Default Value")
+    @Field(length = 256)
     private String defaultValue;
 
-    @Field(label = "Length")
+    @Field
     private Integer length;
 
-    @Field(label = "Scale")
+    @Field
     private Integer scale;
 
     @Field(label = "Is Required")
@@ -95,22 +109,26 @@ public class SysField extends AuditableModel {
     @Field(label = "Is Readonly")
     private Boolean readonly;
 
-    @Field(label = "Hidden")
+    @Field
     private Boolean hidden;
 
-    @Field(label = "Translatable")
+    @Field
     private Boolean translatable;
 
-    @Field(label = "Non Copyable")
-    private Boolean nonCopyable;
+    // Initialized to true (the column is NOT NULL DEFAULT 1) so hand-constructed
+    // instances — scanner paths go through AnnotationParser — never insert NULL.
+    @Field(defaultValue = "true")
+    private Boolean copyable = Boolean.TRUE;
 
-    @Field(label = "Unsearchable")
+    @Field
     private Boolean unsearchable;
 
     @Field(label = "Is Computed")
     private Boolean computed;
 
-    @Field(label = "Expression")
+    // length > 16383 renders as TEXT on MySQL (utf8mb4 VARCHAR cap), matching
+    // the legacy TEXT(20000) column; PostgreSQL renders VARCHAR(20000).
+    @Field(length = 20000)
     private String expression;
 
     @Field(label = "Dynamic Field")
@@ -119,12 +137,16 @@ public class SysField extends AuditableModel {
     @Field(label = "Is Encrypted")
     private Boolean encrypted;
 
-    @Field(label = "Masking Type")
+    @Field
     private MaskingType maskingType;
 
-    @Field(label = "Widget Type")
+    @Field
     private WidgetType widgetType;
 
-    @Field(label = "Ownership")
-    private Ownership ownership;
+    // System-computed at reconciliation time (never declared on @Field). For a TO_ONE FK
+    // this holds the resolved PHYSICAL type of the referenced column (STRING / LONG / ...)
+    // while fieldType stays the logical MANY_TO_ONE / ONE_TO_ONE; the resolved width lives
+    // in length / scale. Null for every non-FK field. See ReferenceColumnResolver.
+    @Field
+    private FieldType relatedFieldType;
 }

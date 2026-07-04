@@ -32,7 +32,7 @@ public final class MetadataDtoMapper {
         fieldDTO.setReadonly(metaField.isReadonly());
         fieldDTO.setHidden(metaField.isHidden());
         fieldDTO.setTranslatable(metaField.isTranslatable());
-        fieldDTO.setNonCopyable(metaField.isNonCopyable());
+        fieldDTO.setCopyable(metaField.isCopyable());
         fieldDTO.setUnsearchable(metaField.isUnsearchable());
         fieldDTO.setComputed(metaField.isComputed());
         fieldDTO.setDynamic(metaField.isDynamic());
@@ -47,6 +47,7 @@ public final class MetadataDtoMapper {
         fieldDTO.setFilters(metaField.getFilters());
         fieldDTO.setMaskingType(metaField.getMaskingType());
         fieldDTO.setWidgetType(metaField.getWidgetType());
+        fieldDTO.setOnDelete(metaField.getOnDelete());
         return fieldDTO;
     }
 
@@ -60,6 +61,7 @@ public final class MetadataDtoMapper {
         dto.setSearchName(metaModel.getSearchName());
         dto.setDefaultOrder(metaModel.getDefaultOrder());
         dto.setTimeline(metaModel.isTimeline());
+        dto.setCopyable(metaModel.isCopyable());
         List<MetaField> fields = ModelManager.getModelFields(modelName);
         Map<String, MetaFieldDTO> fieldMap = fields.stream()
                 .collect(Collectors.toMap(MetaField::getFieldName, MetadataDtoMapper::toFieldDTO));

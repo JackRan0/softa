@@ -1,18 +1,20 @@
 package io.softa.starter.metadata.signature;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.security.PublicKey;
-import java.util.Base64;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.PublicKey;
+import java.util.Base64;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.http.HttpStatus;
@@ -57,7 +59,7 @@ public class SignatureVerificationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
-                                    @NonNull FilterChain chain) throws IOException, jakarta.servlet.ServletException {
+                                    @NonNull FilterChain chain) throws IOException, ServletException {
         CachedBodyRequest cached = new CachedBodyRequest(request);
         try {
             verify(cached);
@@ -88,7 +90,7 @@ public class SignatureVerificationFilter extends OncePerRequestFilter {
 
         byte[] canonical = CanonicalRequest.build(
                 request.getMethod(),
-                java.net.URI.create(request.getRequestURL()
+                URI.create(request.getRequestURL()
                         + (request.getQueryString() == null ? "" : "?" + request.getQueryString())),
                 request.getBody(), timestamp, nonce);
 

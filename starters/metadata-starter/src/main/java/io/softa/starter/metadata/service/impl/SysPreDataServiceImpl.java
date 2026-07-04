@@ -1,37 +1,31 @@
 package io.softa.starter.metadata.service.impl;
 
-import java.io.IOException;
 import java.io.Serializable;
-import java.io.StringReader;
-import java.util.*;
-import java.util.stream.Collectors;
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVParser;
-import org.apache.commons.csv.CSVRecord;
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Autowired;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
-import tools.jackson.core.type.TypeReference;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.Cast;
-import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.LambdaUtils;
-import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FileObject;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.enums.FileType;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
@@ -48,12 +42,19 @@ import static io.softa.framework.orm.constant.ModelConstant.ID;
  * Among them, ManyToOne and OneToOne fields directly reference preId, ManyToMany fields reference a list of preIds,
  * OneToMany fields support a data list, where the data in the list does not need to declare the main model's preId
  * but must declare the relatedModel's preId.
+ * <p>
+ * File-format concerns (JSON / CSV / XML) are delegated to {@link PreDataFormatParser}; this service owns the
+ * predefined-data domain logic only — preId binding, main/sub-model ordering, and create-or-update reconciliation.
  */
 @Service
 public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> implements SysPreDataService {
 
-    @Autowired
-    protected ModelService<Serializable> modelService;
+    private final ModelService<Serializable> modelService;
+    private final PreDataFormatParser formatParser = new PreDataFormatParser();
+
+    public SysPreDataServiceImpl(ModelService<Serializable> modelService) {
+        this.modelService = modelService;
+    }
 
     /**
      * Load the specified list of predefined data files from the root directory: resources/data.
@@ -112,97 +113,13 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     }
 
     /**
-     * Load fileObject and process different data formats based on the file type.
+     * Parse a file into its {@code modelName -> data} entries (format handling lives in
+     * {@link PreDataFormatParser}) and load each model's predefined data in declaration order.
      *
      * @param fileObject fileObject with the file content
      */
     private void loadFileObject(FileObject fileObject) {
-        if (StringUtils.isBlank(fileObject.getContent())) {
-            return;
-        }
-        if (FileType.JSON.equals(fileObject.getFileType())) {
-            processJson(fileObject.getContent());
-        } else if (FileType.XML.equals(fileObject.getFileType())) {
-            processXml(fileObject.getContent());
-        } else if (FileType.CSV.equals(fileObject.getFileType())) {
-            // Treats the first part of the file name as the model name
-            String fileName = fileObject.getFileName();
-            String modelName = fileName.substring(0, fileName.indexOf('.')).trim();
-            Assert.isTrue(ModelManager.existModel(modelName),
-                    "Model {0} specified in the fileName `{1}` does not exist!", modelName, fileName);
-            processCsv(modelName, fileObject.getContent());
-        } else {
-            throw new IllegalArgumentException("Unsupported file type for predefined data: {0}", fileObject.getFileType());
-        }
-    }
-
-    /**
-     * Process JSON format data, parse and map, according to the data order in the JSON text to LinkedHashMap,
-     * and process in order. JSON format data supports two-layer model nesting, i.e., main model and relatedModel,
-     * but they will be created separately when loading. The main model data is created first to generate the ID,
-     * then the relatedModel data is created.
-     * <p>
-     *     Data under the JSON model supports two formats:
-     *     <ul>
-     *         <li>Single Map format: { model1: {field1: value1, field2: value2, ...}, model2: {...}, ...}</li>
-     *         <li>List<Map> format: { model1: [{field1: value1, field2: value2}, {...}], model2: {...}, ...}</li>
-     * </p>
-     *
-     * @param content JSON string data content
-     */
-    private void processJson(String content) {
-        Map<String, Object> predefinedData = JsonUtils.stringToObject(content, new TypeReference<LinkedHashMap<String, Object>>() {});
-        predefinedData.forEach(this::processModelData);
-    }
-
-    private void processXml(String content) {
-        // TODO: Process the data of XML format
-    }
-
-    /**
-     * Process CSV format data, parse and map, according to the data order in the CSV text.
-     * The first line of the CSV content is the header, and the data content is converted to a list of maps.
-     * The default separator is comma, and the quote character is double quote
-     *
-     * @param modelName Model name
-     * @param content CSV string data content
-     */
-    private void processCsv(String modelName, String content) {
-        // Parse the CSV content using CSVParser, automatically detect and skip the first line as the header
-        CSVFormat csvFormat = CSVFormat.Builder.create()
-                .setHeader()
-                .setSkipHeaderRecord(true)
-                .get();
-        // Parse the CSV content using CSVParser
-        CSVParser parser;
-        try {
-            parser = csvFormat.parse(new StringReader(content));
-        } catch (IOException e) {
-            throw new SystemException("Failed to parse the CSV content: {0}", e.getMessage());
-        }
-        // Get the header map of the CSV content
-        Map<String, Integer> headerMap = parser.getHeaderMap();
-        List<Map<String, Object>> csvDataList = new ArrayList<>();
-        // Iterate over each record in the CSV content, not including the header
-        for (CSVRecord record : parser) {
-            Map<String, Object> rowData = new HashMap<>();
-            for (Map.Entry<String, Integer> header : headerMap.entrySet()) {
-                String fieldName = header.getKey().trim();
-                Assert.notBlank(fieldName, "The field name in the CSV header cannot be empty!");
-                String stringValue = record.get(header.getValue()).trim();
-                FieldType fieldType = ModelManager.getModelField(modelName, fieldName).getFieldType();
-                if (ModelConstant.ID.equals(fieldName) || FieldType.TO_ONE_TYPES.contains(fieldType)) {
-                    // Retain the preID of ID, ManyToOne, and OneToOne fields, which are String value.
-                    rowData.put(fieldName, stringValue);
-                } else {
-                    Object fieldValue = FieldType.convertStringToFieldValue(fieldType, stringValue);
-                    rowData.put(fieldName, fieldValue);
-                }
-            }
-            csvDataList.add(rowData);
-        }
-        // Process the model data list
-        processModelData(modelName, csvDataList);
+        formatParser.parse(fileObject).forEach(this::processModelData);
     }
 
     /**
@@ -232,24 +149,28 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
 
     /**
      * Load a predefined data record.
-     * If there is predefined data for OneToMany and ManyToMany fields, recursively load the sub-table data,
-     * using an ordered Map to ensure that the data processing order is consistent with the file definition.
+     * If there is predefined data for OneToMany fields, recursively load the sub-table data after the
+     * main row exists (so the generated main id can back-reference into it). The input {@code row} is
+     * treated as read-only — it is split into a main-model map and a OneToMany map.
      * When the OneToMany field value is empty, it indicates the deletion of existing associated model data.
      *
      * @param model Model name
      * @param row Predefined data record
      */
     private Serializable handlePredefinedData(String model, Map<String, Object> row) {
+        Map<String, Object> mainRow = new LinkedHashMap<>();
         Map<String, Object> oneToManyMap = new LinkedHashMap<>();
-        // Extract OneToMany fields contained in the predefined data and put them in the OneToManyMap
-        // and then remove them from the row, used to independently handle the creation or update of the associated model.
-        Set<String> oneToManyFields = row.keySet().stream()
-                .filter(field -> FieldType.ONE_TO_MANY.equals(ModelManager.getModelField(model, field).getFieldType()))
-                .collect(Collectors.toSet());
-        oneToManyFields.forEach(field -> oneToManyMap.put(field, row.remove(field)));
-        // Load main model data
-        Serializable rowId = createOrUpdateData(model, row);
-        // Load OneToMany data
+        // Separate OneToMany sub-data from the main-model fields; an ordered map keeps the
+        // processing order consistent with the file definition.
+        row.forEach((field, value) -> {
+            if (FieldType.ONE_TO_MANY.equals(ModelManager.getModelField(model, field).getFieldType())) {
+                oneToManyMap.put(field, value);
+            } else {
+                mainRow.put(field, value);
+            }
+        });
+        // Load main model data first, then the OneToMany rows it owns.
+        Serializable rowId = createOrUpdateData(model, mainRow);
         loadOneToManyRows(model, rowId, oneToManyMap);
         return rowId;
     }
@@ -263,33 +184,26 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * @param oneToManyMap OneToMany { fieldName: data list} mapping relationship, the value must be a list type.
      */
     private void loadOneToManyRows(String model, Serializable mainId, Map<String, Object> oneToManyMap) {
-        oneToManyMap.forEach((field, rows) -> {
-            if (!(rows instanceof Collection)) {
-                throw new IllegalArgumentException("The data of OneToMany field {0}:{1} must be a list: {2}", model, field, rows);
+        oneToManyMap.forEach((field, value) -> {
+            Assert.isTrue(value instanceof Collection,
+                    "The data of OneToMany field {0}:{1} must be a list: {2}", model, field, value);
+            MetaField relation = ModelManager.getModelField(model, field);
+            List<Serializable> manyIds = new ArrayList<>();
+            for (Object item : (Collection<?>) value) {
+                Assert.isTrue(item instanceof Map,
+                        "The single predefined data of the OneToMany field {0}:{1} must be in Map format: {2}",
+                        model, field, item);
+                // Copy the child row and inject the back-reference to the main row, leaving the parsed input untouched.
+                Map<String, Object> childRow = new LinkedHashMap<>(Cast.<Map<String, Object>>of(item));
+                childRow.put(relation.getRelatedField(), mainId);
+                manyIds.add(handlePredefinedData(relation.getRelatedModel(), childRow));
             }
-            MetaField oneToManyMetaField = ModelManager.getModelField(model, field);
-            // Process each item in rows, ensuring each is a Map
-            List<Serializable> manyIds = ((Collection<?>) rows).stream()
-                    .peek(item -> {
-                        if (!(item instanceof Map)) {
-                            throw new IllegalArgumentException(
-                                    "The single predefined data of the OneToMany field {0}:{1} must be in Map format: {2}",
-                                    model, field, item);
-                        }
-                    })
-                    .map(item -> {
-                        Map<String, Object> castedItem = Cast.of(item);
-                        castedItem.put(oneToManyMetaField.getRelatedField(), mainId);
-                        // Load OneToMany single row data
-                        return handlePredefinedData(oneToManyMetaField.getRelatedModel(), castedItem);
-                    })
-                    .toList();
             // Delete Many side data but retain those that appear in the predefined data file.
-            Filters deleteFilters = new Filters().eq(oneToManyMetaField.getRelatedField(), mainId);
+            Filters deleteFilters = new Filters().eq(relation.getRelatedField(), mainId);
             if (!manyIds.isEmpty()) {
                 deleteFilters.notIn(ID, manyIds);
             }
-            modelService.deleteByFilters(oneToManyMetaField.getRelatedModel(), deleteFilters);
+            modelService.deleteByFilters(relation.getRelatedModel(), deleteFilters);
         });
     }
 
@@ -297,7 +211,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * Determine whether to create or update predefined data based on whether the main model preId already exists.
      *
      * @param model Model name
-     * @param row Predefined data record
+     * @param row Predefined data record (main-model fields only)
      * @return Record ID created or updated
      */
     private Serializable createOrUpdateData(String model, Map<String, Object> row) {
@@ -306,25 +220,30 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             // The current data is frozen, and the data ID is returned directly
             return IdUtils.formatId(model, optionalPreData.get().getRowId());
         }
-        // Replace the preID of ManyToOne, OneToOne, and ManyToMany fields with the row ID
-        this.replaceReferencedPreIds(model, row);
+        // Resolve the preIds of ManyToOne, OneToOne, and ManyToMany fields to row IDs (returns a new
+        // map; the caller's row is left untouched).
+        Map<String, Object> resolved = resolveReferencedPreIds(model, row);
         if (optionalPreData.isEmpty()) {
-            // Create the data and return the data ID
-            String preId = (String) row.get(ID);
-            row.remove(ID);
-            Serializable rowId = modelService.createOne(model, row);
+            // The seed's `id` is the preId (tracking key). For an EXTERNAL_ID model it is ALSO the
+            // row's primary key (code-as-id), so it must stay in the row — IdProcessor
+            // requires a non-empty id for EXTERNAL_ID. For generated-id strategies it is tracking-only
+            // and removed so the strategy assigns the surrogate id.
+            String preId = ModelManager.getIdStrategy(model) == IdStrategy.EXTERNAL_ID
+                    ? (String) resolved.get(ID)
+                    : (String) resolved.remove(ID);
+            Serializable rowId = modelService.createOne(model, resolved);
             generatePreData(model, preId, rowId);
             return rowId;
         } else {
             SysPreData preData = optionalPreData.get();
             // Update the data and return the data ID
             Serializable rowId = IdUtils.formatId(model, preData.getRowId());
-            row.put(ID, rowId);
+            resolved.put(ID, rowId);
             // Clear other fields that do not appear in the predefined data
             Set<String> updatableStoredFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
-            updatableStoredFields.removeAll(row.keySet());
-            updatableStoredFields.forEach(field -> row.put(field, null));
-            boolean result = modelService.updateOne(model, row);
+            updatableStoredFields.removeAll(resolved.keySet());
+            updatableStoredFields.forEach(fieldName -> resolved.put(fieldName, null));
+            boolean result = modelService.updateOne(model, resolved);
             if (!result) {
                 boolean isExist = modelService.exist(model, rowId);
                 Assert.isTrue(isExist, "Updating predefined data for model {0} ({1}) failed " +
@@ -349,13 +268,16 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     }
 
     /**
-     * Replace the pre-defined ID of ManyToOne, OneToOne, and ManyToMany fields with the row ID.
+     * Resolve the preIds of ManyToOne, OneToOne, and ManyToMany fields to the bound row IDs, returning a
+     * NEW row map — the input {@code row} is left unmodified, so the caller owns the resolved copy.
      *
      * @param model Model name
      * @param row Predefined data record
+     * @return a copy of {@code row} with reference preIds replaced by row IDs
      */
-    private void replaceReferencedPreIds(String model, Map<String, Object> row) {
-        for (Map.Entry<String, Object> entry : row.entrySet()) {
+    private Map<String, Object> resolveReferencedPreIds(String model, Map<String, Object> row) {
+        Map<String, Object> resolved = new LinkedHashMap<>(row);
+        for (Map.Entry<String, Object> entry : resolved.entrySet()) {
             if (entry.getValue() == null) {
                 continue;
             }
@@ -378,6 +300,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 }
             }
         }
+        return resolved;
     }
 
     /**

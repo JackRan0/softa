@@ -1,5 +1,6 @@
 package io.softa.starter.metadata.signature;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.PrivateKey;
@@ -82,7 +83,7 @@ class SignatureVerificationFilterTest {
         request.setServerPort(443);
         request.setContent(body);
         byte[] canonical = CanonicalRequest.build("POST",
-                java.net.URI.create("https://runtime.example/upgrade/runtime/upgradeMetadata"), body, ts, nonce);
+                URI.create("https://runtime.example/upgrade/runtime/upgradeMetadata"), body, ts, nonce);
         request.addHeader(SignatureConstant.TIMESTAMP, Long.toString(ts));
         request.addHeader(SignatureConstant.NONCE, nonce);
         request.addHeader(SignatureConstant.SIGNATURE, sign(foreign.getPrivate(), canonical));
@@ -131,7 +132,7 @@ class SignatureVerificationFilterTest {
         request.setContent(body);
 
         byte[] canonical = CanonicalRequest.build("POST",
-                java.net.URI.create("https://runtime.example/upgrade/runtime/upgradeMetadata"),
+                URI.create("https://runtime.example/upgrade/runtime/upgradeMetadata"),
                 body, timestamp, nonce);
         String signature = sign(keyPair.getPrivate(), canonical);
 
