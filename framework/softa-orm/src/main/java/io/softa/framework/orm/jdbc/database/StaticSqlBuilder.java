@@ -8,7 +8,6 @@ import java.util.stream.IntStream;
 import org.apache.commons.lang3.StringUtils;
 
 import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.base.utils.Cast;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.meta.MetaField;
@@ -74,7 +73,7 @@ public class StaticSqlBuilder {
         readSql.append(" FROM ").append(getTableName(modelName));
         appendIdSql(readSql, ids.size());
         // Add the id list to the SQL parameter list.
-        sqlParams.setArgs(Cast.of(ids));
+        sqlParams.setArgs(new ArrayList<>(ids));
         if (ModelManager.isMultiTenantControl(modelName)) {
             // Add tenantId condition
             readSql.append(" AND tenant_id = ? ");
@@ -143,7 +142,7 @@ public class StaticSqlBuilder {
         appendIdSql(deleteSql, ids.size());
         // SQL params
         SqlParams sqlParams = new SqlParams(deleteSql.toString());
-        sqlParams.setArgs(Cast.of(ids));
+        sqlParams.setArgs(new ArrayList<>(ids));
         return sqlParams;
     }
 

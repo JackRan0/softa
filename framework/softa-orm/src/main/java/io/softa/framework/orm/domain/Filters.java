@@ -651,6 +651,8 @@ public class Filters implements Serializable {
         return this.add(field, Operator.CHILD_OF, idPaths);
     }
 
+
+    /**
     /**
      * Determine if the filters object is empty, including null, []
      *
@@ -658,7 +660,10 @@ public class Filters implements Serializable {
      * @return is empty or not
      */
     public static boolean isEmpty(Filters filters) {
-        if (filters == null || EMPTY.equals(filters.getType()) || (filters.getFilterUnit() == null && filters.getChildren().isEmpty())) {
+        if (filters == null) {
+            return true;
+        }
+        if (EMPTY.equals(filters.getType()) || (filters.getFilterUnit() == null && filters.getChildren().isEmpty())) {
             return true;
         } else if (filters.getChildren().size() == 1) {
             return Filters.isEmpty(filters.getChildren().getFirst());
@@ -798,7 +803,8 @@ public class Filters implements Serializable {
     private Filters combine(LogicOperator logicOperator, Filters filters) {
         if (Filters.isEmpty(filters)) {
             return this;
-        } else if (EMPTY.equals(this.getType())) {
+        }
+        if (EMPTY.equals(this.getType())) {
             this.setType(FilterType.TREE);
             this.setLogicOperator(logicOperator);
             this.children.add(filters);
@@ -826,7 +832,7 @@ public class Filters implements Serializable {
      * @return new filters object after combined
      */
     private static Filters combine(LogicOperator logicOperator, Filters filters1, Filters filters2, Filters... filtersArray) {
-        // Just combine filters which are not empty.
+        // Combine filters which are not empty.
         List<Filters> filtersList = new ArrayList<>();
         if (!Filters.isEmpty(filters1)) {
             filtersList.add(filters1);
@@ -834,7 +840,8 @@ public class Filters implements Serializable {
         if (!Filters.isEmpty(filters2)) {
             filtersList.add(filters2);
         }
-        filtersList.addAll(Arrays.stream(filtersArray).filter(f -> !Filters.isEmpty(f)).toList());
+        filtersList.addAll(Arrays.stream(filtersArray)
+                .filter(f -> !Filters.isEmpty(f)).toList());
         // If all filters are empty, return null.
         if (filtersList.isEmpty()) {
             return null;

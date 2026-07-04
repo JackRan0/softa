@@ -79,6 +79,10 @@ public class FlexQuery implements Serializable {
     // SubQuery parameters: field name - subQuery
     private SubQueries subQueries;
 
+    // Controls which built-in WHERE filters apply (soft-delete, active control).
+    // Tenant filtering is always enforced and cannot be bypassed via this field.
+    private FilterControl filterControl = new FilterControl();
+
     /**
      * Construct a FlexQuery object based on Fields.
      *

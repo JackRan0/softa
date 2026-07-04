@@ -12,9 +12,11 @@ import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Cast;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.SubQuery;
+import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.FieldType;
@@ -138,10 +140,18 @@ public class XToOneGroupProcessor extends BaseProcessor {
                 filters.in(ModelConstant.SOFT_DELETED_FIELD, List.of(true, false));
             }
             FlexQuery relatedFlexQuery = new FlexQuery(this.expandFields, filters);
+            relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
             if (flexQuery != null) {
                 relatedFlexQuery.setConvertType(flexQuery.getConvertType());
+                // FIX: propagate nested subQueries so the related model can resolve its own relational subQueries
+                SubQuery currentSubQuery = flexQuery.extractSubQuery(metaField.getFieldName());
+                if (currentSubQuery != null && !CollectionUtils.isEmpty(currentSubQuery.getSubQueries())) {
+                    SubQueries nestedSubQueries = new SubQueries();
+                    nestedSubQueries.setQueryMap(currentSubQuery.getSubQueries());
+                    relatedFlexQuery.setSubQueries(nestedSubQueries);
+                }
             }
-            List<Map<String, Object>> relatedRows= ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery);
+            List<Map<String, Object>> relatedRows = ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery);
             relatedRows.forEach(row -> relatedValueMap.put((Serializable) row.get(ModelConstant.ID), row));
         }
         return relatedValueMap;

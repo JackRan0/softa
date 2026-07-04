@@ -34,9 +34,9 @@ public class ExportTemplateController extends EntityController<ExportTemplateSer
     @Operation(summary = "listByModel", description = "List all export templates of the specified model")
     @PostMapping(value = "/listByModel")
     public ApiResponse<List<ExportTemplate>> listByModel(@RequestParam String modelName) {
-        Set<String> childModels = ModelManager.getChildModels(modelName);
-        childModels.add(modelName);
-        Filters filters = new Filters().in(ExportTemplate::getModelName, childModels);
+        Set<String> modelNames = ModelManager.getChildModels(modelName);
+        modelNames.add(modelName);
+        Filters filters = new Filters().in(ExportTemplate::getModelName, modelNames);
         FlexQuery flexQuery = new FlexQuery(filters).expandSubQuery(ExportTemplate::getExportFields);
         List<ExportTemplate> templates = service.searchList(flexQuery);
         return ApiResponse.success(templates);

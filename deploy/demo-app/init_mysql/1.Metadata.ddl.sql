@@ -1007,26 +1007,6 @@ CREATE TABLE design_view(
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design View';
 
-CREATE TABLE design_navigation(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Name' ,
-    type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Type' ,
-    code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Code' ,
-    model_name VARCHAR(256)   DEFAULT '' COMMENT 'Model Name' ,
-    parent_id BIGINT(32)    COMMENT 'Parent Navigation' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
-    filter VARCHAR(256)   DEFAULT '' COMMENT 'Default filters;The default filters at the menu level.' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Navigation';
-
 CREATE TABLE design_model_index(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     app_id BIGINT(32)   DEFAULT 0 COMMENT 'APP ID' ,
@@ -1542,3 +1522,26 @@ CREATE TABLE metadata_upgrade_history(
 
 ALTER TABLE metadata_upgrade_history ADD UNIQUE INDEX uniq_metadata_upgrade_history_callback_token (callback_token);
 ALTER TABLE metadata_upgrade_history ADD INDEX idx_metadata_upgrade_history_status_start_time (status, start_time);
+
+CREATE TABLE sys_sequence(
+                             id BIGINT(32) NOT NULL   COMMENT 'ID' ,
+                             tenant_id BIGINT(32)    COMMENT 'Tenant ID' ,
+                             code VARCHAR(32) NOT NULL  DEFAULT '' COMMENT 'Sequence Code;e.g. "Employee.code"' ,
+                             template VARCHAR(64)    COMMENT 'Template;Format template, e.g. EMP-{yyyy}-{seq:5}' ,
+                             start_value BIGINT(32)    COMMENT 'Start Value;First number after each reset (default 1)' ,
+                             increment_step TINYINT(4)    COMMENT 'Increment Step;Step size' ,
+                             current_value BIGINT(32)    COMMENT 'Current Value;Last allocated value; next = current_value + step' ,
+                             reset_cadence VARCHAR(64)    COMMENT 'Reset Cadence' ,
+                             last_reset_key VARCHAR(32)    COMMENT 'Last Reset Key' ,
+                             mode VARCHAR(64)    COMMENT 'Mode' ,
+                             description VARCHAR(128)    COMMENT 'Description' ,
+                             created_id BIGINT(32)    COMMENT 'Created ID' ,
+                             created_time DATETIME    COMMENT 'Created Time' ,
+                             created_by VARCHAR(64)    COMMENT 'Created By' ,
+                             updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+                             updated_time DATETIME    COMMENT 'Updated Time' ,
+                             updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+                             PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Sys Sequence';
+
+ALTER TABLE sys_sequence ADD INDEX idx_tenant_code (tenant_id,code);

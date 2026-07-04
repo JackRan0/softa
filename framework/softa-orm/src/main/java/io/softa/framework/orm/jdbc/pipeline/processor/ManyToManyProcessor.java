@@ -11,6 +11,7 @@ import org.springframework.util.CollectionUtils;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.SubQueries;
@@ -261,6 +262,8 @@ public class ManyToManyProcessor extends BaseProcessor {
         List<Serializable> ids = rows.stream().map(r -> (Serializable) r.get(ModelConstant.ID)).collect(Collectors.toList());
         Set<String> fields = Sets.newHashSet(ModelConstant.ID, metaField.getJoinLeft(), metaField.getJoinRight());
         FlexQuery previousFlexQuery = new FlexQuery(fields).where(new Filters().in(metaField.getJoinLeft(), ids));
+        // Patch diffing must see soft-deleted / inactive join rows too.
+        previousFlexQuery.setFilterControl(FilterControl.bypassAll());
         List<Map<String, Object>> previousMToMRows = ReflectTool.searchList(metaField.getJoinModel(), previousFlexQuery);
         previousMToMRows.forEach(row -> {
             Serializable id = (Serializable) row.get(ModelConstant.ID);
@@ -321,13 +324,18 @@ public class ManyToManyProcessor extends BaseProcessor {
         filters.and(subQuery.getFilters());
         // count subQuery on the join model
         FlexQuery joinModelFlexQuery = new FlexQuery(List.of(metaField.getJoinLeft()), filters);
+        joinModelFlexQuery.setFilterControl(FilterControl.bypassAll());
         // Count is automatically added during the groupBy operation
         joinModelFlexQuery.setGroupBy(metaField.getJoinLeft());
         List<Map<String, Object>> countRows = ReflectTool.searchList(metaField.getJoinModel(), joinModelFlexQuery);
+        // COUNT(*) comes back from MySQL JDBC as Long. The previous
+        // `(Integer)` cast threw ClassCastException — see the matching fix
+        // in OneToManyProcessor.expandRowsWithRelatedCount for the
+        // explanation.
         Map<Serializable, Integer> countMap = countRows.stream()
                 .collect(Collectors.toMap(
                         row -> (Serializable) row.get(metaField.getJoinLeft()),
-                        row -> (Integer) row.get(ModelConstant.COUNT)));
+                        row -> ((Number) row.get(ModelConstant.COUNT)).intValue()));
         rows.forEach(row -> row.put(fieldName, countMap.get((Serializable) row.get(ModelConstant.ID))));
     }
 
@@ -408,6 +416,7 @@ public class ManyToManyProcessor extends BaseProcessor {
         Filters joinFilters = Filters.of(joinLeft, Operator.IN, mainModelIds);
         Set<String> joinModelFields = Sets.newHashSet(joinLeft, joinRight);
         FlexQuery joinModelFlexQuery = new FlexQuery(joinModelFields, joinFilters);
+        joinModelFlexQuery.setFilterControl(FilterControl.bypassAll());
         if (subQuery != null && subQuery.getTopN() != null) {
             if (mainModelIds.size() == 1) {
                 // If the size of mainModelIds is 1, get the limited number of records directly.
@@ -450,6 +459,7 @@ public class ManyToManyProcessor extends BaseProcessor {
             }
         }
         rightFlexQuery.setConvertType(flexQuery.getConvertType());
+        rightFlexQuery.setFilterControl(FilterControl.bypassAll());
         return ReflectTool.searchList(rightModel, rightFlexQuery);
     }
 

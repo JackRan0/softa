@@ -117,6 +117,11 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     @Transactional(rollbackFor = Exception.class)
     public List<K> createList(String modelName, List<Map<String, Object>> rows) {
         Assert.allNotNull(rows, "The creation data for model {0} must not be empty: {1}", modelName, rows);
+        // Layer D — reject writes touching blocked-for-write fields.
+        // Runs before any DB work; PermissionException aborts the whole batch.
+        for (Map<String, Object> row : rows) {
+            permissionService.checkWritePayload(modelName, row);
+        }
         this.checkTenantId(modelName, rows);
         // Extracts a set of assigned fields for checking field-level permissions
         Set<String> assignedFields = new HashSet<>();
@@ -150,7 +155,29 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     @Transactional(rollbackFor = Exception.class)
     public List<Map<String, Object>> createListAndFetch(String modelName, List<Map<String, Object>> rows, ConvertType convertType) {
         List<K> ids = this.createList(modelName, rows);
-        return this.getRowsWithoutPermissionCheck(modelName, ids, Collections.emptyList(), convertType);
+        // Layer C PRE: align with searchList / getByIds. filterReadableFields
+        // expands the empty request to the model's stored fields minus blocked
+        // ones, so SQL only SELECTs columns the caller is allowed to read.
+        List<String> fields = readableFieldsForFetch(modelName);
+        List<Map<String, Object>> result = this.getRowsWithoutPermissionCheck(modelName, ids, fields, convertType);
+        // Layer C POST: safety net for cascade child objects PRE can't reach
+        // (nested Map<String,Object> under a different model's SFS rules).
+        permissionService.maskResponseValue(modelName, result, AccessType.READ);
+        return result;
+    }
+
+    /**
+     * Compute the readable-field list for {@code *AndFetch} response projection.
+     * Empty (or unfiltered) result means "no blocked columns" — pass through
+     * as {@code emptyList()} to preserve the framework's "SELECT all stored
+     * fields" default on the fetch step. Otherwise return the sanitized subset
+     * so blocked columns never leave the DB.
+     */
+    private List<String> readableFieldsForFetch(String modelName) {
+        Collection<String> readable = permissionService.filterReadableFields(
+                modelName, Collections.emptyList(), AccessType.READ);
+        if (readable == null || readable.isEmpty()) return Collections.emptyList();
+        return new ArrayList<>(readable);
     }
 
     /**
@@ -232,6 +259,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         List<String> fields = new ArrayList<>(List.of(ModelConstant.ID));
         fields.addAll(uniqueConstraints);
         FlexQuery flexQuery = new FlexQuery(fields, filters);
+        // Unique-constraint dedup must see soft-deleted / inactive rows too,
+        // otherwise INSERTs can collide on a "hidden" existing row.
+        flexQuery.setFilterControl(FilterControl.bypassAll());
         List<Map<String, Object>> dbRows = this.searchList(modelName, flexQuery);
         Map<UniqueKey, Map<String, Object>> dbRowKeyMap = new HashMap<>();
         for (Map<String, Object> dbRow : dbRows) {
@@ -407,6 +437,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         FlexQuery flexQuery = new FlexQuery(fields, Filters.of(ModelConstant.ID, Operator.IN, ids));
         flexQuery.setSubQueries(subQueries);
         flexQuery.setConvertType(convertType);
+        // Lookup-by-id is authorized by PermissionService.checkIdsAccess below;
+        // soft-delete / active-control are query-scope defaults, not access control.
+        flexQuery.setFilterControl(FilterControl.bypassAll());
         List<Map<String, Object>> rows = this.searchList(modelName, flexQuery);
         List<Serializable> resultIds = rows.stream().map(row -> (Serializable) row.get(ModelConstant.ID)).toList();
         if (ids.size() > resultIds.size()) {
@@ -565,6 +598,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         List<String> fields = Arrays.asList(ModelConstant.ID, ModelConstant.EXTERNAL_ID);
         Filters filters = new Filters().in(ModelConstant.EXTERNAL_ID, externalIds);
         FlexQuery flexQuery = new FlexQuery(fields, filters);
+        // ExternalId mapping must resolve to soft-deleted / inactive rows too,
+        // otherwise import re-syncs would create duplicate rows for the same external id.
+        flexQuery.setFilterControl(FilterControl.bypassAll());
         List<Map<String, Object>> rows = this.searchList(modelName, flexQuery);
         return rows.stream().collect(Collectors.toMap(
                 row -> (Serializable) row.get(ModelConstant.EXTERNAL_ID),
@@ -669,6 +705,10 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean updateList(String modelName, List<Map<String, Object>> rows) {
+        // Layer D — reject writes touching blocked-for-write fields.
+        for (Map<String, Object> row : rows) {
+            permissionService.checkWritePayload(modelName, row);
+        }
         Set<String> updatableFields = ModelManager.getModelUpdatableFields(modelName);
         if (ContextHolder.getContext().isSkipAutoAudit()) {
             updatableFields.addAll(ModelManager.getModel(modelName).getAuditUpdateFields());
@@ -733,7 +773,11 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     public List<Map<String, Object>> updateListAndFetch(String modelName, List<Map<String, Object>> rows, ConvertType convertType) {
         this.updateList(modelName, rows);
         List<K> ids = Cast.of(rows.stream().map(r -> r.get(ModelConstant.ID)).collect(Collectors.toList()));
-        return this.getRowsWithoutPermissionCheck(modelName, ids, Collections.emptyList(), convertType);
+        List<String> fields = readableFieldsForFetch(modelName);
+        List<Map<String, Object>> result = this.getRowsWithoutPermissionCheck(modelName, ids, fields, convertType);
+        // Layer C PRE + POST — see createListAndFetch.
+        permissionService.maskResponseValue(modelName, result, AccessType.READ);
+        return result;
     }
 
     /**
@@ -1010,7 +1054,11 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     @Transactional(rollbackFor = Exception.class)
     public List<Map<String, Object>> copyByIdsAndFetch(String modelName, List<K> ids, ConvertType convertType) {
         List<K> newIds = this.copyByIds(modelName, ids);
-        return this.getRowsWithoutPermissionCheck(modelName, newIds, Collections.emptyList(), convertType);
+        List<String> fields = readableFieldsForFetch(modelName);
+        List<Map<String, Object>> result = this.getRowsWithoutPermissionCheck(modelName, newIds, fields, convertType);
+        // Layer C PRE + POST — see createListAndFetch.
+        permissionService.maskResponseValue(modelName, result, AccessType.READ);
+        return result;
     }
 
     /**
@@ -1043,6 +1091,14 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     public List<Map<String, Object>> searchList(String modelName, FlexQuery flexQuery) {
+        // Silently drop blocked-for-read fields from the request (Layer C PRE).
+        // Runs BEFORE checkModelFieldsAccess so users see the fields they DO
+        // have access to, rather than 403-ing on any single blocked field.
+        Collection<String> filteredFields = permissionService.filterReadableFields(
+                modelName, flexQuery.getFields(), AccessType.READ);
+        if (filteredFields != flexQuery.getFields()) {
+            flexQuery.setFields(filteredFields);
+        }
         // Check model and field level permissions
         permissionService.checkModelFieldsAccess(modelName, flexQuery.getFields(), AccessType.READ);
         // Append timeline filters
@@ -1055,6 +1111,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             log.error("Model {} `searchList` exceeds the limit of {}, please switch to `searchPage`: {}",
                     modelName, BaseConstant.MAX_BATCH_SIZE, flexQuery);
         }
+        // Mask blocked-field values on the response (Layer C POST).
+        // Recurses into cascade child rows under their own model's rules.
+        permissionService.maskResponseValue(modelName, rows, AccessType.READ);
         return rows;
     }
 
@@ -1110,6 +1169,12 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     public Page<Map<String, Object>> searchPage(String modelName, FlexQuery flexQuery, Page<Map<String, Object>> page) {
+        // Silently drop blocked-for-read fields from the request (Layer C PRE)
+        Collection<String> filteredFields = permissionService.filterReadableFields(
+                modelName, flexQuery.getFields(), AccessType.READ);
+        if (filteredFields != flexQuery.getFields()) {
+            flexQuery.setFields(filteredFields);
+        }
         // Check model and field level permissions
         permissionService.checkModelFieldsAccess(modelName, flexQuery.getFields(), AccessType.READ);
         // Append timeline filters
@@ -1117,7 +1182,10 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         // Append permission data range filters
         filters = permissionService.appendScopeAccessFilters(modelName, filters);
         flexQuery.setFilters(filters);
-        return jdbcService.selectByPage(modelName, flexQuery, page);
+        Page<Map<String, Object>> result = jdbcService.selectByPage(modelName, flexQuery, page);
+        // Mask blocked-field values on the response (Layer C POST)
+        permissionService.maskResponseValue(modelName, result, AccessType.READ);
+        return result;
     }
 
     /**

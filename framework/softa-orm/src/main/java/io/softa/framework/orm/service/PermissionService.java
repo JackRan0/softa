@@ -90,4 +90,92 @@ public interface PermissionService {
      * @return merged filter conditions
      */
     Filters appendScopeAccessFilters(String model, Filters originalFilters);
+
+    /**
+     * Silently drop blocked-for-{@code accessType} fields from the caller's
+     * requested field set. Used inside read entry points
+     * ({@code searchList}/{@code searchPage}/etc.) before the SELECT clause
+     * is built, so the DB never returns blocked columns.
+     *
+     * <p>Complements — and should be invoked BEFORE —
+     * {@link #checkModelFieldsAccess}: {@code filter} returns a sanitized
+     * subset without throwing; {@code checkModelFieldsAccess} then
+     * verifies the sanitized subset. Together they let users see the
+     * fields they DO have access to, rather than 403-ing on any single
+     * blocked field.
+     *
+     * <p>Default no-op returns {@code requested} unchanged.
+     *
+     * @param model       model name
+     * @param requested   fields the caller asked for (may be empty →
+     *                    "all stored fields" — implementations decide
+     *                    whether to expand here or downstream)
+     * @param accessType  usually {@link AccessType#READ}
+     * @return the sanitized set; never null; may equal {@code requested}
+     *         if nothing is blocked.
+     */
+    default Collection<String> filterReadableFields(String model,
+                                                     Collection<String> requested,
+                                                     AccessType accessType) {
+        return requested;
+    }
+
+    /**
+     * Mask blocked-field values on a response value in place, recursively.
+     * Called at the tail of every read entry point in
+     * {@code ModelServiceImpl}; complements
+     * {@link #filterReadableFields} (which prevents blocked columns from
+     * being SELECTed at all).
+     *
+     * <p>{@code filterReadableFields} + {@code checkModelFieldsAccess}
+     * cover only the top-level requested projection; cascaded child
+     * objects (e.g. {@code Employee.department.name} on a fetch of
+     * Employee) can only be masked after the query returns because their
+     * blocked-field set belongs to a different model. This method is the
+     * one that recurses into nested cascade objects.
+     *
+     * <p>Expected to handle these shapes without unwrapping errors:
+     * {@link java.util.Optional}, {@link java.util.Collection},
+     * {@code io.softa.framework.orm.domain.Page}, cascade nested
+     * {@code Map<String,Object>}, and pass-through for POJO / primitive
+     * / null returns.
+     *
+     * <p>Default no-op returns the value unchanged.
+     *
+     * @return the (potentially masked in place) same reference — the
+     *         return exists so implementations can substitute a wrapping
+     *         type if they need to.
+     */
+    default <T> T maskResponseValue(String model, T value, AccessType accessType) {
+        return value;
+    }
+
+    /**
+     * Reject writes touching blocked-for-write fields in the payload map.
+     * Called by every write entry point in {@code ModelServiceImpl}
+     * ({@code createOne}/{@code createList}/{@code updateOne}/
+     * {@code updateList}/{@code updateByFilter}/{@code createOrUpdate}/etc.)
+     * before the row is written.
+     *
+     * <p>Complementary to {@link #checkIdsFieldsAccess} — that one takes a
+     * pre-computed field-name set and existing row ids; this one takes
+     * the raw payload map so implementations can also inspect cascade
+     * nested writes (e.g. {@code {"department": {"name": "..."}}} on an
+     * Employee update). Implementations should call
+     * {@link #checkIdsFieldsAccess} first if row-level access is also
+     * needed, then this method for payload field-name check.
+     *
+     * <p>Throw {@code PermissionException} on violation.
+     *
+     * <p>Default no-op — business implementations override.
+     *
+     * @param model    model name
+     * @param payload  the write payload map — keys are field names being
+     *                 written, values are the new field values (may
+     *                 include cascade nested Maps for ToOne / ToMany
+     *                 fields)
+     */
+    default void checkWritePayload(String model, Map<String, Object> payload) {
+        // no-op default
+    }
 }

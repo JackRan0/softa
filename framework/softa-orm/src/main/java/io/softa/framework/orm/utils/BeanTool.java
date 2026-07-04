@@ -321,6 +321,11 @@ public class BeanTool {
     public static <T> Object convertValueForField(Class<T> entityClass, String fieldName, Class<?> fieldTypeClass, Object value) {
         if (value instanceof String strValue && Enum.class.isAssignableFrom(fieldTypeClass)) {
             value = formatEnumProperty(strValue, fieldTypeClass);
+        } else if (value instanceof String strValue && JsonNode.class.isAssignableFrom(fieldTypeClass)) {
+            // JDBC drivers return JSON / JSONB columns as raw String — parse
+            // through Jackson so entities declaring `JsonNode` fields get a
+            // proper tree rather than a CCE at BeanMap.put.
+            value = JsonUtils.stringToObject(strValue, JsonNode.class);
         } else if (value instanceof JsonNode jsonNode && DTOFieldObject.class.isAssignableFrom(fieldTypeClass)) {
             value = JsonUtils.jsonNodeToObject(jsonNode, fieldTypeClass);
         } else if (value instanceof List<?> valueList && !valueList.isEmpty()) {

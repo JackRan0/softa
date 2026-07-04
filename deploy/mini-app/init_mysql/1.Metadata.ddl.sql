@@ -386,7 +386,7 @@ CREATE TABLE sys_pre_data(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     model VARCHAR(64)    COMMENT 'Model Name' ,
     pre_id VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Predefined ID' ,
-    row_id BIGINT(32)    COMMENT 'Row Data ID' ,
+    row_id VARCHAR(128)    COMMENT 'Row Data ID (carries Long for auto-id models, String for ExternalID models)' ,
     frozen TINYINT(1)    COMMENT 'Frozen' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
@@ -399,25 +399,6 @@ CREATE TABLE sys_pre_data(
 
 
 ALTER TABLE sys_pre_data ADD UNIQUE INDEX unique_model_preid (model,pre_id);
-
-CREATE TABLE sys_navigation(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Name' ,
-    type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Type' ,
-    code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Code' ,
-    model_name VARCHAR(256)   DEFAULT '' COMMENT 'Model Name' ,
-    parent_id BIGINT(32)    COMMENT 'Parent Navigation' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
-    filter VARCHAR(256)   DEFAULT '' COMMENT 'Default filters;The default filters at the menu level.' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Navigation';
 
 CREATE TABLE sys_cron(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,

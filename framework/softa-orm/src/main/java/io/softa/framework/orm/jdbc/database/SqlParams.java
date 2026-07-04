@@ -20,6 +20,16 @@ public class SqlParams {
         this.sql = sql;
     }
 
+    /**
+     * Defensive copy. Callers occasionally pass immutable lists
+     * (e.g. {@code Collections.singletonList} via {@code ModelServiceImpl.deleteById}),
+     * and later builders {@link #addArgValue} additional params (tenantId, etc.) —
+     * mutating the caller's list would throw {@link UnsupportedOperationException}.
+     */
+    public void setArgs(List<Object> args) {
+        this.args = args == null ? new ArrayList<>() : args;
+    }
+
     public void addArgValue(Object value) {
         args.add(value);
     }

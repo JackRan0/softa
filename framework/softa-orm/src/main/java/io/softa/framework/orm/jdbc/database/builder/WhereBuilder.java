@@ -12,6 +12,7 @@ import io.softa.framework.base.security.EncryptUtils;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.FilterUnit;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
@@ -39,53 +40,58 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
         filters = this.handleActiveControl(filters);
         // Multi-tenant model, add tenant filtering conditions
         filters = this.handleMultiTenant(filters);
-        // filters
         if (!Filters.isEmpty(filters)) {
             sqlWrapper.where(handleFilters(filters));
         }
     }
 
     /**
-     * Update filters based on the softDelete config of the model.
-     * If the model is soft-deleted, and filters do not contain the `deleted` field,
-     * append the ["deleted", "=", true] filtering condition to filters.
+     * Append a `deleted = false` predicate when the model is soft-deleted.
+     * Two opt-out paths, both honored:
+     *   - Programmatic: {@link FilterControl#bypassSoftDelete()} on the FlexQuery
+     *   - Declarative: caller already references the soft-delete field in `filters`
+     *     (e.g. an admin "show deleted" UI passing `deleted = true`)
+     * Tenant isolation and permission filtering still apply in both cases.
      *
      * @param filters original filters
      * @return processed filters
      */
     private Filters handleSoftDeleted(Filters filters) {
+        if (flexQuery.getFilterControl().isSkipSoftDelete()) {
+            return filters;
+        }
         if (!ModelManager.isSoftDeleted(mainModelName)) {
-            // The model is not soft-deleted, return directly
             return filters;
         }
         String softDeleteField = ModelManager.getSoftDeleteField(mainModelName);
         if (Filters.containsField(filters, softDeleteField)) {
-            // The filters already contain the softDelete field, return directly
             return filters;
         }
         Filters deletedFilters = new Filters().eq(softDeleteField, false);
-        // Merge the original filters and the softDelete filters ["deleted", "=", true]
         return Filters.and(filters, deletedFilters);
     }
 
     /**
-     * Update filters based on the active control config of the model.
-     * If the model is active-controlled, and filters do not contain the `active` field,
-     * append the ["active", "=", true] filtering condition to filters.
+     * Append an `active = true` predicate when the model has active control.
+     * Two opt-out paths, both honored:
+     *   - Programmatic: {@link FilterControl#bypassActiveControl()} on the FlexQuery
+     *   - Declarative: caller already references the `active` field in `filters`
+     *     (e.g. an admin "show inactive" UI passing `active = false`)
+     * Tenant isolation and permission filtering still apply in both cases.
      *
      * @param filters original filters
      * @return processed filters
      */
     private Filters handleActiveControl(Filters filters) {
+        if (flexQuery.getFilterControl().isSkipActiveControl()) {
+            return filters;
+        }
         if (!ModelManager.isActiveControl(mainModelName)) {
-            // The model does not enable active control, return directly
             return filters;
         }
         if (Filters.containsField(filters, ModelConstant.ACTIVE_CONTROL_FIELD)) {
-            // The filters already contain the `active` field, return directly
             return filters;
         }
-        // Add active control filtering conditions
         Filters activeControlFilter = new Filters().eq(ModelConstant.ACTIVE_CONTROL_FIELD, true);
         return Filters.and(filters, activeControlFilter);
     }

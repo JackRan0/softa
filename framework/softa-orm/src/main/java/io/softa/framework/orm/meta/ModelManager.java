@@ -953,6 +953,43 @@ public class ModelManager {
     }
 
     /**
+     * Get the MetaField by model name and field name, returning null when either
+     * the model is not registered or the field does not exist.
+     * Useful for callers that need to opportunistically look up a field without
+     * tripping the strict {@link #validateModelField} guard.
+     *
+     * @param modelName model name
+     * @param fieldName field name
+     * @return MetaField, or null if not found
+     */
+    public static MetaField getModelFieldOrNull(String modelName, String fieldName) {
+        Map<String, MetaField> fields = modelFields().get(modelName);
+        return fields == null ? null : fields.get(fieldName);
+    }
+
+    /**
+     * Resolve the related model name for a relational FK field. Returns
+     * null for scalar fields, missing metadata, non-relational field types,
+     * or unknown models — callers can use this to short-circuit nested
+     * recursion (e.g. mask / write-guard descending into sub-objects).
+     *
+     * <p>Covers all four relational kinds via {@link FieldType#RELATED_TYPES}:
+     * ManyToOne / OneToOne / OneToMany / ManyToMany.
+     *
+     * @param modelName parent model name
+     * @param fieldName field name on the parent model
+     * @return related model name, or null when the field is not a relation
+     */
+    public static String resolveRelatedModel(String modelName, String fieldName) {
+        if (modelName == null || fieldName == null) return null;
+        if (!existModel(modelName)) return null;
+        MetaField mf = getModelFieldOrNull(modelName, fieldName);
+        if (mf == null || mf.getFieldType() == null) return null;
+        if (!FieldType.RELATED_TYPES.contains(mf.getFieldType())) return null;
+        return mf.getRelatedModel();
+    }
+
+    /**
      * Get the column name by model name and field name.
      *
      * @param modelName model name
@@ -1270,13 +1307,15 @@ public class ModelManager {
     }
 
     public static Optional<MetaField> getFieldByColumnName(String modelName, String columnName) {
+        // Read-time derived fields (dynamic cascaded / computed) have no physical column;
+        // their column_name may be null or blank, which must not match against any ResultSet column.
         return modelFields().get(modelName).values().stream()
-                .filter(f -> f.getColumnName().equals(columnName))
+                .filter(f -> columnName != null && columnName.equals(f.getColumnName()))
                 .findFirst();
     }
 
     public static Set<String> getChildModels(String modelName) {
         validateModel(modelName);
-        return modelMap().get(modelName).getChildModels();
+        return new HashSet<>(modelMap().get(modelName).getChildModels());
     }
 }

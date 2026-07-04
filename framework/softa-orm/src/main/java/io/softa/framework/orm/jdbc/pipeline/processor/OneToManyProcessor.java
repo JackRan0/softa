@@ -12,6 +12,7 @@ import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.Cast;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.SubQueries;
@@ -255,6 +256,9 @@ public class OneToManyProcessor extends BaseProcessor {
         List<Serializable> ids = rows.stream().map(r -> (Serializable) r.get(ModelConstant.ID)).collect(Collectors.toList());
         Set<String> fields = Sets.newHashSet(ModelConstant.ID, metaField.getRelatedField());
         FlexQuery previousFlexQuery = new FlexQuery(fields, Filters.of(metaField.getRelatedField(), Operator.IN, ids));
+        // Patch diffing must see soft-deleted / inactive children too, otherwise
+        // the computed createRows / deleteIds would be wrong.
+        previousFlexQuery.setFilterControl(FilterControl.bypassAll());
         List<Map<String, Object>> previousOToMRows = ReflectTool.searchList(metaField.getRelatedModel(), previousFlexQuery);
         return previousOToMRows.stream().collect(Collectors.groupingBy(
                 row -> (Serializable) row.get(metaField.getRelatedField()),
@@ -334,13 +338,19 @@ public class OneToManyProcessor extends BaseProcessor {
         filters.and(subQuery.getFilters());
         // count subQuery on the join model
         FlexQuery relatedFlexQuery = new FlexQuery(List.of(metaField.getRelatedField()), filters);
+        relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
         // Count is automatically added during the groupBy operation
         relatedFlexQuery.setGroupBy(metaField.getRelatedField());
         List<Map<String, Object>> countRows = ReflectTool.searchList(metaField.getRelatedModel(), relatedFlexQuery);
+        // COUNT(*) comes back from MySQL JDBC as Long. The previous
+        // `(Integer)` cast threw ClassCastException on rows whose count
+        // exceeded int width or whose JDBC driver typed BIGINT explicitly.
+        // Normalize via Number.intValue() — safe up to Integer.MAX_VALUE,
+        // which any real per-group count will never approach.
         Map<Serializable, Integer> relatedCountMap = countRows.stream()
                 .collect(Collectors.toMap(
                         row -> (Serializable) row.get(metaField.getRelatedField()),
-                        row -> (Integer) row.get(ModelConstant.COUNT)));
+                        row -> ((Number) row.get(ModelConstant.COUNT)).intValue()));
         rows.forEach(row -> row.put(fieldName, relatedCountMap.get((Serializable) row.get(ModelConstant.ID))));
     }
 
@@ -352,6 +362,7 @@ public class OneToManyProcessor extends BaseProcessor {
      */
     private List<Map<String, Object>> getRelatedRowsWithDisplayName(List<Serializable> mainModelIds) {
         FlexQuery relatedFlexQuery = new FlexQuery(new Filters().in(metaField.getRelatedField(), mainModelIds));
+        relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
         // Set the convert type to REFERENCE.
         relatedFlexQuery.setConvertType(ConvertType.REFERENCE);
         relatedFlexQuery.select(metaField.getRelatedField());
@@ -397,6 +408,7 @@ public class OneToManyProcessor extends BaseProcessor {
             }
         }
         relatedFlexQuery.setConvertType(flexQuery.getConvertType());
+        relatedFlexQuery.setFilterControl(FilterControl.bypassAll());
         // When get the related model rows of OneToMany field, the `relatedField` field of the related model is only
         // needed to get the ID for GroupBy, which might be a ManyToOne field defined in the related model.
         relatedFlexQuery.setKeepIdField(metaField.getRelatedField());

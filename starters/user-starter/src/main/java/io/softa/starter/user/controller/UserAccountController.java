@@ -1,7 +1,9 @@
 package io.softa.starter.user.controller;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,7 +20,12 @@ import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.annotation.DataMask;
+import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.service.CacheService;
+import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.framework.web.utils.CookieUtils;
@@ -27,6 +34,7 @@ import io.softa.starter.user.dto.UnlockAccountDTO;
 import io.softa.starter.user.dto.UnlockAccountsDTO;
 import io.softa.starter.user.dto.UserAccountDTO;
 import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.service.PermissionCacheInvalidator;
 import io.softa.starter.user.service.UserAccountService;
 
 /**
@@ -39,8 +47,69 @@ public class UserAccountController extends EntityController<UserAccountService, 
 
     private static final Logger log = LoggerFactory.getLogger(UserAccountController.class);
 
+    private static final String MODEL = "UserAccount";
+    private static final String ROLES_FIELD = "roles";
+
     @Autowired
     private CacheService cacheService;
+
+    @Autowired
+    private ModelService<Long> modelService;
+
+    @Autowired
+    private PermissionCacheInvalidator permissionCacheInvalidator;
+
+    /**
+     * Typed shadow of the generic {@code /UserAccount/updateOne}. The
+     * {@code roles} ManyToMany cascades into {@code user_role_rel} through the
+     * generic ORM write, which does NOT publish {@code UserRoleRelChangedEvent}
+     * — so a role change made by editing this form would otherwise leave the
+     * user's cached PermissionInfo stale until the 1h TTL. Body mirrors
+     * {@code ModelController.updateOne} (so non-roles updates are unchanged);
+     * we additionally evict this user when the payload touched roles. Spring
+     * routes here over the templated {@code /{modelName}/updateOne} (literal
+     * path is more specific).
+     */
+    @Operation(summary = "Update a UserAccount — evicts the user's cached permissions when roles change")
+    @PostMapping("/updateOne")
+    @DataMask
+    public ApiResponse<Boolean> updateOne(@RequestBody Map<String, Object> row) {
+        Assert.notNull(row.get("id"), "`id` cannot be null or missing when updating data!");
+        IdUtils.formatMapId(MODEL, row);
+        boolean ok = modelService.updateOne(MODEL, row);
+        evictIfRolesTouched(row);
+        return ApiResponse.success(ok);
+    }
+
+    @Operation(summary = "Update a UserAccount and fetch — evicts the user's cached permissions when roles change")
+    @PostMapping("/updateOneAndFetch")
+    @DataMask
+    public ApiResponse<Map<String, Object>> updateOneAndFetch(@RequestBody Map<String, Object> row) {
+        Assert.notEmpty(row, "The data to be updated cannot be empty!");
+        Assert.notNull(row.get("id"), "`id` cannot be null or missing when updating data!");
+        IdUtils.formatMapId(MODEL, row);
+        Map<String, Object> result = modelService.updateOneAndFetch(MODEL, row, ConvertType.REFERENCE);
+        evictIfRolesTouched(row);
+        return ApiResponse.success(result);
+    }
+
+    /**
+     * A UserAccount write only affects that one user's PermissionInfo, so evict
+     * exactly that user when the payload carried the {@code roles} field. No-op
+     * for non-roles updates (pure pass-through, matching the generic endpoint).
+     * Runs after the update call returns (its own transaction has committed),
+     * so there's no pre-commit stale-reload race.
+     */
+    private void evictIfRolesTouched(Map<String, Object> row) {
+        if (!row.containsKey(ROLES_FIELD)) return;
+        Object idObj = row.get("id");
+        Long userId = idObj instanceof Number n ? n.longValue()
+                : idObj != null ? Long.valueOf(idObj.toString()) : null;
+        if (userId == null) return;
+        Long tenantId = ContextHolder.getContext() == null ? null
+                : ContextHolder.getContext().getTenantId();
+        permissionCacheInvalidator.evictBatch(tenantId, Set.of(userId));
+    }
 
     @PostMapping("/logout")
     public ApiResponse<Void> logout(HttpServletRequest request, HttpServletResponse response) {

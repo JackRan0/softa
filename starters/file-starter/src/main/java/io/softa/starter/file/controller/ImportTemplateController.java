@@ -13,7 +13,6 @@ import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
-import io.softa.starter.file.entity.ExportTemplate;
 import io.softa.starter.file.entity.ImportTemplate;
 import io.softa.starter.file.service.ImportService;
 import io.softa.starter.file.service.ImportTemplateService;
@@ -38,9 +37,9 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
     @Operation(summary="listByModel", description = "List all import templates of the specified model")
     @PostMapping(value = "/listByModel")
     public ApiResponse<List<ImportTemplate>> listByModel(@RequestParam String modelName) {
-        Set<String> childModels = ModelManager.getChildModels(modelName);
-        childModels.add(modelName);
-        Filters filters = new Filters().in(ExportTemplate::getModelName, childModels);
+        Set<String> modelNames = ModelManager.getChildModels(modelName);
+        modelNames.add(modelName);
+        Filters filters = new Filters().in(ImportTemplate::getModelName, modelNames);
         FlexQuery flexQuery = new FlexQuery(filters).expandSubQuery(ImportTemplate::getImportFields);
         List<ImportTemplate> templates = service.searchList(flexQuery);
         return ApiResponse.success(templates);

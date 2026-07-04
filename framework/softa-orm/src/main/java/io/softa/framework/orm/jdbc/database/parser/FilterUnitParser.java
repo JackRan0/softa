@@ -251,7 +251,7 @@ public class FilterUnitParser {
         return condition;
     }
 
-    private static StringBuilder buildNativeTupleCondition(SqlWrapper sqlWrapper, List<String> fieldAliases,
+private static StringBuilder buildNativeTupleCondition(SqlWrapper sqlWrapper, List<String> fieldAliases,
                                                            Operator operator, List<List<?>> tuples) {
         StringBuilder condition = new StringBuilder("(")
                 .append(String.join(", ", fieldAliases))
