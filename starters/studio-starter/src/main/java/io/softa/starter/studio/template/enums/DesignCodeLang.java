@@ -5,12 +5,12 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.framework.orm.annotation.OptionItem;
-import io.softa.framework.orm.annotation.OptionSet;
+import io.softa.framework.base.annotation.OptionItem;
+import io.softa.framework.base.annotation.OptionSet;
 
 @Getter
 @AllArgsConstructor
-@OptionSet(label = "Design Code Lang")
+@OptionSet
 public enum DesignCodeLang {
     JAVA("Java", ".java"),
     RUST("Rust", ".rs"),

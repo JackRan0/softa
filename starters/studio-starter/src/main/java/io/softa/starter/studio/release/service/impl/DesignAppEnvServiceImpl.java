@@ -3,195 +3,281 @@ package io.softa.starter.studio.release.service.impl;
 import java.io.Serializable;
 import java.security.KeyPair;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.core.type.TypeReference;
+import org.springframework.util.CollectionUtils;
 
-import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
-import io.softa.framework.base.utils.Cast;
-import io.softa.framework.base.utils.DateUtils;
 import io.softa.framework.base.utils.JsonUtils;
-import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.domain.Orders;
-import io.softa.framework.orm.enums.AccessType;
-import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.web.signature.Ed25519Keys;
-import io.softa.starter.metadata.constant.MetadataConstant;
+import io.softa.starter.metadata.dto.MetaTable;
+import io.softa.starter.studio.meta.entity.*;
+import io.softa.starter.studio.release.connector.Connector;
+import io.softa.starter.studio.release.connector.ConnectorFactory;
+import io.softa.starter.studio.release.desired.*;
+import io.softa.starter.studio.release.dto.AggregateChangeReport;
 import io.softa.starter.studio.release.dto.DriftEnvelopeDTO;
 import io.softa.starter.studio.release.dto.DriftReportMapper;
-import io.softa.starter.studio.release.dto.ModelChangesDTO;
 import io.softa.starter.studio.release.dto.RowChangeDTO;
+import io.softa.starter.studio.release.entity.DesignActivity;
+import io.softa.starter.studio.release.entity.DesignApp;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
-import io.softa.starter.studio.release.entity.DesignAppEnvDrift;
-import io.softa.starter.studio.release.entity.DesignAppEnvSnapshot;
-import io.softa.starter.studio.release.entity.DesignAppVersion;
-import io.softa.starter.studio.release.enums.DesignAppEnvStatus;
-import io.softa.starter.studio.release.enums.DesignAppVersionStatus;
-import io.softa.starter.studio.release.enums.DesignAppVersionType;
-import io.softa.starter.studio.release.enums.DesignDriftCheckStatus;
-import io.softa.starter.studio.release.service.DesignAppEnvDriftService;
+import io.softa.starter.studio.release.entity.DesignSnapshot;
+import io.softa.starter.studio.release.enums.*;
+import io.softa.starter.studio.release.service.DesignActivityService;
 import io.softa.starter.studio.release.service.DesignAppEnvService;
-import io.softa.starter.studio.release.service.DesignAppEnvSnapshotService;
-import io.softa.starter.studio.release.service.DesignAppVersionService;
-import io.softa.starter.studio.release.upgrade.RemoteApiClient;
+import io.softa.starter.studio.release.service.DesignAppService;
+import io.softa.starter.studio.release.service.DesignSnapshotService;
 
 /**
  * DesignAppEnv Model Service Implementation.
  * <p>
- * Provides snapshot management, design-vs-runtime comparison, and runtime→design-time
- * drift import.
+ * Provides per-env publish (design→runtime converge), design-vs-runtime drift comparison, and
+ * runtime→design-time drift import.
  * <p>
- * Snapshot strategy: each successful deployment writes one snapshot row uniquely keyed by
- * {@code (appId, envId, deploymentId)}. The snapshot is built incrementally — the previous
- * snapshot is loaded as the baseline, then merged deployment changes are applied on top:
- * {@code currentSnapshot = latestSnapshot + mergedChanges}. Write-through uses
- * {@code createOrUpdate} so the operation is idempotent even if the upstream async listener
- * retries.
+ * Drift / publish baseline: there is no snapshot — both diff the env's live
+ * {@code design_*} rows directly against its runtime catalog by business key
+ * ({@link io.softa.starter.studio.release.desired.DesignAggregateDiffer}). The runtime keys by
+ * business code and never stores the design surrogate id, so an id-keyed snapshot↔runtime baseline
+ * was unsound and is retired.
  * <p>
- * Runtime-side reads always go through {@link RemoteApiClient}. The earlier
- * "local env" shortcut was removed because matching Spring active profiles against
- * {@code envType.name()} collided in practice — at scale many envs share the same type
- * or name, so the heuristic would occasionally short-circuit and read local metadata
- * that belongs to a different environment. See
- * {@code feedback_studio_always_remote_deploy.md} for the full incident context.
+ * Runtime-side reads/writes always go through the env's
+ * {@link io.softa.starter.studio.release.connector.Connector} (for a Softa runtime it wraps
+ * the signed {@code RemoteApiClient}). The earlier "local env" shortcut was removed because matching
+ * Spring active profiles against {@code envType.name()} collided in practice — at scale many envs share
+ * the same type or name, so the heuristic would occasionally short-circuit and read local metadata that
+ * belongs to a different environment. See {@code feedback_studio_always_remote_deploy.md} for the full
+ * incident context.
  */
 @Slf4j
 @Service
 public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Long> implements DesignAppEnvService {
 
-    /** Truncation bound for {@code errorMessage} so it matches the DB column width. */
-    private static final int ERROR_MESSAGE_MAX_LENGTH = 1024;
+    // The five per-env design meta-model names — used to sequence the workspace cascade-delete below.
+    private static final String DESIGN_MODEL = DesignModel.class.getSimpleName();
+    private static final String DESIGN_FIELD = DesignField.class.getSimpleName();
+    private static final String DESIGN_INDEX = DesignModelIndex.class.getSimpleName();
+    private static final String DESIGN_OPTION_SET = DesignOptionSet.class.getSimpleName();
+    private static final String DESIGN_OPTION_ITEM = DesignOptionItem.class.getSimpleName();
+    // Env-scope column — the cascade-delete filters an env's design_* rows by it.
+    private static final String ENV_ID = LambdaUtils.getAttributeName(DesignModel::getEnvId);
 
     /**
-     * Dedicated virtual-thread executor for the parallel drift fan-out.
-     * <p>
-     * {@link CompletableFuture#supplyAsync(java.util.function.Supplier)} without an
-     * explicit executor falls back to {@link java.util.concurrent.ForkJoinPool#commonPool()},
-     * which is a platform-thread pool capped by CPU count. For I/O-bound fan-out (remote
-     * metadata export per version-controlled model) that caps effective concurrency;
-     * a virtual-thread executor lets every subtask launch immediately and unmount its
-     * carrier during {@code Socket.read}, so all N RPCs fire in parallel.
-     * <p>
-     * Static because the executor holds no pooled resources — each task spawns a fresh
-     * virtual thread that terminates when the task returns, so there is nothing to
-     * shut down at bean destruction time.
+     * The five per-env {@code design_*} meta-models that make up an env's workspace, in
+     * <b>child→parent</b> order so {@link #deleteByIds} drops children before their parent. This is the
+     * same per-env design set {@link DesignEnvSource} loads and {@link DesignEnvCloner} clones.
      */
-    private static final Executor DRIFT_VIRTUAL_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
-
-    @Autowired
-    private DesignAppEnvSnapshotService snapshotService;
-
-    @Autowired
-    private DesignAppEnvDriftService driftService;
-
-    @Autowired
-    private RemoteApiClient remoteApiClient;
+    private static final List<String> DESIGN_WORKSPACE_MODELS_CHILD_FIRST =
+            List.of(DESIGN_FIELD, DESIGN_INDEX, DESIGN_OPTION_ITEM, DESIGN_MODEL, DESIGN_OPTION_SET);
 
     @Lazy
     @Autowired
-    private DesignAppVersionService appVersionService;
+    private DesignAppService appService;
 
     @Autowired
     private ModelService<Serializable> modelService;
 
+    @Autowired
+    private DesignEnvCloner envCloner;
+
+    @Autowired
+    private DesignEnvSource envSource;
+
+    @Autowired
+    private DesiredStateConverger converger;
+
+    @Autowired
+    private DesiredStateDeployService desiredStateDeployService;
+
+    @Autowired
+    private ConnectorFactory connectorFactory;
+
+    @Autowired
+    private DesignEnvMerger envMerger;
+
+    @Autowired
+    private DesignActivityService activityService;
+
+    @Autowired
+    private DesignSnapshotService snapshotService;
+
+    @Autowired
+    private DesignAggregateDiffer aggregateDiffer;
+
+    @Autowired
+    private DesignDriftImporter driftImporter;
+
+    // ----------------------------------------------------------------- delete (env + its design workspace)
+
     /**
-     * Take a snapshot of the expected runtime metadata state for the given environment.
-     * <p>
-     * Loads the most recent snapshot as the baseline (empty for first deployment), then
-     * applies {@code mergedChanges} (CREATE / UPDATE / DELETE) on top to produce the new
-     * full state. Each deployment stores its own snapshot row keyed by
-     * {@code (appId, envId, deploymentId)} — that triple is guarded by a UNIQUE constraint
-     * at the DB level, and persistence goes through {@code createOrUpdate} so re-runs of
-     * the same deployment id are idempotent instead of creating duplicates (e.g. if the
-     * async snapshot listener fires twice due to retries).
+     * Delete environment(s) together with their full per-env design workspace, in one transaction and
+     * children-before-parents (per-env design): an env and its {@code design_*} rows share a
+     * lifecycle, mirroring the {@code DesignModel} → field/index cascade in
+     * {@link io.softa.starter.studio.meta.service.impl.DesignModelServiceImpl#deleteByIds}.
      *
-     * @param envId         Environment ID
-     * @param deploymentId  Deployment ID that produced this snapshot
-     * @param mergedChanges the merged version changes that were deployed
+     * <p>{@code DesignAppEnv} is a hard-delete model; there is no DB foreign key from the {@code design_*}
+     * tables to the env and the ORM does not cascade {@code env_id}, so without this a deleted env left its
+     * models / fields / indexes / option-sets / items behind with a dangling {@code env_id}. Those orphans
+     * are silently excluded by the publish/merge differ ({@link DesignAggregateDiffer}) but never cleaned
+     * up, and they break per-env consumers that resolve the env from a design row — e.g.
+     * {@code DesignModelServiceImpl.previewDDL}, which throws once its env is gone.
+     *
+     * <p>A {@code protectedEnv} env is refused outright (the whole batch rolls back) — clearing the flag is
+     * the explicit opt-in before an env's workspace and its runtime binding (signing keypair, upgrade
+     * endpoint) can be torn down. The cascade is scoped by {@code env_id} — a globally unique distributed id
+     * that belongs to exactly one app — so it can never reach another env's rows.
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void takeSnapshot(Long envId, Long deploymentId, List<ModelChangesDTO> mergedChanges) {
-        DesignAppEnv appEnv = this.getById(envId)
-                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", envId));
+    public boolean deleteByIds(List<Long> ids) {
+        if (CollectionUtils.isEmpty(ids)) {
+            return super.deleteByIds(ids);
+        }
+        rejectProtectedEnvs(ids);
+        cascadeDeleteDesignWorkspace(ids);
+        return super.deleteByIds(ids);
+    }
 
-        // Load the latest snapshot as baseline (empty map for first deployment)
-        Map<String, List<Map<String, Object>>> baseline = findLatestSnapshotByEnvId(envId)
-                .map(DesignAppEnvSnapshot::getSnapshot)
-                .<Map<String, List<Map<String, Object>>>>map(node -> JsonUtils.jsonNodeToObject(node, new TypeReference<>() {}))
-                .orElseGet(LinkedHashMap::new);
-
-        // Apply mergedChanges on top of the baseline
-        applyChangesToBaseline(baseline, mergedChanges);
-
-        // Idempotent upsert keyed by (appId, envId, deploymentId). The matching UNIQUE index
-        // on design_app_env_snapshot prevents duplicate rows if this listener is invoked
-        // twice for the same deployment (e.g. async retry, replayed event).
-        DesignAppEnvSnapshot snapshot = new DesignAppEnvSnapshot();
-        snapshot.setAppId(appEnv.getAppId());
-        snapshot.setEnvId(envId);
-        snapshot.setDeploymentId(deploymentId);
-        snapshot.setSnapshot(JsonUtils.objectToJsonNode(baseline));
-        snapshotService.createOrUpdate(List.of(snapshot), List.of(
-                DesignAppEnvSnapshot::getAppId,
-                DesignAppEnvSnapshot::getEnvId,
-                DesignAppEnvSnapshot::getDeploymentId
-        ));
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean deleteById(Long id) {
+        return this.deleteByIds(Collections.singletonList(id));
     }
 
     /**
-     * Return the cached drift result for this env.
-     * <p>
-     * The expensive work (parallel RPC + row-level diff) runs in {@link #refreshDrift(Long)}
-     * — fired automatically once after every successful deployment and from the manual
-     * refresh endpoint; this method just reads the most recent cached record. Empty list
-     * means "no drift detected" or "drift has never been checked".
+     * Fail-closed guard: a {@code protectedEnv} env cannot be deleted until its flag is cleared. Throws on
+     * the first protected env in the batch, so one protected member aborts the whole delete before any row
+     * is removed. Non-existent ids are simply absent from the load (nothing to protect; the cascade still
+     * sweeps any rows that carry their {@code env_id}).
      */
-    @Override
-    public List<ModelChangesDTO> compareDesignWithRuntime(Long envId) {
-        Assert.notNull(envId, "envId must not be null");
-        return findDriftByEnvId(envId)
-                .map(DesignAppEnvDrift::getDriftContent)
-                .<List<ModelChangesDTO>>map(node -> JsonUtils.jsonNodeToObject(node, new TypeReference<>() {}))
-                .orElseGet(List::of);
+    private void rejectProtectedEnvs(List<Long> ids) {
+        for (DesignAppEnv env : this.getByIds(ids)) {
+            if (Boolean.TRUE.equals(env.getProtectedEnv())) {
+                throw new IllegalArgumentException(
+                        "Env {0} is protected and cannot be deleted; clear its protected flag first.",
+                        env.getName());
+            }
+        }
     }
 
+    /** Remove the envs' per-env {@code design_*} rows (children before parents), scoped by {@code envId}. */
+    private void cascadeDeleteDesignWorkspace(List<Long> ids) {
+        for (String designModel : DESIGN_WORKSPACE_MODELS_CHILD_FIRST) {
+            modelService.deleteByFilters(designModel, new Filters().in(ENV_ID, ids));
+        }
+    }
+
+    /**
+     * The deploy-direction design↔runtime diff for this env, computed <b>on demand</b> (no stored
+     * drift cache). Returns the {@link DesignAggregateDiffer} change set; empty when in sync.
+     * The expensive five-table runtime fan-out is fronted by the R5 checksum gate
+     * ({@link DesiredStateConverger#computeChanges} via {@link #computeDrift}).
+     * <p>
+     * Package-private (not on the {@link DesignAppEnvService} interface) — the only callers are
+     * {@link #applyDrift(Long)} and the same-package test. The UI's drift view goes through
+     * {@link #getDriftEnvelope(Long)}.
+     */
+    List<RowChangeDTO> compareDesignWithRuntime(Long envId) {
+        Assert.notNull(envId, "envId must not be null");
+        return computeDrift(loadEnv(envId));
+    }
+
+    /**
+     * Operator-perspective drift view for the UI, computed on demand. Reshapes the deploy-direction diff
+     * into expected/actual rows tagged with {@link io.softa.starter.studio.release.enums.DriftKind}. A
+     * runtime-unreachable / diff failure surfaces as a {@code FAILURE} envelope rather than propagating.
+     */
     @Override
     public DriftEnvelopeDTO getDriftEnvelope(Long envId) {
         Assert.notNull(envId, "envId must not be null");
-        return findDriftByEnvId(envId)
-                .map(this::toEnvelope)
-                .orElseGet(() -> DriftEnvelopeDTO.builder().envId(envId).build());
+        DesignAppEnv env = loadEnv(envId);
+        try {
+            List<RowChangeDTO> drift = computeDrift(env);
+            return DriftEnvelopeDTO.builder()
+                    .envId(envId)
+                    .checkStatus(DesignDriftCheckStatus.SUCCESS)
+                    .lastCheckedTime(LocalDateTime.now())
+                    .hasDrift(!drift.isEmpty())
+                    .reports(DriftReportMapper.toReport(drift))
+                    .build();
+        } catch (RuntimeException e) {
+            log.error("Drift check failed for env {}: {}", envId, e.getMessage(), e);
+            return DriftEnvelopeDTO.builder()
+                    .envId(envId)
+                    .checkStatus(DesignDriftCheckStatus.FAILURE)
+                    .errorMessage(e.getMessage())
+                    .lastCheckedTime(LocalDateTime.now())
+                    .build();
+        }
     }
 
-    private DriftEnvelopeDTO toEnvelope(DesignAppEnvDrift row) {
-        List<ModelChangesDTO> drift = row.getDriftContent() == null
-                ? List.of()
-                : JsonUtils.jsonNodeToObject(row.getDriftContent(), new TypeReference<>() {});
-        return DriftEnvelopeDTO.builder()
-                .envId(row.getEnvId())
-                .checkStatus(row.getCheckStatus())
-                .errorMessage(row.getErrorMessage())
-                .lastCheckedTime(row.getLastCheckedTime())
-                .hasDrift(Boolean.TRUE.equals(row.getHasDrift()))
-                .reports(DriftReportMapper.toReport(drift))
-                .build();
+    /** On-demand design↔runtime drift (the R5-gated business-key diff). No persistence. */
+    private List<RowChangeDTO> computeDrift(DesignAppEnv env) {
+        String appCode = resolveAppCode(env);
+        DesignRows design = envSource.load(env.getAppId(), env.getId());
+        return converger.computeChanges(connectorFactory.forEnv(env), appCode, design);
+    }
+
+    /**
+     * Runtime-drift preview: how the runtime has drifted from what was last deployed —
+     * <b>runtime vs the last PUBLISH snapshot</b> (not vs design). Returns an {@link AggregateChangeReport}
+     * reading base(snapshot) → after(runtime): a row only on the runtime is a drift-add, a row only in the
+     * snapshot is a drift-remove, a changed row carries before(snapshot)/after(runtime). Read-only, for the
+     * UI — deploy still converges to the live runtime; this is just "what changed out of band since the last
+     * deploy". An empty report when the env has never been published (no baseline). A physical (JDBC) runtime
+     * cannot observe option sets, so they are excluded (same option-set data-loss guard as reverse) rather
+     * than reported as removed. Orthogonal to {@link #compareDesignWithRuntime} (design↔runtime, the deploy-preview lens).
+     */
+    @Override
+    public AggregateChangeReport previewRuntimeDrift(Long envId) {
+        Assert.notNull(envId, "envId must not be null");
+        DesignAppEnv env = loadEnv(envId);
+        DesignRows base = lastPublishSnapshot(env.getId());
+        if (base == null) {
+            return new AggregateChangeReport(List.of());   // never deployed → no baseline to drift from
+        }
+        DesignRows runtime = connectorFactory.forEnv(env).readSchema(resolveAppCode(env));
+        // diff(desired=runtime, observed=snapshot): fullRow=runtime (after), previousValues=snapshot (before).
+        List<RowChangeDTO> drift = aggregateDiffer.diff(runtime, base);
+        if (env.getConnectorType() == ConnectorType.JDBC) {
+            drift = withoutOptionSets(drift);
+        }
+        return AggregateChangeReport.from(drift);
+    }
+
+    /** The {@link DesignRows} captured by this env's most recent succeeded PUBLISH, or {@code null} if none. */
+    private DesignRows lastPublishSnapshot(Long envId) {
+        Filters filters = new Filters()
+                .eq(DesignActivity::getEnvId, envId)
+                .eq(DesignActivity::getKind, DesignActivityKind.PUBLISH)
+                .eq(DesignActivity::getStatus, DesignActivityStatus.SUCCESS);
+        // DesignActivity is ordered id DESC (defaultOrder), so the first carrying a snapshot is the latest.
+        for (DesignActivity activity : activityService.searchList(filters)) {
+            if (activity.getSnapshotId() != null) {
+                return snapshotService.getById(activity.getSnapshotId())
+                        .map(snapshot -> JsonUtils.jsonNodeToObject(snapshot.getContent(), DesignRows.class))
+                        .orElse(null);
+            }
+        }
+        return null;
+    }
+
+    private DesignAppEnv loadEnv(Long envId) {
+        return this.getById(envId)
+                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", envId));
     }
 
     /**
@@ -220,65 +306,312 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
     }
 
     /**
-     * Overwrite design-time metadata with the current runtime state of this env.
-     * <p>
-     * Runs under the env deployment mutex so concurrent deploys and imports cannot
-     * interleave. {@code useCached=false} forces a fresh {@link #refreshDrift(Long)}
-     * inside the same transaction before applying; {@code useCached=true} trusts the
-     * last cached drift record (which may be stale if the runtime changed since the
-     * last check). No-op when the drift is empty, so it is safe to run against an
-     * env that is already in sync.
+     * Seed (clone) a target env's design from a source env (per-env design). Idempotent:
+     * refuses to clobber a target that already owns design rows. Source and target must share an app.
+     * The cloner mints fresh per-env ids, remaps parent FKs, and copies each source row's business key verbatim.
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void applyDrift(Long envId, boolean useCached) {
-        DesignAppEnv appEnv = this.getById(envId)
-                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", envId));
+    public int seedFromSource(Long targetEnvId, Long sourceEnvId) {
+        DesignAppEnv target = this.getById(targetEnvId)
+                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", targetEnvId));
+        DesignAppEnv source = this.getById(sourceEnvId)
+                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", sourceEnvId));
+        if (targetEnvId.equals(sourceEnvId)) {
+            throw new IllegalArgumentException("Source and target env must differ! {0}", targetEnvId);
+        }
+        if (!Objects.equals(target.getAppId(), source.getAppId())) {
+            throw new IllegalArgumentException(
+                    "Source env {0} and target env {1} belong to different apps.", sourceEnvId, targetEnvId);
+        }
 
-        acquireEnvLock(appEnv);
+        Long appId = target.getAppId();
+        // Idempotent / non-destructive: never clobber an env that already owns design rows.
+        if (envCloner.countModels(appId, targetEnvId) > 0) {
+            log.info("seedFromSource: env {} already has design rows — skipping seed from env {}.",
+                    targetEnvId, sourceEnvId);
+            return 0;
+        }
+        int created = envCloner.cloneEnv(appId, sourceEnvId, targetEnvId);
+        log.info("seedFromSource: cloned {} design row(s) from env {} into env {}.",
+                created, sourceEnvId, targetEnvId);
+        return created;
+    }
+
+    /**
+     * Merge {@code sourceEnvId}'s design into {@code targetEnvId} (Phase 3). Single
+     * transaction under the target env mutex ({@code MERGING}); converges the target to the source by
+     * business key via {@link DesignEnvMerger} and records a {@link DesignActivity} of kind {@code MERGE}.
+     * Design↔design only — no remote RPC — so a failure rolls back wholesale. A {@code null}/empty
+     * {@code selection} is a full merge.
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long merge(Long sourceEnvId, Long targetEnvId, MergeSelection selection) {
+        DesignAppEnv source = this.getById(sourceEnvId)
+                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", sourceEnvId));
+        DesignAppEnv target = this.getById(targetEnvId)
+                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", targetEnvId));
+        if (sourceEnvId.equals(targetEnvId)) {
+            throw new IllegalArgumentException("Source and target env must differ! {0}", targetEnvId);
+        }
+        if (!Objects.equals(source.getAppId(), target.getAppId())) {
+            throw new IllegalArgumentException(
+                    "Source env {0} and target env {1} belong to different apps.", sourceEnvId, targetEnvId);
+        }
+
+        acquireEnvLock(target, DesignAppEnvStatus.MERGING);
         try {
-            if (!useCached) {
-                refreshDrift(envId);
-            }
-            List<ModelChangesDTO> drift = compareDesignWithRuntime(envId);
-            if (drift.isEmpty()) {
-                // Still mint a synthetic version only when we have changes to record; a no-op
-                // import should not advance currentVersionId.
-                return;
-            }
-            // Require a baseline snapshot to exist so the post-import snapshot is a legal
-            // (appId, envId, deploymentId) row. For first-time import the baseline is an
-            // empty map by convention — applyInvertedDrift + applyChangesToBaseline both
-            // handle the empty case.
-            Map<String, List<Map<String, Object>>> baseline = findLatestSnapshotByEnvId(envId)
-                    .map(DesignAppEnvSnapshot::getSnapshot)
-                    .<Map<String, List<Map<String, Object>>>>map(node -> JsonUtils.jsonNodeToObject(node, new TypeReference<>() {}))
-                    .orElseGet(LinkedHashMap::new);
-
-            applyInvertedDriftToDesign(drift);
-
-            DesignAppVersion synthetic = createSyntheticVersion(appEnv);
-            appEnv.setCurrentVersionId(synthetic.getId());
-            this.updateOne(appEnv);
-
-            writeImportedSnapshot(appEnv, synthetic.getId(), baseline, drift);
-            clearDriftCache(appEnv);
+            DesignEnvMerger.MergeResult result = envMerger.merge(target.getAppId(), sourceEnvId, targetEnvId, selection);
+            Long mergeId = recordMerge(source, target, result);
+            log.info("merge: env {} -> env {} applied (+{} ~{} -{}).",
+                    sourceEnvId, targetEnvId, result.created(), result.updated(), result.deleted());
+            return mergeId;
         } finally {
-            releaseEnvLock(appEnv);
+            releaseEnvLock(target);
+        }
+    }
+
+    private Long recordMerge(DesignAppEnv source, DesignAppEnv target, DesignEnvMerger.MergeResult result) {
+        DesignActivity activity = activityService.start(
+                target.getAppId(), target.getId(), DesignActivityKind.MERGE, source.getId(), operatorId());
+        // changeSet = the applied per-row diff (with before/after), uniform with PUBLISH/IMPORT/REVERSE.
+        // detail = null: the created/updated/deleted counts are derivable from changeSet
+        // by op, so they are not stored (no cheaply-derived values).
+        activityService.succeed(activity.getId(),
+                JsonUtils.objectToJsonNode(result.changes()),
+                null,
+                snapshotDesign(activity.getId(), target));
+        return activity.getId();
+    }
+
+    /**
+     * Publish env {@code envId}'s design to its runtime ({@code publish(envId)}): converge the
+     * runtime catalog to the env's per-env design rows.
+     * <p>
+     * The diff is <b>business-key</b> design↔runtime ({@link DesignAggregateDiffer}), not surrogate-id —
+     * the runtime apply strips the design id and keys by business code, so the runtime never carries
+     * the design id. The change set drives rename-aware DDL + whole-aggregate overwrite shipped via
+     * {@code applyDesiredAggregates} (the shared apply half on {@link DesiredStateDeployService}).
+     * Renames currently degrade to drop+add — in-place rename is Phase 4 (recorded {@code old*Name}
+     * + a runtime-side rename UPDATE).
+     * <p>
+     * Orchestration: acquire the per-env mutex (CAS {@code STABLE}→{@code DEPLOYING}), open a
+     * {@link DesignActivity} of kind {@code PUBLISH}, run {@link #publishInternal} inline, then mark the
+     * activity {@code SUCCESS}/{@code FAILURE}; the mutex is released in a
+     * finally. NOT {@code @Transactional}: the mutex must stay committed for the remote apply and each
+     * transition commits eagerly (roll-forward; a retry re-converges).
+     */
+    @Override
+    public void publish(Long envId) {
+        DesignAppEnv env = this.getById(envId)
+                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", envId));
+        acquireEnvLock(env, DesignAppEnvStatus.DEPLOYING);
+        DesignActivity activity = activityService.start(
+                env.getAppId(), env.getId(), DesignActivityKind.PUBLISH, null, operatorId());
+        try {
+            PublishResult result = publishInternal(env);
+            activityService.succeed(activity.getId(),
+                    JsonUtils.objectToJsonNode(result.changes()),
+                    JsonUtils.objectToJsonNode(Map.of("mergedDdl", result.fullDdl())),
+                    snapshotDesign(activity.getId(), env));
+        } catch (RuntimeException e) {
+            log.error("Publish failed: envId={}, activityId={}", env.getId(), activity.getId(), e);
+            activityService.fail(activity.getId(), e.getMessage());
+            throw e;
+        } finally {
+            releaseEnvLock(env);
         }
     }
 
     /**
-     * Acquire the per-env mutex via compare-and-set on {@code envStatus}. The mutex is
-     * shared with the deployment path, so this will refuse to proceed while a deploy is
-     * in flight — import and deploy cannot be concurrent on the same env.
+     * Retry a FAILED publish by re-publishing its env. Operates on the
+     * {@link DesignActivity} audit record.
+     */
+    @Override
+    public void retryPublish(Long activityId) {
+        DesignActivity activity = activityService.getById(activityId)
+                .orElseThrow(() -> new IllegalArgumentException("Activity does not exist! {0}", activityId));
+        Assert.isEqual(activity.getKind(), DesignActivityKind.PUBLISH,
+                "Only PUBLISH activities can be retried! Kind: {0}", activity.getKind());
+        Assert.isEqual(activity.getStatus(), DesignActivityStatus.FAILURE,
+                "Only FAILURE activities can be retried! Status: {0}", activity.getStatus());
+        publish(activity.getEnvId());
+    }
+
+    /**
+     * Cancel a stuck (RUNNING) publish activity and release its env mutex. NO automatic
+     * rollback (roll-forward only) — an operator escape hatch for an env pinned in {@code DEPLOYING}.
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelPublish(Long activityId) {
+        DesignActivity activity = activityService.getById(activityId)
+                .orElseThrow(() -> new IllegalArgumentException("Activity does not exist! {0}", activityId));
+        Assert.isEqual(activity.getStatus(), DesignActivityStatus.RUNNING,
+                "Only RUNNING activities can be cancelled! Status: {0}", activity.getStatus());
+        activityService.cancel(activityId, "Cancelled by operator; no automatic rollback — revert runtime "
+                + "state manually if partial changes were committed before cancellation.");
+        Filters filter = new Filters().eq(DesignAppEnv::getId, activity.getEnvId());
+        DesignAppEnv update = new DesignAppEnv();
+        update.setEnvStatus(DesignAppEnvStatus.STABLE);
+        this.updateByFilter(filter, update);
+    }
+
+    /**
+     * Roll an env back to a prior activity's captured design: overwrite the env's
+     * per-env design from the activity's {@link DesignSnapshot} (committed under the env mutex), then
+     * {@link #publish} to converge the runtime. Two phases on purpose — the design overwrite must commit
+     * before publish does its remote I/O (publish runs outside any transaction).
+     */
+    @Override
+    public void restore(Long activityId) {
+        DesignActivity activity = activityService.getById(activityId)
+                .orElseThrow(() -> new IllegalArgumentException("Activity does not exist! {0}", activityId));
+        // Any succeeded activity that captured a snapshot is restorable: PUBLISH / MERGE /
+        // IMPORT / REVERSE all snapshot their post-op design; the snapshot is the restorable artifact.
+        Assert.isEqual(activity.getStatus(), DesignActivityStatus.SUCCESS,
+                "Only succeeded activities can be restored! Status: {0}", activity.getStatus());
+        Assert.notNull(activity.getSnapshotId(),
+                "Activity {0} has no snapshot to restore.", activityId);
+        DesignSnapshot snapshot = snapshotService.getById(activity.getSnapshotId())
+                .orElseThrow(() -> new IllegalArgumentException("Snapshot does not exist! {0}", activity.getSnapshotId()));
+        DesignRows design = JsonUtils.jsonNodeToObject(snapshot.getContent(), DesignRows.class);
+
+        DesignAppEnv env = loadEnv(activity.getEnvId());
+        acquireEnvLock(env);
+        try {
+            envCloner.replaceEnvDesign(env.getId(), design);
+        } finally {
+            releaseEnvLock(env);
+        }
+        // Converge the runtime to the restored design (records its own PUBLISH activity + snapshot).
+        publish(env.getId());
+    }
+
+    /** Capture the env's current per-env design ({@code DesignRows}) as this activity's restore snapshot. */
+    private Long snapshotDesign(Long activityId, DesignAppEnv env) {
+        return activityService.snapshot(activityId,
+                JsonUtils.objectToJsonNode(envSource.load(env.getAppId(), env.getId())));
+    }
+
+    /**
+     * The lock-free converge core: env-design ↔ runtime business-key diff → rename-aware DDL +
+     * incremental apply. Internal helper of {@link #publish(Long)} (its only caller), which already holds
+     * the env mutex. Returns the change set + rendered DDL for the activity audit record. Package-private
+     * (not on the service interface) — there is no external caller. Renames degrade to drop+add.
+     */
+    PublishResult publishInternal(DesignAppEnv env) {
+        String appCode = resolveAppCode(env);
+        DesignRows design = envSource.load(env.getAppId(), env.getId());
+        // The env's connector owns all runtime touch — the checksum gate, the schema read, the
+        // DDL dialect (Softa runtime → builtin annotation dialect, identical to the boot scanner), and the
+        // apply. Built once and threaded through the gate + the apply.
+        Connector connector = connectorFactory.forEnv(env);
+        List<RowChangeDTO> changes = converger.computeChanges(connector, appCode, design);
+        if (changes.isEmpty()) {
+            // Nothing to publish — interrupt loudly rather than record an empty no-op deployment.
+            throw new IllegalArgumentException(
+                    "Env {0} is already in sync with its runtime; there is nothing to publish.", env.getId());
+        }
+        DesiredStateDeployService.Applied applied =
+                desiredStateDeployService.applyToRuntime(env, appCode, connector, changes);
+        return new PublishResult(changes, applied.combinedDdl());
+    }
+
+    /** The change set + full rendered DDL produced by {@link #publishInternal} — internal audit carrier. */
+    record PublishResult(List<RowChangeDTO> changes, String fullDdl) {
+    }
+
+    /** Resolve the app's stable {@code appCode} — the cross-system key the runtime verifies. */
+    private String resolveAppCode(DesignAppEnv env) {
+        Assert.notNull(env.getAppId(), "Env {0} has no owning app.", env.getId());
+        String appCode = appService.getFieldValue(env.getAppId(), DesignApp::getAppCode);
+        Assert.notBlank(appCode, "DesignApp {0} has no appCode; cannot address its runtime.",
+                env.getAppId());
+        return appCode;
+    }
+
+    /**
+     * Overwrite design-time metadata with the current state of this env's target, inverting the drift onto
+     * the env's per-env design rows. Two flavours, by the env's connector:
+     * <ul>
+     *   <li><b>Import</b> (Softa connector) — reverse the runtime {@code sys_*} catalog (full fidelity);
+     *       records a {@code kind=IMPORT} activity.</li>
+     *   <li><b>Reverse</b> (JDBC connector) — reverse the raw physical schema (structural only); records a
+     *       {@code kind=REVERSE} activity. A physical source has <b>no option sets</b>, so its readSchema
+     *       reports none — the inverted drift would otherwise read that "absent" as "delete the design's
+     *       option sets" (option-set data-loss guard): option-set / option-item changes are filtered out so
+     *       a reverse never touches the design's logical option sets.</li>
+     * </ul>
+     * Runs under the env mutex (the shared env-status guard — see {@link #acquireEnvLock} for its limits) and
+     * {@code @Transactional} (the design rewrite + its audit record commit atomically; a failure rolls back to a clean no-op).
+     * No-op (no activity) when already in sync. The post-op design is snapshotted so the activity is
+     * restorable.
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void applyDrift(Long envId) {
+        DesignAppEnv env = loadEnv(envId);
+        acquireEnvLock(env);
+        try {
+            List<RowChangeDTO> drift = compareDesignWithRuntime(envId);
+            // A physical (JDBC) source cannot observe option sets — never let its "absent" delete them.
+            boolean physicalOnly = env.getConnectorType() == ConnectorType.JDBC;
+            List<RowChangeDTO> applicable = physicalOnly ? withoutOptionSets(drift) : drift;
+            if (applicable.isEmpty()) {
+                return;   // already in sync — no-op, no audit record
+            }
+            DesignActivityKind kind = physicalOnly ? DesignActivityKind.REVERSE : DesignActivityKind.IMPORT;
+            DesignActivity activity = activityService.start(env.getAppId(), env.getId(), kind, null, operatorId());
+            driftImporter.apply(applicable, env);
+            activityService.succeed(activity.getId(), JsonUtils.objectToJsonNode(applicable),
+                    null, snapshotDesign(activity.getId(), env));
+        } finally {
+            releaseEnvLock(env);
+        }
+    }
+
+    /** Drop option-set / option-item changes — a physical reverse cannot observe them (data-loss guard). */
+    private static List<RowChangeDTO> withoutOptionSets(List<RowChangeDTO> drift) {
+        return drift.stream()
+                .filter(row -> row.getTable() != MetaTable.OPTION_SET && row.getTable() != MetaTable.OPTION_ITEM)
+                .toList();
+    }
+
+    /**
+     * Acquire the per-env mutex on {@code envStatus}. The mutex is shared with the deployment path, so
+     * this refuses to proceed while a deploy is in flight — import and deploy cannot be concurrent on the
+     * same env. See {@link #acquireEnvLock(DesignAppEnv, DesignAppEnvStatus)} for the guard's known limits.
      */
     private void acquireEnvLock(DesignAppEnv appEnv) {
-        Assert.isEqual(appEnv.getEnvStatus(), DesignAppEnvStatus.STABLE,
-                "Env {0} is currently Deploying or Importing. Retry later.",
-                appEnv.getName());
-        appEnv.setEnvStatus(DesignAppEnvStatus.IMPORTING);
-        this.updateOne(appEnv);
+        acquireEnvLock(appEnv, DesignAppEnvStatus.IMPORTING);
+    }
+
+    /**
+     * The one per-env mutex acquire ({@code STABLE} → {@code busyStatus}): publish passes {@code DEPLOYING},
+     * import/restore {@code IMPORTING}. Filters on the current {@code STABLE} status and flips it; zero rows
+     * matched (another deploy/import holds it, or the env is gone) → throw, and the operator retries or
+     * cancels the stuck activity.
+     * <p>
+     * <b>Known limitation — not yet a true atomic compare-and-set.</b> {@code updateByFilter} resolves the
+     * matching ids with a (non-locking) read and then updates them by id, so the {@code STABLE} predicate is
+     * checked by that read, not by the write. Two operations that both observe {@code STABLE} before either
+     * commits its busy status can both proceed — the window is widest for the {@code @Transactional} callers
+     * ({@code merge} / {@code applyDrift}), whose status write stays uncommitted for the whole operation.
+     * Integrity is currently backstopped by {@code UNIQUE(env_id, businessKey)} + rollback, not by this
+     * guard; promoting it to a genuine atomic conditional update (or a {@code SELECT … FOR UPDATE} in its own
+     * committed transaction) is tracked as a follow-up.
+     */
+    private void acquireEnvLock(DesignAppEnv appEnv, DesignAppEnvStatus busyStatus) {
+        Filters cas = new Filters()
+                .eq(DesignAppEnv::getId, appEnv.getId())
+                .eq(DesignAppEnv::getEnvStatus, DesignAppEnvStatus.STABLE);
+        DesignAppEnv update = new DesignAppEnv();
+        update.setEnvStatus(busyStatus);
+        Assert.isTrue(this.updateByFilter(cas, update) == 1,
+                "Env {0} is currently Deploying or Importing. Retry later.", appEnv.getName());
+        appEnv.setEnvStatus(busyStatus);
     }
 
     private void releaseEnvLock(DesignAppEnv appEnv) {
@@ -286,501 +619,9 @@ public class DesignAppEnvServiceImpl extends EntityServiceImpl<DesignAppEnv, Lon
         this.updateOne(appEnv);
     }
 
-    /**
-     * Apply the inverted drift to Design-side models.
-     * <p>
-     * The drift was computed as "operations to apply to runtime to match snapshot", so
-     * importing runtime state into design-time flips every operation:
-     * <ul>
-     *   <li>{@code drift.deletedRows} (runtime has, snapshot doesn't) → CREATE on Design
-     *       using {@code currentData} (the runtime values). Iteration order follows the
-     *       declared parent→child sequence in {@link MetadataConstant#VERSION_CONTROL_MODELS}
-     *       so FK references land after their targets.</li>
-     *   <li>{@code drift.updatedRows} → UPDATE on Design with the runtime values that live
-     *       in {@code dataBeforeChange}, plus the row id. Order is not load-bearing.</li>
-     *   <li>{@code drift.createdRows} (snapshot has, runtime doesn't) → DELETE from Design
-     *       by id. Deletion runs in reverse model order so children drop before parents,
-     *       avoiding FK violations.</li>
-     * </ul>
-     */
-    private void applyInvertedDriftToDesign(List<ModelChangesDTO> drift) {
-        Map<String, ModelChangesDTO> byModel = drift.stream()
-                .collect(Collectors.toMap(ModelChangesDTO::getModelName, m -> m));
-
-        // Inserts: parent before child — follow the declared map order.
-        for (String designModel : MetadataConstant.VERSION_CONTROL_MODELS.keySet()) {
-            ModelChangesDTO changes = byModel.get(designModel);
-            if (changes == null) {
-                continue;
-            }
-            List<Map<String, Object>> toCreate = changes.getDeletedRows().stream()
-                    .map(RowChangeDTO::getCurrentData)
-                    .filter(Objects::nonNull)
-                    .map(HashMap::new)
-                    .collect(Collectors.toList());
-            if (!toCreate.isEmpty()) {
-                modelService.createList(designModel, Cast.of(toCreate));
-            }
-        }
-
-        // Updates: order irrelevant.
-        for (Map.Entry<String, ModelChangesDTO> entry : byModel.entrySet()) {
-            String designModel = entry.getKey();
-            List<Map<String, Object>> toUpdate = new ArrayList<>();
-            for (RowChangeDTO row : entry.getValue().getUpdatedRows()) {
-                Map<String, Object> payload = new HashMap<>();
-                if (row.getDataBeforeChange() != null) {
-                    payload.putAll(row.getDataBeforeChange());
-                }
-                payload.put(ModelConstant.ID, row.getRowId());
-                toUpdate.add(payload);
-            }
-            if (!toUpdate.isEmpty()) {
-                modelService.updateList(designModel, toUpdate);
-            }
-        }
-
-        // Deletes: reverse the declared order so children drop before parents.
-        List<String> reversed = new ArrayList<>(MetadataConstant.VERSION_CONTROL_MODELS.keySet());
-        Collections.reverse(reversed);
-        for (String designModel : reversed) {
-            ModelChangesDTO changes = byModel.get(designModel);
-            if (changes == null) {
-                continue;
-            }
-            List<Serializable> ids = changes.getCreatedRows().stream()
-                    .map(RowChangeDTO::getRowId)
-                    .filter(Objects::nonNull)
-                    .map(id -> (Serializable) id)
-                    .toList();
-            if (!ids.isEmpty()) {
-                modelService.deleteByIds(designModel, Cast.of(ids));
-            }
-        }
+    /** The current operator's user id (may be null in unauthenticated / system contexts). */
+    private Long operatorId() {
+        return ContextHolder.getContext().getUserId();
     }
-
-    /**
-     * Mint a frozen, content-free {@link DesignAppVersion} that marks the env's
-     * currentVersionId as "imported from runtime at <timestamp>". Naming the version by
-     * the wall-clock timestamp is intentional: operators browsing version history can
-     * tell at a glance that this entry did not come from the usual DRAFT→SEALED→FROZEN
-     * workflow. {@code versionedContent} is empty because the design-time state was
-     * overwritten wholesale rather than assembled from work items.
-     */
-    private DesignAppVersion createSyntheticVersion(DesignAppEnv appEnv) {
-        LocalDateTime now = LocalDateTime.now();
-        DesignAppVersion version = new DesignAppVersion();
-        version.setAppId(appEnv.getAppId());
-        version.setName("imported-from-runtime-" + now.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        version.setStatus(DesignAppVersionStatus.FROZEN);
-        version.setVersionType(DesignAppVersionType.NORMAL);
-        version.setSealedTime(now);
-        version.setFrozenTime(now);
-        version.setVersionedContent(JsonUtils.objectToJsonNode(List.<ModelChangesDTO>of()));
-        Long id = appVersionService.createOne(version);
-        version.setId(id);
-        return version;
-    }
-
-    /**
-     * Persist the post-import snapshot keyed by the synthetic version id (which doubles
-     * as the {@code deploymentId} column on the snapshot row — CosID keeps version and
-     * deployment identifiers globally unique, so reusing the slot does not risk collision).
-     * <p>
-     * The snapshot equals {@code baseline} with the inverted drift applied, computed here
-     * instead of re-reading the runtime so an imported env can be diff-checked later
-     * without another round-trip.
-     */
-    private void writeImportedSnapshot(DesignAppEnv appEnv, Long syntheticVersionId,
-                                       Map<String, List<Map<String, Object>>> baseline,
-                                       List<ModelChangesDTO> drift) {
-        Map<String, List<Map<String, Object>>> imported = new LinkedHashMap<>(baseline);
-        applyInvertedDriftToSnapshot(imported, drift);
-
-        DesignAppEnvSnapshot snapshot = new DesignAppEnvSnapshot();
-        snapshot.setAppId(appEnv.getAppId());
-        snapshot.setEnvId(appEnv.getId());
-        snapshot.setDeploymentId(syntheticVersionId);
-        snapshot.setSnapshot(JsonUtils.objectToJsonNode(imported));
-        snapshotService.createOrUpdate(List.of(snapshot), List.of(
-                DesignAppEnvSnapshot::getAppId,
-                DesignAppEnvSnapshot::getEnvId,
-                DesignAppEnvSnapshot::getDeploymentId
-        ));
-    }
-
-    /**
-     * Apply the inverted drift in the snapshot's own address space (model name → rows),
-     * mirroring {@link #applyInvertedDriftToDesign} but against the in-memory map the
-     * snapshot will serialize. Kept separate so the Design-side writes and the snapshot
-     * write stay decoupled — if one is stubbed out in tests the other still verifies.
-     */
-    private void applyInvertedDriftToSnapshot(Map<String, List<Map<String, Object>>> baseline,
-                                              List<ModelChangesDTO> drift) {
-        for (ModelChangesDTO modelChanges : drift) {
-            String designModel = modelChanges.getModelName();
-            List<Map<String, Object>> baselineRows = baseline.computeIfAbsent(designModel, k -> new ArrayList<>());
-            Map<Long, Map<String, Object>> baselineById = indexById(baselineRows);
-
-            // deletedRows (runtime-only) → ensure present in snapshot with runtime data
-            for (RowChangeDTO row : modelChanges.getDeletedRows()) {
-                if (row.getCurrentData() != null) {
-                    baselineById.put(extractRowId(row), new HashMap<>(row.getCurrentData()));
-                }
-            }
-            // updatedRows → overwrite fields with runtime values (dataBeforeChange)
-            for (RowChangeDTO row : modelChanges.getUpdatedRows()) {
-                Map<String, Object> existing = baselineById.get(row.getRowId());
-                if (existing == null) {
-                    existing = new HashMap<>();
-                    existing.put(ModelConstant.ID, row.getRowId());
-                }
-                if (row.getDataBeforeChange() != null) {
-                    existing.putAll(row.getDataBeforeChange());
-                }
-                baselineById.put(row.getRowId(), existing);
-            }
-            // createdRows (snapshot-only) → drop from snapshot
-            for (RowChangeDTO row : modelChanges.getCreatedRows()) {
-                baselineById.remove(row.getRowId());
-            }
-
-            baseline.put(designModel, new ArrayList<>(baselineById.values()));
-        }
-    }
-
-    /**
-     * Zero the drift cache after a successful import: the design-time rows we just wrote
-     * match the runtime we imported from, so there is no known drift. Keep
-     * {@code checkStatus=SUCCESS} so the UI does not flag the env as "needs re-check".
-     */
-    private void clearDriftCache(DesignAppEnv appEnv) {
-        upsertDriftRecord(appEnv, DesignDriftCheckStatus.SUCCESS, List.of(), null);
-    }
-
-    /**
-     * Recompute the drift for this env and upsert the cached {@link DesignAppEnvDrift}
-     * row. Runtime data is fetched in parallel across version-controlled models to keep
-     * the overall latency close to the slowest single RPC rather than the sum.
-     * <p>
-     * When no snapshot exists yet (env has never been deployed) the diff runs against
-     * an empty baseline. Every runtime row then surfaces as a {@code deletedRow}
-     * (runtime-only), which is exactly what {@code importFromRuntime} → {@code applyDrift}
-     * needs to seed a fresh studio app from a runtime that already owns authoritative
-     * metadata. Earlier this path short-circuited to {@code List.of()} which broke
-     * first-time import — see {@code applyDrift}'s baseline {@code orElseGet(LinkedHashMap::new)}
-     * for the symmetric handling on the apply side.
-     */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void refreshDrift(Long envId) {
-        DesignAppEnv appEnv = this.getById(envId)
-                .orElseThrow(() -> new IllegalArgumentException("Environment does not exist! {0}", envId));
-
-        Map<String, List<Map<String, Object>>> snapshotData = findLatestSnapshotByEnvId(envId)
-                .map(DesignAppEnvSnapshot::getSnapshot)
-                .<Map<String, List<Map<String, Object>>>>map(node ->
-                        JsonUtils.jsonNodeToObject(node, new TypeReference<>() {}))
-                .orElseGet(LinkedHashMap::new);
-
-        try {
-            List<ModelChangesDTO> drift = computeDriftInParallel(appEnv, snapshotData);
-            upsertDriftRecord(appEnv, DesignDriftCheckStatus.SUCCESS, drift, null);
-        } catch (RuntimeException e) {
-            log.error("Drift check failed for env {}: {}", envId, e.getMessage(), e);
-            // Preserve the previous driftContent — we couldn't prove drift is gone,
-            // and we don't want to silently "clear" it on a transient error.
-            List<ModelChangesDTO> previous = compareDesignWithRuntime(envId);
-            upsertDriftRecord(appEnv, DesignDriftCheckStatus.FAILURE, previous, e.getMessage());
-        }
-    }
-
-    /**
-     * Fan out the per-model runtime fetches concurrently via {@link CompletableFuture},
-     * with every subtask dispatched onto a fresh virtual thread via
-     * {@link #DRIFT_VIRTUAL_EXECUTOR}. This matters because remote metadata export is
-     * I/O bound — on the common pool (platform threads capped by CPU count) the 11
-     * version-controlled models would serialize into two or three rounds; on VTs they
-     * all fire immediately and unmount their carrier during the blocking socket read.
-     * <p>
-     * Context propagation: the caller's {@link Context} is captured before forking and
-     * re-bound inside each subtask via {@link ContextHolder#callWith}, so tenant / user
-     * scoped values still resolve when {@code remoteApiClient} reads them downstream —
-     * {@link java.lang.ScopedValue} does not auto-inherit into forked virtual threads,
-     * so this binding is explicit on purpose.
-     * <p>
-     * Any individual failure surfaces as a {@link RuntimeException} to the caller via
-     * unwrapping the {@link java.util.concurrent.CompletionException} thrown by
-     * {@link CompletableFuture#join()}.
-     */
-    private List<ModelChangesDTO> computeDriftInParallel(DesignAppEnv appEnv,
-                                                         Map<String, List<Map<String, Object>>> snapshotData) {
-        Context capturedContext = ContextHolder.cloneContext();
-        List<CompletableFuture<ModelChangesDTO>> futures = new ArrayList<>();
-        for (Map.Entry<String, String> entry : MetadataConstant.VERSION_CONTROL_MODELS.entrySet()) {
-            String designModel = entry.getKey();
-            String runtimeModel = entry.getValue();
-            List<Map<String, Object>> snapshotRows = snapshotData.getOrDefault(designModel, Collections.emptyList());
-            futures.add(CompletableFuture.supplyAsync(() -> ContextHolder.callWith(capturedContext, () -> {
-                List<Map<String, Object>> runtimeRows = fetchRuntimeData(runtimeModel, appEnv);
-                return diffSnapshotVsRuntime(designModel, runtimeModel, snapshotRows, runtimeRows);
-            }), DRIFT_VIRTUAL_EXECUTOR));
-        }
-
-        List<ModelChangesDTO> result = new ArrayList<>();
-        // join() below throws CompletionException wrapping the underlying RuntimeException;
-        // unwrap so the caller sees the original reason.
-        try {
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        } catch (java.util.concurrent.CompletionException ce) {
-            Throwable cause = ce.getCause();
-            if (cause instanceof RuntimeException re) {
-                throw re;
-            }
-            throw ce;
-        }
-        for (CompletableFuture<ModelChangesDTO> future : futures) {
-            ModelChangesDTO diff = future.join();
-            if (diff != null) {
-                result.add(diff);
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Idempotent write of the drift cache keyed by {@code (appId, envId)}. Rematched by the
-     * UNIQUE index on {@code design_app_env_drift(app_id, env_id)} at the DB level.
-     */
-    private void upsertDriftRecord(DesignAppEnv appEnv,
-                                   DesignDriftCheckStatus status,
-                                   List<ModelChangesDTO> drift,
-                                   String errorMessage) {
-        DesignAppEnvDrift record = new DesignAppEnvDrift();
-        record.setAppId(appEnv.getAppId());
-        record.setEnvId(appEnv.getId());
-        record.setHasDrift(drift != null && !drift.isEmpty());
-        record.setDriftContent(drift == null ? null : JsonUtils.objectToJsonNode(drift));
-        record.setCheckStatus(status);
-        record.setErrorMessage(truncate(errorMessage));
-        record.setLastCheckedTime(LocalDateTime.now());
-        driftService.createOrUpdate(List.of(record), List.of(
-                DesignAppEnvDrift::getAppId,
-                DesignAppEnvDrift::getEnvId
-        ), false);
-    }
-
-    private Optional<DesignAppEnvDrift> findDriftByEnvId(Long envId) {
-        Filters filters = new Filters().eq(DesignAppEnvDrift::getEnvId, envId);
-        return driftService.searchOne(new FlexQuery(filters));
-    }
-
-    private static String truncate(String text) {
-        if (text == null) {
-            return null;
-        }
-        return text.length() <= ERROR_MESSAGE_MAX_LENGTH ? text : text.substring(0, ERROR_MESSAGE_MAX_LENGTH);
-    }
-
-    // ======================== Snapshot building ========================
-
-    /**
-     * Apply merged deployment changes onto the baseline snapshot (in-place mutation).
-     * <p>
-     * For each model in {@code mergedChanges}:
-     * <ul>
-     *   <li>CREATE rows → add to baseline by id</li>
-     *   <li>UPDATE rows → overwrite baseline row by id using {@code currentData}</li>
-     *   <li>DELETE rows → remove from baseline by id</li>
-     * </ul>
-     *
-     * @param baseline       mutable map: designModelName → list of row data
-     * @param mergedChanges  the deployment's merged changes
-     */
-    private void applyChangesToBaseline(Map<String, List<Map<String, Object>>> baseline,
-                                        List<ModelChangesDTO> mergedChanges) {
-        if (mergedChanges == null) {
-            return;
-        }
-        for (ModelChangesDTO modelChanges : mergedChanges) {
-            String designModel = modelChanges.getModelName();
-            List<Map<String, Object>> baselineRows = baseline.computeIfAbsent(designModel, k -> new ArrayList<>());
-            Map<Long, Map<String, Object>> baselineById = indexById(baselineRows);
-
-            for (RowChangeDTO created : modelChanges.getCreatedRows()) {
-                upsertBaselineRow(baselineById, created);
-            }
-
-            for (RowChangeDTO updated : modelChanges.getUpdatedRows()) {
-                upsertBaselineRow(baselineById, updated);
-            }
-
-            for (RowChangeDTO deleted : modelChanges.getDeletedRows()) {
-                baselineById.remove(extractRowId(deleted));
-            }
-
-            baseline.put(designModel, new ArrayList<>(baselineById.values()));
-        }
-    }
-
-    // ======================== Snapshot comparison ========================
-
-    /**
-     * Find the latest snapshot for an environment.
-     * <p>
-     * Since each deployment now writes its own snapshot row (unique on
-     * {@code (appId, envId, deploymentId)}), this returns the most recent one — ordered
-     * by id DESC which is time-sortable for snowflake / auto-increment IDs.
-     */
-    private Optional<DesignAppEnvSnapshot> findLatestSnapshotByEnvId(Long envId) {
-        Filters filters = new Filters().eq(DesignAppEnvSnapshot::getEnvId, envId);
-        FlexQuery query = new FlexQuery(filters, Orders.ofDesc(ModelConstant.ID));
-        query.setLimitSize(1);
-        return snapshotService.searchOne(query);
-    }
-
-    /**
-     * Fetch runtime metadata for a version-controlled model via the signed remote HTTP
-     * path. Always remote — see the class javadoc for why the previous local shortcut
-     * was removed.
-     */
-    private List<Map<String, Object>> fetchRuntimeData(String runtimeModel, DesignAppEnv appEnv) {
-        return remoteApiClient.fetchRuntimeMetadata(appEnv, runtimeModel);
-    }
-
-    /**
-     * Compute the diff between snapshot rows and runtime rows for a single model.
-     * Uses primary id to match rows between snapshot and runtime.
-     * <p>
-     * <ul>
-     *   <li>CREATE — snapshot row with no matching runtime row (missing in runtime)</li>
-     *   <li>UPDATE — matched rows where business field values differ</li>
-     *   <li>DELETE — runtime row with no matching snapshot row (extra in runtime)</li>
-     * </ul>
-     */
-    private ModelChangesDTO diffSnapshotVsRuntime(String designModel, String runtimeModel,
-                                                   List<Map<String, Object>> snapshotRows,
-                                                   List<Map<String, Object>> runtimeRows) {
-        Set<String> compareFields = getComparableFields(designModel, runtimeModel);
-
-        Map<Long, Map<String, Object>> runtimeById = indexById(runtimeRows);
-        Set<Long> matchedRuntimeIds = new HashSet<>();
-
-        ModelChangesDTO modelChangesDTO = new ModelChangesDTO(designModel);
-
-        for (Map<String, Object> snapshotRow : snapshotRows) {
-            Long rowId = extractRowId(snapshotRow);
-            Map<String, Object> runtimeRow = runtimeById.get(rowId);
-
-            if (runtimeRow == null) {
-                modelChangesDTO.addCreatedRow(toRowChangeDTO(designModel, AccessType.CREATE, snapshotRow));
-            } else {
-                matchedRuntimeIds.add(rowId);
-                Map<String, Object> diffFields = compareFieldValues(snapshotRow, runtimeRow, compareFields);
-                if (!diffFields.isEmpty()) {
-                    RowChangeDTO rowChangeDTO = toRowChangeDTO(designModel, AccessType.UPDATE, snapshotRow);
-                    rowChangeDTO.setDataBeforeChange(extractFields(runtimeRow, diffFields.keySet()));
-                    rowChangeDTO.setDataAfterChange(extractFields(snapshotRow, diffFields.keySet()));
-                    modelChangesDTO.addUpdatedRow(rowChangeDTO);
-                }
-            }
-        }
-
-        for (Map<String, Object> runtimeRow : runtimeRows) {
-            Long rowId = extractRowId(runtimeRow);
-            if (!matchedRuntimeIds.contains(rowId)) {
-                modelChangesDTO.addDeletedRow(toRowChangeDTO(designModel, AccessType.DELETE, runtimeRow));
-            }
-        }
-
-        if (modelChangesDTO.getCreatedRows().isEmpty() && modelChangesDTO.getUpdatedRows().isEmpty()
-                && modelChangesDTO.getDeletedRows().isEmpty()) {
-            return null;
-        }
-        return modelChangesDTO;
-    }
-
-    // ======================== Utility methods ========================
-
-    /**
-     * Get fields suitable for comparison: the intersection of design and runtime model fields,
-     * excluding identity, audit, and system fields.
-     * <p>
-     * Kept as a protected instance method (not {@code static}) so tests can stub it via a
-     * spy — {@code Mockito.mockStatic} is thread-local by default and does not reach the
-     * {@link CompletableFuture} worker threads that call this during parallel drift checks.
-     */
-    protected Set<String> getComparableFields(String designModel, String runtimeModel) {
-        Set<String> designFields = ModelManager.getModelFieldsWithoutXToMany(designModel);
-        Set<String> runtimeFields = ModelManager.getModelFieldsWithoutXToMany(runtimeModel);
-        Set<String> common = new HashSet<>(designFields);
-        common.retainAll(runtimeFields);
-        common.removeAll(ModelConstant.AUDIT_FIELDS);
-        common.removeAll(Set.of(ModelConstant.ID, ModelConstant.EXTERNAL_ID, ModelConstant.VERSION));
-        return common;
-    }
-
-    private static Map<Long, Map<String, Object>> indexById(List<Map<String, Object>> rows) {
-        Map<Long, Map<String, Object>> index = new LinkedHashMap<>();
-        for (Map<String, Object> row : rows) {
-            index.put(extractRowId(row), new HashMap<>(row));
-        }
-        return index;
-    }
-
-    private static void upsertBaselineRow(Map<Long, Map<String, Object>> baselineById, RowChangeDTO rowChangeDTO) {
-        Map<String, Object> currentData = rowChangeDTO.getCurrentData();
-        if (currentData != null) {
-            baselineById.put(extractRowId(rowChangeDTO), new HashMap<>(currentData));
-        }
-    }
-
-    private static Long extractRowId(RowChangeDTO rowChangeDTO) {
-        if (rowChangeDTO.getRowId() != null) {
-            return rowChangeDTO.getRowId();
-        }
-        return extractRowId(rowChangeDTO.getCurrentData());
-    }
-
-    private static Long extractRowId(Map<String, Object> row) {
-        Assert.notNull(row, "Snapshot row data cannot be null.");
-        Object id = row.get(ModelConstant.ID);
-        Assert.notNull(id, "Snapshot row id cannot be null. {0}", row);
-        if (id instanceof Number number) {
-            return number.longValue();
-        }
-        return Long.valueOf(String.valueOf(id));
-    }
-
-    private static Map<String, Object> compareFieldValues(Map<String, Object> snapshotRow,
-                                                           Map<String, Object> runtimeRow,
-                                                           Set<String> fields) {
-        Map<String, Object> diffs = new HashMap<>();
-        for (String field : fields) {
-            Object snapshotVal = snapshotRow.get(field);
-            Object runtimeVal = runtimeRow.get(field);
-            if (!Objects.equals(snapshotVal, runtimeVal)) {
-                diffs.put(field, runtimeVal);
-            }
-        }
-        return diffs;
-    }
-
-    private static Map<String, Object> extractFields(Map<String, Object> row, Set<String> fieldNames) {
-        Map<String, Object> result = new HashMap<>();
-        for (String field : fieldNames) {
-            result.put(field, row.get(field));
-        }
-        return result;
-    }
-
-    private static RowChangeDTO toRowChangeDTO(String modelName, AccessType accessType, Map<String, Object> row) {
-        RowChangeDTO dto = new RowChangeDTO(modelName, extractRowId(row));
-        dto.setAccessType(accessType);
-        dto.setCurrentData(new HashMap<>(row));
-        dto.setLastChangedTime(DateUtils.dateTimeToString(row.get(ModelConstant.UPDATED_TIME)));
-        return dto;
-    }
-
 
 }

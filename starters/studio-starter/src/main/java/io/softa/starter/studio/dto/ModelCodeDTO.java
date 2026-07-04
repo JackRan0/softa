@@ -64,16 +64,6 @@ public class ModelCodeDTO {
     }
 
     private String normalizeRelativePath(String relativePath) {
-        if (relativePath == null) {
-            return "";
-        }
-        String normalized = relativePath.trim().replace('\\', '/');
-        while (normalized.startsWith("./")) {
-            normalized = normalized.substring(2);
-        }
-        while (normalized.startsWith("/")) {
-            normalized = normalized.substring(1);
-        }
-        return normalized;
+        return GeneratedPaths.stripLeadingRelative(relativePath);
     }
 }

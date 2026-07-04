@@ -17,6 +17,7 @@ import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.base.utils.MapUtils;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.utils.BeanTool;
+import io.softa.starter.studio.dto.GeneratedPaths;
 import io.softa.starter.studio.dto.ModelCodeDTO;
 import io.softa.starter.studio.dto.ModelCodeFileDTO;
 import io.softa.starter.studio.meta.entity.DesignModel;
@@ -66,12 +67,33 @@ public class CodeGenerator {
         return switch (fieldType) {
             case ONE_TO_MANY -> "List<" + fieldMap.getOrDefault("relatedModel", "Object") + ">";
             case MANY_TO_MANY, MULTI_FILE -> "List<Long>";
+            // A TO_ONE FK's Java type is the referenced id's type (relatedFieldType, system-computed):
+            // String for a code-as-id (String-PK) related model, Long for a surrogate-id one. When it
+            // is absent (unresolved) this falls back to the relation default (Long), as before.
+            case MANY_TO_ONE, ONE_TO_ONE -> resolveRelatedFieldJavaType(fieldMap, fieldType);
             case OPTION -> resolveOptionSetJavaType(fieldMap, false);
             case MULTI_OPTION -> resolveOptionSetJavaType(fieldMap, true);
             case MULTI_STRING -> "List<String>";
             case DTO -> "JsonNode";
             default -> fieldType.getJavaType().getSimpleName();
         };
+    }
+
+    /**
+     * Java type of a TO_ONE FK = the referenced column's physical type ({@code relatedFieldType}).
+     * Falls back to the relation default when not yet resolved.
+     */
+    private static String resolveRelatedFieldJavaType(Map<String, Object> fieldMap, FieldType relationType) {
+        Object relatedFieldTypeValue = fieldMap.get("relatedFieldType");
+        FieldType physical;
+        if (relatedFieldTypeValue instanceof FieldType ft) {
+            physical = ft;
+        } else if (relatedFieldTypeValue instanceof String str && !str.isBlank()) {
+            physical = FieldType.of(str);
+        } else {
+            physical = relationType;
+        }
+        return physical.getJavaType().getSimpleName();
     }
 
     /**
@@ -209,17 +231,7 @@ public class CodeGenerator {
     }
 
     private String normalizeSubDirectory(String subDirectory) {
-        if (!StringUtils.hasText(subDirectory)) {
-            return "";
-        }
-        String normalized = subDirectory.trim().replace('\\', '/');
-        while (normalized.startsWith("./")) {
-            normalized = normalized.substring(2);
-        }
-        normalized = normalized.replaceAll("/+", "/");
-        while (normalized.startsWith("/")) {
-            normalized = normalized.substring(1);
-        }
+        String normalized = GeneratedPaths.stripLeadingRelative(subDirectory).replaceAll("/+", "/");
         while (normalized.endsWith("/")) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
@@ -236,13 +248,7 @@ public class CodeGenerator {
         String fileName = StringUtils.hasText(fileNameTemplate)
                 ? TemplateEngine.render(fileNameTemplate, modelData)
                 : "";
-        String normalized = fileName.trim().replace('\\', '/');
-        while (normalized.startsWith("./")) {
-            normalized = normalized.substring(2);
-        }
-        while (normalized.startsWith("/")) {
-            normalized = normalized.substring(1);
-        }
+        String normalized = GeneratedPaths.stripLeadingRelative(fileName);
         if (!StringUtils.hasText(normalized)) {
             throw new IllegalArgumentException("The rendered fileName cannot be blank.");
         }

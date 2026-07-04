@@ -10,7 +10,6 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
-import io.softa.framework.orm.enums.Ownership;
 
 /**
  * DesignOptionSet Model
@@ -20,7 +19,9 @@ import io.softa.framework.orm.enums.Ownership;
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         activeControl = true,
-        businessKey = {"optionSetCode"}
+        copyable = false,   // copy disabled (would clone the per-env business key) — see DesignModel.
+        // envId scopes the businessKey (see DesignModel).
+        businessKey = {"envId", "optionSetCode"}
 )
 public class DesignOptionSet extends AuditableModel {
 
@@ -30,11 +31,13 @@ public class DesignOptionSet extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Portfolio")
-    private Long portfolioId;
-
     @Field(label = "App ID")
     private Long appId;
+
+    // Per-env design: envId scopes the row (NOT NULL, V19). Identity = per-env business key
+    // (env_id + optionSetCode); no logicalId.
+    @Field(label = "Env ID")
+    private Long envId;
 
     @Field(required = true)
     private String label;
@@ -42,20 +45,19 @@ public class DesignOptionSet extends AuditableModel {
     @Field(required = true)
     private String optionSetCode;
 
+    /** Single immediately-prior option-set code for a declared rename; excluded from checksum/diff. */
+    @Field
+    private String renamedFrom;
+
+    // Studio is id-based (rename-stable): optionSetId stores the parent's id, so renaming the
+    // option-set code never orphans items. relatedField points at that id column → join on parent.id.
     @Field(fieldType = FieldType.ONE_TO_MANY,
-            relatedModel = DesignOptionItem.class, relatedField = "optionSetCode")
+            relatedModel = DesignOptionItem.class, relatedField = "optionSetId")
     private List<DesignOptionItem> optionItems;
 
     @Field(length = 256)
     private String description;
 
-    @Field(description = "Ownership — PLATFORM_MAINTAINED / PLATFORM_DEFAULT / TENANT; "
-            + "transparently transmitted to runtime sys_option_set on deploy (ADR-0009 #1)")
-    private Ownership ownership;
-
     @Field
     private Boolean active;
-
-    @Field
-    private Boolean deleted;
 }

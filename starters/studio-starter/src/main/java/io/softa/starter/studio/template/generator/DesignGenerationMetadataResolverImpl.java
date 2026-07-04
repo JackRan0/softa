@@ -1,6 +1,8 @@
 package io.softa.starter.studio.template.generator;
 
 import java.util.*;
+import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -19,27 +21,19 @@ import io.softa.starter.studio.template.service.*;
 @Service
 public class DesignGenerationMetadataResolverImpl implements DesignGenerationMetadataResolver {
 
-    private final DesignFieldTypeDefaultService fieldTypeDefaultService;
     private final DesignFieldDbMappingService fieldDbMappingService;
     private final DesignSqlTemplateService sqlTemplateService;
     private final DesignFieldCodeMappingService fieldCodeMappingService;
     private final DesignCodeTemplateService codeTemplateService;
 
-    public DesignGenerationMetadataResolverImpl(DesignFieldTypeDefaultService fieldTypeDefaultService,
-                                                DesignFieldDbMappingService fieldDbMappingService,
+    public DesignGenerationMetadataResolverImpl(DesignFieldDbMappingService fieldDbMappingService,
                                                 DesignSqlTemplateService sqlTemplateService,
                                                 DesignFieldCodeMappingService fieldCodeMappingService,
                                                 DesignCodeTemplateService codeTemplateService) {
-        this.fieldTypeDefaultService = fieldTypeDefaultService;
         this.fieldDbMappingService = fieldDbMappingService;
         this.sqlTemplateService = sqlTemplateService;
         this.fieldCodeMappingService = fieldCodeMappingService;
         this.codeTemplateService = codeTemplateService;
-    }
-
-    @Override
-    public Map<FieldType, DesignFieldTypeDefault> getFieldTypeDefaults() {
-        return toMap(fieldTypeDefaultService.searchList(new FlexQuery()), DesignFieldTypeDefault::getFieldType);
     }
 
     @Override
@@ -85,11 +79,11 @@ public class DesignGenerationMetadataResolverImpl implements DesignGenerationMet
     public List<DesignCodeLang> getAvailableCodeLangs() {
         return codeTemplateService.searchList(new FlexQuery()).stream()
                 .map(DesignCodeTemplate::getCodeLang)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), ArrayList::new));
     }
 
-    private <K, V> Map<K, V> toMap(java.util.List<V> values, Function<V, K> keyFunction) {
+    private <K, V> Map<K, V> toMap(List<V> values, Function<V, K> keyFunction) {
         return values.stream()
                 .filter(value -> keyFunction.apply(value) != null)
                 .collect(Collectors.toMap(keyFunction, Function.identity(), (left, right) -> left, LinkedHashMap::new));

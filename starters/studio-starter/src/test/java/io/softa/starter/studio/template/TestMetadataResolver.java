@@ -18,11 +18,6 @@ public final class TestMetadataResolver implements DesignGenerationMetadataResol
     private TestMetadataResolver() {}
 
     @Override
-    public Map<FieldType, DesignFieldTypeDefault> getFieldTypeDefaults() {
-        return Collections.emptyMap();
-    }
-
-    @Override
     public Map<FieldType, DesignFieldDbMapping> getFieldDbMappings(DatabaseType databaseType) {
         return Collections.emptyMap();
     }

@@ -17,8 +17,8 @@ import io.softa.starter.studio.release.enums.DriftKind;
  * Field semantics are anchored to the operator's perspective rather than the deploy
  * direction used internally by {@link RowChangeDTO}:
  * <ul>
- *   <li>{@code expected} always reflects the snapshot side (= what the last-deployed
- *       design state promised runtime should look like).</li>
+ *   <li>{@code expected} always reflects the design side (= what the env's design says the
+ *       runtime should look like).</li>
  *   <li>{@code actual} always reflects the runtime side (= what the runtime actually has now).</li>
  * </ul>
  * Avoiding {@code before}/{@code after} naming on purpose — those words suggest a time
@@ -28,27 +28,24 @@ import io.softa.starter.studio.release.enums.DriftKind;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(name = "DriftRow", description = "One row-level discrepancy between snapshot and runtime")
+@Schema(name = "DriftRow", description = "One row-level discrepancy between the env design and runtime")
 public class DriftRowDTO {
 
     @Schema(description = "Logical model name on the design side")
     private String model;
 
-    @Schema(description = "Primary id of the drifted row")
-    private Long rowId;
-
-    @Schema(description = "Kind of drift, from the snapshot-vs-runtime viewpoint")
+    @Schema(description = "Kind of drift, from the design-vs-runtime viewpoint")
     private DriftKind kind;
 
     /**
-     * Snapshot side of the row.
+     * Design side of the row.
      * <ul>
-     *   <li>{@link DriftKind#RUNTIME_ADDED}: {@code null} (snapshot has no row)</li>
-     *   <li>{@link DriftKind#RUNTIME_DELETED}: full snapshot row</li>
-     *   <li>{@link DriftKind#RUNTIME_MODIFIED}: only the diverged fields, snapshot values</li>
+     *   <li>{@link DriftKind#RUNTIME_ADDED}: {@code null} (design has no row)</li>
+     *   <li>{@link DriftKind#RUNTIME_DELETED}: full design row</li>
+     *   <li>{@link DriftKind#RUNTIME_MODIFIED}: only the diverged fields, design values</li>
      * </ul>
      */
-    @Schema(description = "Snapshot side; null when snapshot has no row for this id")
+    @Schema(description = "Design side; null when the design has no row for this id")
     private Map<String, Object> expected;
 
     /**
@@ -66,6 +63,6 @@ public class DriftRowDTO {
     private Set<String> changedFields;
 
     @Schema(description = "ISO datetime carried by whichever side owns the row "
-            + "(snapshot for RUNTIME_DELETED/MODIFIED, runtime for RUNTIME_ADDED)")
+            + "(design for RUNTIME_DELETED/MODIFIED, runtime for RUNTIME_ADDED)")
     private String lastChangedTime;
 }

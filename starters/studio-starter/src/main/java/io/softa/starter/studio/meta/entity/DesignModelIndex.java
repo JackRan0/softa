@@ -9,7 +9,6 @@ import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.IdStrategy;
-import io.softa.framework.orm.enums.Ownership;
 
 /**
  * DesignModelIndex Model
@@ -18,8 +17,10 @@ import io.softa.framework.orm.enums.Ownership;
 @EqualsAndHashCode(callSuper = true)
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
-        softDelete = true,
-        businessKey = {"modelName", "indexName"}
+        // hard delete (no softDelete) — lets the per-env UNIQUE(env_id, …) index work. See DesignModel.
+        copyable = false,   // copy disabled (would clone the per-env business key) — see DesignModel.
+        // envId scopes the businessKey (see DesignModel).
+        businessKey = {"envId", "modelName", "indexName"}
 )
 public class DesignModelIndex extends AuditableModel {
 
@@ -29,22 +30,22 @@ public class DesignModelIndex extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Portfolio")
-    private Long portfolioId;
-
     @Field(label = "APP ID")
     private Long appId;
 
     @Field(label = "Model ID", required = true)
     private Long modelId;
 
+    // Per-env design: envId scopes the row (NOT NULL, V19). Identity = per-env business key
+    // (env_id + modelName + indexName); no logicalId.
+    @Field(label = "Env ID")
+    private Long envId;
+
     @Field(required = true)
     private String modelName;
 
-    @Field(required = true)
-    private String label;
-
-    @Field
+    // Globally unique across all models; capped at 60 chars (mirror of SysModelIndex).
+    @Field(length = 60)
     private String indexName;
 
     @Field
@@ -53,9 +54,7 @@ public class DesignModelIndex extends AuditableModel {
     @Field(label = "Is Unique Index")
     private Boolean uniqueIndex;
 
-    @Field
-    private Ownership ownership;
-
-    @Field
-    private Boolean deleted;
+    // End-user message for a violation of this unique constraint (mirror of SysModelIndex.message).
+    @Field(length = 256)
+    private String message;
 }

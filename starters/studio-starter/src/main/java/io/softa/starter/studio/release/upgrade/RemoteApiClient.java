@@ -1,54 +1,66 @@
 package io.softa.starter.studio.release.upgrade;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
-import io.softa.starter.metadata.dto.MetadataUpgradeHistoryDTO;
-import io.softa.starter.metadata.dto.MetadataUpgradePackage;
+import io.softa.starter.metadata.dto.MetadataChangeSet;
+import io.softa.starter.metadata.dto.RuntimeChecksumsDTO;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
 
+/**
+ * Remote API client for studio → runtime calls (read schema + checksums, apply changes). The signed
+ * transport (Ed25519 + idempotency) is supplied by the {@code studioRemoteRestClient} bean.
+ */
 public interface RemoteApiClient {
 
     /**
-     * Dispatch a metadata upgrade to a remote runtime env.
-     * <p>
-     * The runtime side returns 202 as soon as the envelope is accepted and applies
-     * the packages on a background thread; completion lands asynchronously on the
-     * {@code callbackUrl} with {@code callbackToken} echoed in the callback header.
-     * This method returns once the runtime has acknowledged the dispatch — the
-     * caller is expected to leave the studio-side deployment in {@code DEPLOYING}
-     * until the webhook transitions it to {@code SUCCESS} / {@code FAILURE}.
+     * Fetch runtime metadata for a specific model from the remote environment, scoped to the app
+     * identity. The {@code appCode} doubles as the handshake: the runtime rejects the export unless it
+     * equals its configured {@code system.app-code}.
      *
-     * @param appEnv         target environment (supplies endpoint + signing key)
-     * @param modelPackages  runtime metadata packages to apply
-     * @param callbackUrl    absolute URL the runtime must POST completion to
-     * @param callbackToken  one-time token — echoed in the callback header and
-     *                       used by the studio webhook to match the deployment
-     */
-    void remoteUpgrade(DesignAppEnv appEnv,
-                       List<MetadataUpgradePackage> modelPackages,
-                       String callbackUrl,
-                       String callbackToken);
-
-    /**
-     * Fetch runtime metadata for a specific model from the remote environment, scoped to
-     * the env's owning app. The runtime may host several apps that share metadata tables,
-     * so the {@code appId} filter keeps the studio from pulling a sibling app's rows.
-     *
-     * @param appEnv           target environment (supplies endpoint, signing key, appId)
+     * @param appEnv           target environment (supplies endpoint + signing key)
+     * @param appCode          app identity being synchronised ({@code DesignApp.appCode})
      * @param runtimeModelName runtime model name (e.g. "SysModel")
      * @return list of runtime row data
      */
-    List<Map<String, Object>> fetchRuntimeMetadata(DesignAppEnv appEnv, String runtimeModelName);
+    List<Map<String, Object>> fetchRuntimeMetadata(DesignAppEnv appEnv, String appCode, String runtimeModelName);
 
     /**
-     * Pull the persisted upgrade outcome for a previously dispatched envelope from the
-     * remote runtime. Used by the studio to reconcile a deployment that is stuck in
-     * {@code DEPLOYING} because the push callback was lost.
+     * Fetch runtime metadata <b>narrowed</b> to a set of aggregate business keys (incremental fetch):
+     * the runtime ANDs {@code keyColumn IN keyValues} onto the app scope, so the
+     * studio deploy pulls only the aggregates whose checksum differs instead of the whole catalog. The
+     * key set rides in the request body (not the URL), so it is not bounded by URL length.
      *
-     * @param appEnv        target environment (supplies endpoint + signing key)
-     * @param callbackToken token from the originating envelope
-     * @return outcome row, or {@code null} when the runtime has no record for the token
+     * @param appEnv           target environment (supplies endpoint + signing key)
+     * @param appCode          app identity being synchronised ({@code DesignApp.appCode})
+     * @param runtimeModelName runtime model name (e.g. "SysField")
+     * @param keyColumn        aggregate-root business-key column to narrow on (e.g. {@code modelName})
+     * @param keyValues        business keys to keep (non-empty — the caller skips the call when empty)
+     * @return list of runtime row data
      */
-    MetadataUpgradeHistoryDTO fetchUpgradeStatus(DesignAppEnv appEnv, String callbackToken);
+    List<Map<String, Object>> fetchRuntimeMetadata(DesignAppEnv appEnv, String appCode, String runtimeModelName,
+                                                   String keyColumn, Collection<String> keyValues);
+
+    /**
+     * Fetch the runtime's per-aggregate checksums, scoped to the app identity. Lightweight —
+     * the studio diffs these against its design-side checksums and pulls full rows only for the
+     * aggregates that differ (the network gate).
+     *
+     * @param appEnv  target environment (supplies endpoint + signing key)
+     * @param appCode app identity being synchronised ({@code DesignApp.appCode})
+     * @return the runtime's model + option-set aggregate checksums
+     */
+    RuntimeChecksumsDTO fetchRuntimeChecksums(DesignAppEnv appEnv, String appCode);
+
+    /**
+     * Ship an incremental metadata change set to the runtime: per-row CRUD keyed by
+     * business key + DDL-first; the runtime applies exactly these row changes (no
+     * whole-aggregate overwrite). Same {@code appCode} handshake as the other calls.
+     *
+     * @param appEnv    target environment (supplies endpoint + signing key)
+     * @param appCode   app identity being deployed ({@code DesignApp.appCode})
+     * @param changeSet the per-row changes (UPSERT/DELETE by business key) + the rename-aware DDL
+     */
+    void applyChanges(DesignAppEnv appEnv, String appCode, MetadataChangeSet changeSet);
 }

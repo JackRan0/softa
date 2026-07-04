@@ -27,24 +27,24 @@ public class DesignSqlTemplate extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Database Type", required = true)
+    @Field(required = true)
     private DatabaseType databaseType;
 
-    @Field(label = "Create Table Template", required = true, length = 20000)
+    @Field(required = true, length = 20000)
     private String createTableTemplate;
 
-    @Field(label = "Alter Index Template", required = true, length = 20000)
+    @Field(required = true, length = 20000)
     private String alterIndexTemplate;
 
-    @Field(label = "Alter Table Template", required = true, length = 20000)
+    @Field(required = true, length = 20000)
     private String alterTableTemplate;
 
-    @Field(label = "Drop Table Template", required = true, length = 20000)
+    @Field(required = true, length = 20000)
     private String dropTableTemplate;
 
-    @Field(label = "Description", length = 256)
+    @Field(length = 256)
     private String description;
 
-    @Field(label = "Deleted")
+    @Field
     private Boolean deleted;
 }

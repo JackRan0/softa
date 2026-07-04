@@ -5,45 +5,39 @@ import java.util.Map;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import io.softa.framework.orm.enums.AccessType;
+import io.softa.starter.metadata.dto.MetaTable;
 
 /**
- * DTO for row change information
+ * A single metadata row change: <b>self-describing</b> via {@link #op} + {@link #table}, keyed by its
+ * <b>business key</b> (in {@link #fullRow}; no logicalId). Produced by
+ * {@link io.softa.starter.studio.release.desired.DesignAggregateDiffer} and consumed directly by the DDL
+ * renderer, env↔env merge, runtime apply, and drift report — regrouped per table via
+ * {@link DesignMetaTables#group}.
  */
 @Data
 @NoArgsConstructor
 public class RowChangeDTO {
 
-    private String model;
-    private Long rowId;
-    private AccessType accessType;
+    /** CREATE / UPDATE / DELETE — the row-change verb. */
+    private RowChangeOp op;
 
-    // Aggregated old values for the fields touched by this change set
-    private Map<String, Object> dataBeforeChange = new HashMap<>();
-    // Aggregated new values for the fields touched by this change set
-    private Map<String, Object> dataAfterChange = new HashMap<>();
-    // Full effective row snapshot used by release, DDL, and deployment workflows
-    private Map<String, Object> currentData = new HashMap<>();
+    /** The typed meta-table this row targets. */
+    private MetaTable table;
 
-    private Long lastChangedById;
-    private String lastChangedBy;
-    private String lastChangedTime;
+    /** Full effective row snapshot; IS the wire {@code MetaChange.attrs}. */
+    private Map<String, Object> fullRow = new HashMap<>();
 
-    public RowChangeDTO(String model, Long rowId) {
-        this.model = model;
-        this.rowId = rowId;
-    }
+    /**
+     * Sparse OLD values keyed by the changed columns; non-empty only on UPDATE. Studio-local — never
+     * shipped. The DDL "changed-columns" gate is its {@code keySet()} (CREATE = all columns; empty here).
+     */
+    private Map<String, Object> previousValuesForChangedFields = new HashMap<>();
 
-    public void mergeDataBeforeChange(Map<String, Object> newValue) {
-        if (newValue != null) {
-            this.dataBeforeChange.putAll(newValue);
-        }
-    }
-
-    public void mergeDataAfterChange(Map<String, Object> newValue) {
-        if (newValue != null) {
-            this.dataAfterChange.putAll(newValue);
-        }
-    }
+    /**
+     * The single immediately-prior business-key name, copied from the desired row's
+     * {@code renamedFrom} — set on a renamed row, else null. Shipped on the wire ({@code
+     * MetaChange.renamedFrom}) so the apply can locate an un-adopted renamed row by its old key.
+     */
+    private String renamedFrom;
 
 }

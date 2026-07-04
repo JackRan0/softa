@@ -26,11 +26,6 @@ class CodeGeneratorTest {
 
     private final CodeGenerator codeGenerator = new CodeGenerator(new DesignGenerationMetadataResolver() {
         @Override
-        public Map<FieldType, DesignFieldTypeDefault> getFieldTypeDefaults() {
-            return Map.of();
-        }
-
-        @Override
         public Map<FieldType, DesignFieldDbMapping> getFieldDbMappings(DatabaseType databaseType) {
             return Map.of();
         }

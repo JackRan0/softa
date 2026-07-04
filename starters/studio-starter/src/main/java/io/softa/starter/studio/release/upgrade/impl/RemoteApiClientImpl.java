@@ -1,12 +1,11 @@
 package io.softa.starter.studio.release.upgrade.impl;
 
 import java.net.URI;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
@@ -20,153 +19,98 @@ import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.base.utils.URLUtils;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.metadata.constant.MetadataConstant;
-import io.softa.starter.metadata.dto.MetadataUpgradeHistoryDTO;
-import io.softa.starter.metadata.dto.MetadataUpgradePackage;
-import io.softa.starter.metadata.dto.MetadataUpgradeRequest;
+import io.softa.starter.metadata.dto.MetadataChangeSet;
+import io.softa.starter.metadata.dto.RuntimeChecksumsDTO;
+import io.softa.starter.metadata.dto.RuntimeExportFilter;
 import io.softa.starter.studio.release.config.StudioRemoteClientConfig;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
 import io.softa.starter.studio.release.signing.DesignAppEnvSigningInterceptor;
 import io.softa.starter.studio.release.upgrade.RemoteApiClient;
 
 /**
- * Remote API client for studio → runtime calls (metadata upgrade / export).
+ * Remote API client for studio → runtime calls (read schema + checksums, apply changes).
  * <p>
- * Resilience (timeouts, retry, circuit breaker, metrics) and Ed25519 signing are
- * supplied entirely by the {@code studioRemoteRestClient} bean — see
- * {@link StudioRemoteClientConfig}.
- * This class only owns the business contract: URL construction, env-id hint for
- * the signing interceptor, idempotency key, and {@link ApiResponse} unwrapping.
- * <p>
- * Authentication is the per-env Ed25519 keypair. We tag each request with the
- * {@link DesignAppEnvSigningInterceptor#ENV_ID_HEADER} header so the scenario
- * interceptor knows which env's key to pick up; the interceptor strips the
- * marker and adds the three wire headers before the request leaves the process.
- * <p>
- * Every call attaches an {@code Idempotency-Key} header so the runtime side can
- * dedupe replays of the same logical call — this is the contract that makes
- * upgrade retries safe when the first attempt timed out after the server already
- * applied the change.
+ * Resilience (timeouts, retry, circuit breaker, metrics) and Ed25519 signing are supplied entirely by
+ * the {@code studioRemoteRestClient} bean — see {@link StudioRemoteClientConfig}. This class owns only
+ * the business contract: URL construction, env-id hint for the signing interceptor, idempotency key,
+ * and {@link ApiResponse} unwrapping. Every call attaches an {@code Idempotency-Key} so the runtime can
+ * dedupe replays (safe retries after a timeout that the server already applied).
  */
 @Slf4j
 @Service
 public class RemoteApiClientImpl implements RemoteApiClient {
 
-    /**
-     * HTTP header carrying the idempotency key. The runtime side is expected to
-     * cache the first call's response and replay it for subsequent calls with the
-     * same key, within a reasonable dedup window.
-     */
     private static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
-
-    /**
-     * Statuses accepted from the runtime for a dispatched upgrade. 202 is the
-     * expected response (envelope accepted, work queued); 200 is tolerated so a
-     * future same-thread runtime would not break the contract.
-     */
-    private static final Set<HttpStatus> DISPATCH_ACCEPTED_STATUSES =
-            Set.of(HttpStatus.ACCEPTED, HttpStatus.OK);
 
     private static final ParameterizedTypeReference<ApiResponse<Object>> API_RESPONSE_TYPE =
             new ParameterizedTypeReference<>() {};
 
     private final RestClient restClient;
 
-    @Autowired
     public RemoteApiClientImpl(@Qualifier("studioRemoteRestClient") RestClient restClient) {
         this.restClient = restClient;
     }
 
     @Override
-    public void remoteUpgrade(DesignAppEnv appEnv,
-                              List<MetadataUpgradePackage> modelPackages,
-                              String callbackUrl,
-                              String callbackToken) {
-        MetadataUpgradeRequest envelope = new MetadataUpgradeRequest();
-        envelope.setPackages(modelPackages);
-        envelope.setEnvId(appEnv.getId());
-        envelope.setCallbackUrl(callbackUrl);
-        envelope.setCallbackToken(callbackToken);
-
-        URI uri = URI.create(URLUtils.buildUrl(appEnv.getUpgradeEndpoint(), MetadataConstant.METADATA_UPGRADE_API));
-        String idempotencyKey = UUID.randomUUID().toString();
-
-        ResponseEntity<ApiResponse<Object>> responseEntity = restClient.post()
-                .uri(uri)
-                .headers(headers -> populateHeaders(headers, appEnv.getId(), idempotencyKey))
-                .body(envelope)
-                .retrieve()
-                .toEntity(API_RESPONSE_TYPE);
-
-        HttpStatusCode status = responseEntity.getStatusCode();
-        ApiResponse<Object> apiResponse = responseEntity.getBody();
-        Assert.isTrue(DISPATCH_ACCEPTED_STATUSES.contains(HttpStatus.resolve(status.value())),
-                "Remote upgrade dispatch returned unexpected status: URI={0}, status={1}, body={2}",
-                uri, status, apiResponse);
-        // 202 Accepted bodies are advisory — the runtime may echo a queued receipt or
-        // send nothing at all. We only fail if a non-success code was wrapped.
-        Assert.isTrue(apiResponse == null || ResponseCode.SUCCESS.getCode().equals(apiResponse.getCode()),
-                "Remote upgrade dispatch rejected: URI={0}, response={1}", uri, apiResponse);
+    public List<Map<String, Object>> fetchRuntimeMetadata(DesignAppEnv appEnv, String appCode, String runtimeModelName) {
+        // Full export — no aggregate-key narrowing (a null filter ⇒ full app-scoped catalog).
+        return exportRuntimeMetadata(appEnv, appCode, runtimeModelName, new RuntimeExportFilter(null, null));
     }
 
     @Override
-    public MetadataUpgradeHistoryDTO fetchUpgradeStatus(DesignAppEnv appEnv, String callbackToken) {
-        Assert.notBlank(callbackToken, "callbackToken is required.");
-        URI uri = UriComponentsBuilder
-                .fromUriString(URLUtils.buildUrl(appEnv.getUpgradeEndpoint(),
-                        MetadataConstant.METADATA_UPGRADE_STATUS_API))
-                .queryParam("callbackToken", callbackToken)
-                .build()
-                .toUri();
-        String idempotencyKey = UUID.randomUUID().toString();
-
-        ResponseEntity<ApiResponse<Object>> responseEntity = restClient.get()
-                .uri(uri)
-                .headers(headers -> populateHeaders(headers, appEnv.getId(), idempotencyKey))
-                .retrieve()
-                .toEntity(API_RESPONSE_TYPE);
-
-        HttpStatusCode status = responseEntity.getStatusCode();
-        ApiResponse<Object> apiResponse = responseEntity.getBody();
-        Assert.isTrue(HttpStatus.OK.equals(status), "Upgrade status fetch returned non-200 status: URI={0}, status={1}, body={2}",
-                uri, status, apiResponse);
-        Assert.notNull(apiResponse, "Upgrade status fetch returned empty body: URI={0}, status={1}", uri, status);
-        Assert.isTrue(ResponseCode.SUCCESS.getCode().equals(apiResponse.getCode()),
-                "Upgrade status fetch failed: URI={0}, response={1}", uri, apiResponse);
-        Object data = apiResponse.getData();
-        if (data == null) {
-            return null;
-        }
-        // Re-bind the loosely-typed JSON tree to the strongly-typed DTO. The wire DTO
-        // lives in metadata-starter and is shared with the runtime, so this is a
-        // value-equivalent conversion, not a remap.
-        return JsonUtils.jsonNodeToObject(JsonUtils.objectToJsonNode(data),
-                MetadataUpgradeHistoryDTO.class);
+    public List<Map<String, Object>> fetchRuntimeMetadata(DesignAppEnv appEnv, String appCode, String runtimeModelName,
+                                                          String keyColumn, Collection<String> keyValues) {
+        // Narrowed export — only the requested aggregate business keys.
+        return exportRuntimeMetadata(appEnv, appCode, runtimeModelName,
+                new RuntimeExportFilter(keyColumn, List.copyOf(keyValues)));
     }
 
-    @Override
     @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> fetchRuntimeMetadata(DesignAppEnv appEnv, String runtimeModelName) {
-        Assert.notNull(appEnv.getAppId(), "DesignAppEnv {0} is missing appId — runtime export would fetch other apps' rows.",
-                appEnv.getId());
+    private List<Map<String, Object>> exportRuntimeMetadata(DesignAppEnv appEnv, String appCode,
+                                                            String runtimeModelName, RuntimeExportFilter filter) {
+        Assert.notBlank(appCode, "appCode is required — the runtime rejects exports without an identity handshake.");
         String baseUrl = URLUtils.buildUrl(appEnv.getUpgradeEndpoint(), MetadataConstant.METADATA_EXPORT_API);
         // UriComponentsBuilder handles percent-encoding; raw concatenation breaks on
-        // names containing `&`, `=`, `%` or non-ASCII characters.
+        // names containing `&`, `=`, `%` or non-ASCII characters. The aggregate-key narrowing rides in
+        // the body (not the URL), so a large key set never bumps the URL-length limit.
         URI uri = UriComponentsBuilder.fromUriString(baseUrl)
                 .queryParam("modelName", runtimeModelName)
-                .queryParam("appId", appEnv.getAppId())
+                .queryParam("appCode", appCode)
                 .build()
                 .toUri();
-        Object data = callRemoteApi(appEnv, uri, null);
+        Object data = callRemoteApi(appEnv, uri, filter);
         return data == null ? List.of() : (List<Map<String, Object>>) data;
     }
 
+    @Override
+    public RuntimeChecksumsDTO fetchRuntimeChecksums(DesignAppEnv appEnv, String appCode) {
+        Assert.notBlank(appCode, "appCode is required — the runtime rejects exports without an identity handshake.");
+        URI uri = UriComponentsBuilder
+                .fromUriString(URLUtils.buildUrl(appEnv.getUpgradeEndpoint(), MetadataConstant.METADATA_CHECKSUMS_API))
+                .queryParam("appCode", appCode)
+                .build()
+                .toUri();
+        Object data = callRemoteApi(appEnv, uri, null);
+        Assert.notNull(data, "Runtime checksums returned no data: URI={0}", uri);
+        return JsonUtils.jsonNodeToObject(JsonUtils.objectToJsonNode(data), RuntimeChecksumsDTO.class);
+    }
+
+    @Override
+    public void applyChanges(DesignAppEnv appEnv, String appCode, MetadataChangeSet changeSet) {
+        Assert.notBlank(appCode, "appCode is required — the runtime rejects writes without an identity handshake.");
+        Assert.notNull(changeSet, "Metadata change set must not be null.");
+        URI uri = UriComponentsBuilder
+                .fromUriString(URLUtils.buildUrl(appEnv.getUpgradeEndpoint(), MetadataConstant.METADATA_APPLY_DESIRED_API))
+                .queryParam("appCode", appCode)
+                .build()
+                .toUri();
+        callRemoteApi(appEnv, uri, changeSet);
+    }
+
     /**
-     * POST to {@code uri} and return the unwrapped {@link ApiResponse#getData()}.
-     * Returns {@code null} for an empty success body.
-     * <p>
-     * Retry, backoff, circuit breaking and request signing all happen inside the
-     * {@link RestClient} interceptor chain; this method only deals with the
-     * request/response envelope.
+     * POST to {@code uri} and return the unwrapped {@link ApiResponse#getData()} (or {@code null} for
+     * an empty success body). Retry / backoff / circuit breaking / signing all happen inside the
+     * {@link RestClient} interceptor chain.
      */
     private Object callRemoteApi(DesignAppEnv appEnv, URI uri, Object body) {
         String idempotencyKey = UUID.randomUUID().toString();

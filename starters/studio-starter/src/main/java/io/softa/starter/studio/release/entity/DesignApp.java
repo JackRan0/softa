@@ -7,7 +7,6 @@ import lombok.EqualsAndHashCode;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.starter.studio.release.enums.DesignAppStatus;
 
@@ -25,9 +24,6 @@ public class DesignApp extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Portfolio", required = true)
-    private Long portfolioId;
-
     @Field(label = "Owner")
     private Long ownerId;
 
@@ -39,9 +35,6 @@ public class DesignApp extends AuditableModel {
 
     @Field
     private String appType;
-
-    @Field
-    private DatabaseType databaseType;
 
     @Field(description = "Fill in when you need to generate code, the model in the same App belongs to the same Module.")
     private String packageName;

@@ -5,7 +5,7 @@ The variables available in this template include:
   - appName, appCode
   - label, modelName, displayName, searchName, defaultOrder
   - tableName, softDelete, softDeleteField, activeControl, timeline
-  - idStrategy, storageType, versionLock, multiTenant, dataSource, serviceName
+  - idStrategy, storageType, versionLock, multiTenant, copyable, dataSource, serviceName
   - businessKey, partitionField, description, modelFields, modelIndexes, deleted
   - packageName, codeLang, userName, currentDate
 - modelFields[*]:
@@ -13,7 +13,7 @@ The variables available in this template include:
   - description, fieldType, optionSetCode, relatedModel, relatedField
   - joinModel, joinLeft, joinRight, cascadedField, filters
   - defaultValue, length, scale, required, readonly, hidden, translatable
-  - nonCopyable, unsearchable, computed, expression, dynamic, encrypted
+  - copyable, unsearchable, computed, expression, dynamic, encrypted
   - maskingType, widgetType, deleted, javaType
 
 #}

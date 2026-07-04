@@ -29,7 +29,11 @@ public enum DesignAppEnvStatus {
     DEPLOYING("Deploying"),
 
     @OptionItem(description = "Importing from runtime")
-    IMPORTING("Importing")
+    IMPORTING("Importing"),
+
+    /** An env↔env merge is writing this (target) env's design (Phase 3). */
+    @OptionItem(description = "Merging from another env")
+    MERGING("Merging")
     ;
 
     @JsonValue

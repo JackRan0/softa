@@ -10,7 +10,6 @@ import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.base.enums.OptionItemIcon;
 import io.softa.framework.base.enums.OptionItemTone;
-import io.softa.framework.orm.enums.Ownership;
 
 /**
  * DesignOptionItem Model
@@ -20,8 +19,11 @@ import io.softa.framework.orm.enums.Ownership;
 @Model(
         label = "Design Option Items",
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
-        softDelete = true,
-        businessKey = {"optionSetCode", "itemCode"},
+        // hard delete (no softDelete) — lets the per-env UNIQUE(env_id, …) index work. The
+        // plain `active` flag (item enable/disable) is orthogonal and unaffected. See DesignModel.
+        copyable = false,   // copy disabled (would clone the per-env business key) — see DesignModel.
+        // envId scopes the businessKey (see DesignModel).
+        businessKey = {"envId", "optionSetCode", "itemCode"},
         displayName = {"itemCode", "label"},
         defaultOrder = {"optionSetCode", "sequence"}
 )
@@ -33,14 +35,16 @@ public class DesignOptionItem extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Portfolio")
-    private Long portfolioId;
-
     @Field(label = "App ID")
     private Long appId;
 
     @Field(label = "Option Set ID")
     private Long optionSetId;
+
+    // Per-env design: envId scopes the row (NOT NULL, V19). Identity = per-env business key
+    // (env_id + optionSetCode + itemCode); no logicalId.
+    @Field(label = "Env ID")
+    private Long envId;
 
     @Field(required = true)
     private String optionSetCode;
@@ -50,6 +54,10 @@ public class DesignOptionItem extends AuditableModel {
 
     @Field(required = true)
     private String itemCode;
+
+    /** Single immediately-prior item code for a declared rename; excluded from checksum/diff. */
+    @Field
+    private String renamedFrom;
 
     @Field(required = true)
     private String label;
@@ -68,10 +76,4 @@ public class DesignOptionItem extends AuditableModel {
 
     @Field
     private Boolean active;
-
-    @Field
-    private Ownership ownership;
-
-    @Field
-    private Boolean deleted;
 }

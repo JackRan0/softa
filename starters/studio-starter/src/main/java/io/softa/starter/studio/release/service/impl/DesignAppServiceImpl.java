@@ -22,7 +22,7 @@ public class DesignAppServiceImpl extends EntityServiceImpl<DesignApp, Long> imp
         Assert.notNull(targetStatus, "Target status is required.");
         DesignApp app = this.getById(id)
                 .orElseThrow(() -> new IllegalArgumentException("The designApp id {0} does not exist!", id));
-        DesignAppStatus currentStatus = app.getStatus();
+        DesignAppStatus currentStatus = app.getAppStatus();
         if (currentStatus == targetStatus) {
             return;
         }
@@ -36,7 +36,7 @@ public class DesignAppServiceImpl extends EntityServiceImpl<DesignApp, Long> imp
             };
             Assert.isTrue(allowed, "Cannot transition App status from {0} to {1}.", currentStatus, targetStatus);
         }
-        app.setStatus(targetStatus);
+        app.setAppStatus(targetStatus);
         this.updateOne(app);
     }
 

@@ -10,7 +10,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpRequest;
+import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.mock.http.client.MockClientHttpResponse;
@@ -127,13 +130,13 @@ class DesignAppEnvSigningInterceptorTest {
         return verifier.verify(signature);
     }
 
-    private static final class CapturingExecution implements org.springframework.http.client.ClientHttpRequestExecution {
+    private static final class CapturingExecution implements ClientHttpRequestExecution {
 
-        private org.springframework.http.HttpHeaders sentHeaders;
+        private HttpHeaders sentHeaders;
 
         @Override
-        public ClientHttpResponse execute(org.springframework.http.HttpRequest request, byte[] body) {
-            this.sentHeaders = new org.springframework.http.HttpHeaders();
+        public ClientHttpResponse execute(HttpRequest request, byte[] body) {
+            this.sentHeaders = new HttpHeaders();
             this.sentHeaders.putAll(request.getHeaders());
             return new MockClientHttpResponse(new byte[0], 200);
         }

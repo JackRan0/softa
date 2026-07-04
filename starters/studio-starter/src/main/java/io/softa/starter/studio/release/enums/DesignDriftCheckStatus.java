@@ -6,17 +6,18 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 /**
- * Outcome of the last drift check for a {@code DesignAppEnv}. Persisted on
- * {@code DesignAppEnvDrift.check_status} so the UI can tell a "no drift, last checked 2
- * minutes ago" state apart from a "check failed, runtime unreachable" state.
+ * Outcome of an on-demand drift check for a {@code DesignAppEnv}. Computed fresh on every
+ * request and returned in the {@code DriftEnvelopeDTO} (not persisted), so the UI can tell
+ * a completed check — whose {@code reports} reflect the actual runtime state — apart from
+ * a "check failed, runtime unreachable" outcome.
  */
 @Getter
 @AllArgsConstructor
 @OptionSet
 public enum DesignDriftCheckStatus {
-    /** The drift check completed — the {@code driftContent} reflects the actual runtime state. */
+    /** The drift check completed — the {@code reports} reflect the actual runtime state. */
     SUCCESS("Success"),
-    /** The drift check failed (e.g. remote env unreachable). The previous drift content is kept as-is. */
+    /** The drift check failed (e.g. remote env unreachable); {@code errorMessage} carries the cause and {@code reports} is empty. */
     FAILURE("Failure"),
     ;
 

@@ -7,6 +7,9 @@ import java.util.Map;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.starter.metadata.ddl.context.FieldDdlCtx;
+import io.softa.starter.metadata.ddl.context.IndexDdlCtx;
+import io.softa.starter.metadata.ddl.context.ModelDdlCtx;
 import io.softa.starter.studio.meta.entity.DesignField;
 import io.softa.starter.studio.meta.entity.DesignModel;
 import io.softa.starter.studio.meta.entity.DesignModelIndex;
@@ -41,7 +44,7 @@ public final class DdlContextBuilder {
     public static ModelDdlCtx baseModel(DesignModel designModel) {
         ModelDdlCtx model = new ModelDdlCtx();
         model.setModelName(designModel.getModelName());
-        model.setLabelName(designModel.getLabelName());
+        model.setLabel(designModel.getLabel());
         model.setDescription(designModel.getDescription());
         model.setTableName(resolveTableName(designModel.getTableName(), designModel.getModelName()));
         model.setPkColumn(resolvePkColumn(Boolean.TRUE.equals(designModel.getTimeline())));
@@ -53,7 +56,7 @@ public final class DdlContextBuilder {
     public static ModelDdlCtx fromModelData(Map<String, Object> data) {
         ModelDdlCtx model = new ModelDdlCtx();
         model.setModelName(asString(data.get("modelName")));
-        model.setLabelName(asString(data.get("labelName")));
+        model.setLabel(asString(data.get("label")));
         model.setDescription(asString(data.get("description")));
         model.setTableName(resolveTableName(asString(data.get("tableName")), model.getModelName()));
         model.setPkColumn(resolvePkColumn(asBoolean(data.get("timeline"))));
@@ -63,22 +66,16 @@ public final class DdlContextBuilder {
         return model;
     }
 
-    public static ModelDdlCtx placeholderModel(String modelName) {
-        ModelDdlCtx model = new ModelDdlCtx();
-        model.setModelName(modelName);
-        model.setTableName(resolveTableName(null, modelName));
-        model.setPkColumn(resolvePkColumn(false));
-        model.setAutoIncrementPrimaryKey(false);
-        return model;
-    }
-
     public static FieldDdlCtx fromField(DesignField designField, String pkColumn, boolean autoIncrementPrimaryKey) {
         FieldDdlCtx field = new FieldDdlCtx();
         field.setFieldName(designField.getFieldName());
         field.setColumnName(designField.getColumnName());
-        field.setLabelName(designField.getLabelName());
+        field.setLabel(designField.getLabel());
         field.setDescription(designField.getDescription());
-        field.setFieldType(designField.getFieldType());
+        // A TO_ONE FK's physical type was resolved into relatedFieldType (+ length/scale) at save /
+        // seal time; render it directly. The logical fieldType (MANY_TO_ONE/ONE_TO_ONE) is stored only.
+        field.setFieldType(designField.getRelatedFieldType() != null
+                ? designField.getRelatedFieldType() : designField.getFieldType());
         field.setLength(designField.getLength());
         field.setScale(designField.getScale());
         field.setRequired(Boolean.TRUE.equals(designField.getRequired()));
@@ -92,9 +89,12 @@ public final class DdlContextBuilder {
         String columnName = asString(data.get("columnName"));
         field.setFieldName(asString(data.get("fieldName")));
         field.setColumnName(columnName);
-        field.setLabelName(asString(data.get("labelName")));
+        field.setLabel(asString(data.get("label")));
         field.setDescription(asString(data.get("description")));
-        field.setFieldType(asFieldType(data.get("fieldType")));
+        // Prefer the stored physical type for a TO_ONE FK (resolved at save / seal); fall back to
+        // the logical fieldType for non-FK fields.
+        FieldType relatedFieldType = asFieldType(data.get("relatedFieldType"));
+        field.setFieldType(relatedFieldType != null ? relatedFieldType : asFieldType(data.get("fieldType")));
         field.setLength(asInteger(data.get("length")));
         field.setScale(asInteger(data.get("scale")));
         field.setRequired(asBoolean(data.get("required")));
@@ -142,8 +142,10 @@ public final class DdlContextBuilder {
     }
 
     public static Map<String, Object> buildPreviousData(RowChangeDTO rowChangeDTO) {
-        Map<String, Object> previousData = new HashMap<>(rowChangeDTO.getCurrentData());
-        previousData.putAll(rowChangeDTO.getDataBeforeChange());
+        // The previous row = the full new row with the OLD values overlaid for the changed
+        // columns (fullRow + sparse previousValuesForChangedFields).
+        Map<String, Object> previousData = new HashMap<>(rowChangeDTO.getFullRow());
+        previousData.putAll(rowChangeDTO.getPreviousValuesForChangedFields());
         return previousData;
     }
 

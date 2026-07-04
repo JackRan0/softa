@@ -30,18 +30,18 @@ public class DesignFieldDbMapping extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Database Type", required = true)
+    @Field(required = true)
     private DatabaseType databaseType;
 
-    @Field(label = "Field Type", required = true)
+    @Field(required = true)
     private FieldType fieldType;
 
-    @Field(label = "Column Type", required = true, length = 64)
+    @Field(required = true)
     private String columnType;
 
-    @Field(label = "Description", length = 256)
+    @Field(length = 256)
     private String description;
 
-    @Field(label = "Deleted")
+    @Field
     private Boolean deleted;
 }

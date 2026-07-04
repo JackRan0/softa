@@ -7,22 +7,23 @@ import lombok.EqualsAndHashCode;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.starter.studio.release.enums.ConnectorType;
 import io.softa.starter.studio.release.enums.DesignAppEnvStatus;
 import io.softa.starter.studio.release.enums.DesignAppEnvType;
 
 /**
  * DesignAppEnv Model — represents a deployment environment for a DesignApp.
  * <p>
- * Each Env tracks its own version state via {@code currentVersionId}, which points to
- * the latest version that has been successfully deployed to this environment.
- * When deploying a new Version, the system merges released versions in the
- * sealedTime interval {@code (currentVersionId, targetVersion]} to produce the Deployment.
+ * Each env owns a full per-env design set; publishing (converge-to-HEAD) deploys that
+ * design to the env's runtime. There is no version handle — the env's live design IS the deployed
+ * content.
  * <p>
- * Concurrent deployments against the same env are serialized via {@code envStatus}.
- * A deployment may only start when {@code envStatus == STABLE}; it acquires the lock
- * by compare-and-set transitioning the field to {@code DEPLOYING} and releases it on
- * completion (success or failure).
+ * Concurrent deployments against the same env are guarded via {@code envStatus}.
+ * A deployment may only start when {@code envStatus == STABLE}; it transitions the field to
+ * {@code DEPLOYING} for the duration and releases it on completion (success or failure). The guard's
+ * atomicity limits are documented on {@code DesignAppEnvServiceImpl.acquireEnvLock}.
  * <p>
  * Authentication between Studio and the runtime targeted by this Env uses per-env
  * Ed25519 keypairs. Studio signs outgoing upgrade requests with {@code privateKey};
@@ -45,12 +46,6 @@ public class DesignAppEnv extends AuditableModel {
     @Field(label = "App ID", required = true)
     private Long appId;
 
-    @Field(label = "Current Version")
-    private Long currentVersionId;
-
-    @Field(label = "Last Deployment", description = "Most recent deployment for this env, regardless of outcome")
-    private Long lastDeploymentId;
-
     @Field
     private DesignAppEnvStatus envStatus;
 
@@ -63,23 +58,42 @@ public class DesignAppEnv extends AuditableModel {
     @Field
     private DesignAppEnvType envType;
 
+    @Field(required = true, description = "Target runtime database flavor (moved here from DesignApp)")
+    private DatabaseType databaseType;
+
+    @Field(description = "Connector kind to the target — Softa runtime or raw JDBC")
+    private ConnectorType connectorType;
+
+    // JDBC connection — used only when connectorType = JDBC; there is no separate DesignConnector
+    // entity. Required-ness is validated per-connectorType at connector build (ConnectorFactory),
+    // not via @Field(required), since which fields are mandatory depends on connectorType.
+    @Field(label = "JDBC URL", length = 256, description = "Raw JDBC connection URL when connectorType = JDBC")
+    private String jdbcUrl;
+
+    @Field(label = "JDBC Username", length = 128)
+    private String jdbcUsername;
+
+    @Field(label = "JDBC Password", length = 512, encrypted = true, copyable = false, unsearchable = true)
+    private String jdbcPassword;
+
     @Field
     private Boolean protectedEnv;
 
     @Field
     private Boolean active;
 
-    @Field(label = "Upgrade API EndPoint", required = true, length = 128)
+    // Not @Field(required): mandatory only for connectorType = SOFTA (validated at connector build,
+    // ConnectorFactory) — a JDBC env has no upgrade endpoint.
+    @Field(label = "Upgrade API EndPoint", length = 128)
     private String upgradeEndpoint;
 
     @Field(length = 256)
     private String publicKey;
 
-    @Field(length = 256)
+    // The signing private key is a secret: encrypted at rest, never returned by search, and not
+    // carried by copyById (mirrors jdbcPassword). Encryption inflates the stored value, hence length 512.
+    @Field(length = 512, encrypted = true, copyable = false, unsearchable = true)
     private String privateKey;
-
-    @Field
-    private Boolean autoUpgrade;
 
     @Field(label = "Auto Execute DDL")
     private Boolean autoExecuteDDL;
@@ -89,7 +103,4 @@ public class DesignAppEnv extends AuditableModel {
 
     @Field
     private Boolean deleted;
-
-    @Field
-    private Integer version;
 }

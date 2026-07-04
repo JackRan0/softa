@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import io.softa.framework.base.exception.IllegalArgumentException;
-import io.softa.framework.web.controller.EntityController;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.studio.dto.ModelCodeDTO;
 import io.softa.starter.studio.dto.ModelCodeFileDTO;
@@ -33,7 +32,17 @@ import io.softa.starter.studio.template.enums.DesignCodeLang;
 @Tag(name = "DesignModel")
 @RestController
 @RequestMapping("/DesignModel")
-public class DesignModelController extends EntityController<DesignModelService, DesignModel, Long> {
+public class DesignModelController extends AbstractDesignWriteController<DesignModelService, DesignModel> {
+
+    @Override
+    protected String modelName() {
+        return "DesignModel";
+    }
+
+    @Override
+    protected String renameKeyField() {
+        return "modelName";
+    }
 
     /**
      * Preview the DDL SQL of model, including table creation and index creation

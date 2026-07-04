@@ -14,7 +14,7 @@ import io.softa.starter.studio.template.enums.DesignCodeLang;
  * DesignCodeTemplate Model
  */
 @Data
-@Model(label = "Design Code Template", idStrategy = IdStrategy.DISTRIBUTED_LONG)
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG)
 @EqualsAndHashCode(callSuper = true)
 public class DesignCodeTemplate extends AuditableModel {
 
@@ -24,24 +24,24 @@ public class DesignCodeTemplate extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Code Lang")
+    @Field
     private DesignCodeLang codeLang;
 
-    @Field(label = "Sequence")
+    @Field
     private Integer sequence;
 
-    @Field(label = "Sub Directory", length = 64)
+    @Field
     private String subDirectory;
 
-    @Field(label = "File Name", length = 64)
+    @Field
     private String fileName;
 
-    @Field(label = "Template Content", length = 20000)
+    @Field(length = 20000)
     private String templateContent;
 
-    @Field(label = "Description", length = 256)
+    @Field(length = 256)
     private String description;
 
-    @Field(label = "Deleted")
+    @Field
     private Boolean deleted;
 }

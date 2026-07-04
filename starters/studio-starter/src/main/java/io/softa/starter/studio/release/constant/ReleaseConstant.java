@@ -7,13 +7,6 @@ import java.time.Duration;
  */
 public interface ReleaseConstant {
 
-    /**
-     * How long a newly-minted callback token is valid for. A callback arriving after
-     * the expiry is rejected even if the token matches — bounds the exposure window
-     * of a token that leaked post-send.
-     */
-    Duration CALLBACK_TOKEN_TTL = Duration.ofHours(1);
-
     /** TCP connect timeout. Short — any connect taking longer is almost certainly a bad endpoint. */
     Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
 

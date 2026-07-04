@@ -1,5 +1,6 @@
 package io.softa.starter.studio.template.ddl;
 
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -225,6 +226,9 @@ class PebbleSqlTemplateWhitespaceTest {
         field.setRequired(required);
         field.setAutoIncrement(autoIncrement);
         field.setDefaultValue(defaultValue);
+        // This test drives the templates directly (no dialect prepare step), so the
+        // rendered literal — what the templates actually interpolate — is set verbatim.
+        field.setDefaultValueLiteral(defaultValue);
         field.setDescription(description);
         return field;
     }
@@ -246,7 +250,7 @@ class PebbleSqlTemplateWhitespaceTest {
         IndexDdlCtx index = new IndexDdlCtx();
         index.setIndexName(indexName);
         index.setUnique(unique);
-        index.setColumns(java.util.List.of(columns));
+        index.setColumns(List.of(columns));
         return index;
     }
 

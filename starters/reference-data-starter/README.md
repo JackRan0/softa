@@ -11,32 +11,38 @@ All rows are **platform-scoped, read-only, and shared across tenants**. There
 is no tenant-level override; reference data is the same physical row for
 every tenant in the deployment.
 
-## Metadata ownership
+## Metadata catalog
 
-The 3 entities (`CountryRegion` / `Currency` / `CountrySubdivision`)
-and the `Continent` enum are all annotated with `@Model` /
-`@Field` / `@OptionSet` / `@OptionItem` (see
+The three entities (`CountryRegion` / `Currency` / `CountrySubdivision`) and
+the `Continent` enum are annotated with `@Model` / `@Field` / `@OptionSet` /
+`@OptionItem` (see
 [`framework/softa-orm`](../../framework/softa-orm/README.md#metadata-annotations)).
-`MetadataAnnotationScanner` writes their `sys_*` rows with
-`ownership = 'PLATFORM_MAINTAINED'`, so:
+When this starter's package is in `scanner-scope`, `MetadataAnnotationScanner`
+reconciles them into `sys_*` rows stamped with the runtime's `app_code`
+(ADR-0015). Per-tenant runtime metadata customization is out of scope
+(ADR-0013) — tenants cannot add custom fields onto these models via Studio.
 
-- Tenants **cannot** modify model / field structure via Studio Open API.
-- Tenants **may** add custom fields (TENANT-owned) onto these models for
-  per-tenant extensions.
-- Schema drift between the annotations and `sys_*` triggers a startup WARN
-  (when this package is out of `scanner-scope`) or an automatic ALTER (when it
-  is in scope).
+Schema drift between the annotations and `sys_*` triggers a startup WARN
+(when this package is out of `scanner-scope`) or an automatic ALTER (when it
+is in scope).
 
 The framework `Language` enum lives in `softa-base` and carries
 `@OptionSet` / `@OptionItem` like any other enum (the annotations live in
 `io.softa.framework.base.annotation` precisely so base enums avoid a
-base → orm cycle); the scanner manages its `sys_option_set` rows as
-`PLATFORM_MAINTAINED`. Locale formatting facts (date/time patterns, decimal
-and grouping separators) are **not stored** — they derive from the JDK's
-built-in CLDR data via the `Language` enum accessors (`toLocale()`,
-`decimalSeparator()`, `datePattern()`, …); browsers derive the same values
-from the tag via `Intl.*`. (The former `LanguageProfile` entity that stored
-these per tenant was retired in 2026-06.)
+base → orm cycle); the scanner manages its `sys_option_set` rows the same way.
+Locale formatting facts (date/time patterns, decimal and grouping separators)
+are **not stored** — they derive from the JDK's built-in CLDR data via the
+`Language` enum accessors (`toLocale()`, `decimalSeparator()`, `datePattern()`,
+…); browsers derive the same values from the tag via `Intl.*`. (The former
+`LanguageProfile` entity that stored these per tenant was retired in 2026-06.)
+
+## Code-as-id masters (ADR-0024)
+
+`Currency` and `CountryRegion` use **code-as-id** (`IdStrategy.EXTERNAL_ID`):
+the primary key **`id` is the ISO code** (alpha-3 for currency, alpha-2 for
+country). References store that code in an id-FK column — e.g.
+`CountryRegion.currencyCode` → `Currency.id`, `TenantInfo.defaultCountry` →
+`CountryRegion.id`.
 
 ## Dependency
 
@@ -50,20 +56,26 @@ these per tenant was retired in 2026-06.)
 
 ## Tables
 
-Apply `src/main/resources/sql/reference-data-starter.sql`:
+Apply `src/main/resources/sql/reference-data-starter.sql` for a standalone DDL
+baseline. When the annotation scanner is active (`scanner-scope` includes this
+package), table shape is driven by the `@Model` entities — prefer verifying
+against the compiled catalog:
 
-| Table | Rows | Natural key | Notes |
+```sql
+SELECT model_name, app_code FROM sys_model
+ WHERE model_name IN ('CountryRegion', 'Currency', 'CountrySubdivision');
+```
+
+| Entity | Rows (seeded) | Primary key (`id`) | Notes |
 |---|---|---|---|
-| `country_region` | 249 | `code` (ISO 3166-1 alpha-2) | Indexed on `continent`, `currency_code`, `eea` |
-| `currency` | 155 | `code` (ISO 4217 alpha-3) | `decimal_places` is critical for monetary arithmetic |
-| `country_subdivision` | 0 | `code` (ISO 3166-2) | Schema reserved; populated when address/tax features land |
+| `CountryRegion` | 249 | ISO 3166-1 alpha-2 (`CN`, `US`, …) | Indexed on `continent`, `currencyCode`, `eea` |
+| `Currency` | 155 | ISO 4217 alpha-3 (`USD`, `CNY`, …) | `decimalPlaces` is critical for monetary arithmetic |
+| `CountrySubdivision` | 0 | ISO 3166-2 code | Schema reserved; populated when address/tax features land |
 
-`country_region.currency_code` is a **concept FK** to `currency.code` (string,
-no relational constraint). Same for `country_subdivision.country_code` →
-`country_region.code`. Validation happens at the service layer; the database
-does not enforce these references because reference data is loaded as
-denormalized seed and the cost of `FOREIGN KEY` here is not worth the
-constraint guarantees against ops-controlled JSON input.
+`CountryRegion.currencyCode` references `Currency.id` (same string value as the
+ISO alpha-3 code). `CountrySubdivision.countryCode` references
+`CountryRegion.id`. Validation happens at the service layer; the database does
+not enforce physical FKs because reference data is loaded as denormalized seed.
 
 ## Services
 
@@ -75,8 +87,8 @@ constraint guarantees against ops-controlled JSON input.
 | `CurrencyService` | `findByCode(String code)` | yes (Redis, TTL 1h) |
 | `CountrySubdivisionService` | `findByCode(String)`, `findByCountryCode(String)`, `findByParentCode(String)` | no |
 
-`findByCode` is the hot path (called from every SMS send, every tenant
-default lookup, etc.); cache is mandatory in production. Cache is invalidated
+`findByCode` is the hot-path API name; internally it loads by **`id`**
+(the ISO code). Cache is mandatory in production. Cache is invalidated
 automatically on `updateOne` / `deleteById` paths through the service.
 
 ## Seed Data — JSON + SysPreData
@@ -99,7 +111,7 @@ To load seed data, call the `metadata-starter` endpoint:
 
 ```bash
 # Load order matters: Currency first, CountryRegion second
-# (CountryRegion.currencyCode references Currency.code).
+# (CountryRegion.currencyCode references Currency.id).
 curl -X POST http://localhost:8080/SysPreData/loadPreSystemData \
   -H 'Content-Type: application/json' \
   -d '["Currency.AllCurrencies.json","CountryRegion.AllCountries.json"]'
@@ -124,19 +136,19 @@ conventions; they are **not** ISO 3166 / UN M49 codes.
 
 | Module | Field / usage |
 |---|---|
-| `message-starter` | `SmsProviderRegion.regionCode` (concept FK), `dialCode` denormalized from `country_region.dial_code` |
-| `framework/softa-orm` | `TenantInfo.defaultCountry` (concept FK to `country_region.code`), `TenantInfo.defaultCurrency` (concept FK to `currency.code`) |
+| `message-starter` | `SmsProviderRegion.regionCode` → `CountryRegion.id`, `dialCode` denormalized from country master |
+| `framework/softa-orm` | `TenantInfo.defaultCountry` → `CountryRegion.id`, `TenantInfo.defaultCurrency` → `Currency.id` |
 
 ## ISO 4217 fraction digits — quick reference
 
 This is the most common field operators get wrong. Validate against ISO 4217
 when loading seed updates:
 
-| `decimal_places` | Currencies (sample) |
+| `decimalPlaces` | Currencies (sample) |
 |---|---|
 | 0 | JPY, KRW, VND, UGX, RWF, PYG, MGA, KMF, XAF, XOF, XPF, BIF, CLP, DJF, GNF, ISK |
-| 2 | USD, EUR, GBP, CNY, JPY (no — JPY is 0), AUD, CAD, … (most currencies) |
+| 2 | USD, EUR, GBP, CNY, AUD, CAD, … (most currencies) |
 | 3 | BHD, IQD, JOD, KWD, LYD, OMR, TND |
 
-Mismatching `decimal_places` silently breaks monetary arithmetic, so this is
+Mismatching `decimalPlaces` silently breaks monetary arithmetic, so this is
 covered by unit tests against well-known special-case currencies.

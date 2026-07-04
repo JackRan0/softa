@@ -12,38 +12,41 @@ import lombok.NoArgsConstructor;
 import io.softa.starter.studio.release.enums.DesignDriftCheckStatus;
 
 /**
- * Envelope wrapping a drift report with the cache-side metadata (check status, error,
- * timestamp). UI consumers read {@code lastCheckedTime} to render a "last checked X min
- * ago" hint and decide whether to prompt the operator to hit Refresh, without a second
- * round-trip.
+ * Envelope wrapping a freshly-computed drift report together with the check outcome,
+ * error (on failure), and the time the check ran. Drift is computed on demand on every
+ * request — there is no persisted drift cache — so the result always reflects the
+ * runtime state at the moment the operator hit Refresh.
  * <p>
- * When the env has never been drift-checked, {@code lastCheckedTime} is null,
- * {@code checkStatus} is null, and {@code reports} is an empty list — the frontend
- * should treat this as "unknown" rather than "no drift".
+ * {@code checkStatus} and {@code lastCheckedTime} are therefore always populated:
+ * {@code lastCheckedTime} is the instant this check ran, and {@code checkStatus} is
+ * {@code SUCCESS} when the diff completed (with {@code hasDrift} / {@code reports}
+ * carrying the result) or {@code FAILURE} when the runtime was unreachable / the diff
+ * threw (with {@code errorMessage} set, {@code hasDrift} false, and {@code reports}
+ * empty).
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(name = "DriftEnvelope", description = "Drift report plus cache metadata")
+@Schema(name = "DriftEnvelope", description = "Freshly-computed drift report plus the check outcome and timing")
 public class DriftEnvelopeDTO {
 
     @Schema(description = "Environment ID")
     private Long envId;
 
-    @Schema(description = "Outcome of the last drift check; null when never checked")
+    @Schema(description = "Outcome of this check: SUCCESS or FAILURE (always populated — drift is computed on demand)")
     private DesignDriftCheckStatus checkStatus;
 
-    @Schema(description = "Error message from the last failed check, null on success / never checked")
+    @Schema(description = "Error message when checkStatus is FAILURE; null on success")
     private String errorMessage;
 
-    @Schema(description = "When the last drift check completed; null when never checked")
+    @Schema(description = "When this check ran (always populated)")
     private LocalDateTime lastCheckedTime;
 
-    @Schema(description = "Whether the last successful check found drift")
+    @Schema(description = "Whether the check found drift (false on failure)")
     private boolean hasDrift;
 
-    @Schema(description = "Drift rows grouped by model; empty list when no drift / never checked")
+    @Schema(description = "Drift rows grouped by model; empty when in sync or on failure")
     @Builder.Default
     private List<DriftReportDTO> reports = new ArrayList<>();
 }

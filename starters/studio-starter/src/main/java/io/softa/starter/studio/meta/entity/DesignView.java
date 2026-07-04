@@ -26,9 +26,6 @@ public class DesignView extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Portfolio")
-    private Long portfolioId;
-
     @Field(label = "App ID")
     private Long appId;
 
