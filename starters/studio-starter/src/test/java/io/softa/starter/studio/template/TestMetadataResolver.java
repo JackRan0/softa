@@ -7,13 +7,16 @@ import java.util.Optional;
 
 import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.starter.metadata.ddl.spi.DdlMetadataResolver;
 import io.softa.starter.studio.template.entity.*;
 import io.softa.starter.studio.template.enums.DesignCodeLang;
+import io.softa.starter.studio.template.generator.DesignDdlMetadataResolver;
 import io.softa.starter.studio.template.generator.DesignGenerationMetadataResolver;
 
 public final class TestMetadataResolver implements DesignGenerationMetadataResolver {
 
     public static final TestMetadataResolver INSTANCE = new TestMetadataResolver();
+    public static final DdlMetadataResolver DDL = new DesignDdlMetadataResolver(INSTANCE);
 
     private TestMetadataResolver() {}
 

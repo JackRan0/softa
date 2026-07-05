@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MySQLDDLTest {
 
-    private final MySqlDdlDialect mysqlDDL = new MySqlDdlDialect(TestMetadataResolver.INSTANCE);
+    private final MySqlDdlDialect mysqlDDL = new MySqlDdlDialect(TestMetadataResolver.DDL);
 
     @Test
     void createTableUsesDbAutoIdAsAutoIncrement() {

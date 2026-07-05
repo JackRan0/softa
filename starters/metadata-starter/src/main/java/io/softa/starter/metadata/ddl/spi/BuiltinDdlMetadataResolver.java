@@ -4,8 +4,6 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.stereotype.Component;
 
 import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.enums.FieldType;
@@ -13,28 +11,23 @@ import io.softa.starter.metadata.ddl.mapping.MySqlDataType;
 import io.softa.starter.metadata.ddl.mapping.PostgreSqlDataType;
 
 /**
- * Built-in fallback {@link DdlMetadataResolver} for apps that don't include a
- * richer resolver (e.g. studio-starter's {@code DesignGenerationMetadataResolverImpl}
- * which sources column types from the {@code DesignFieldDbMapping} table). The per-FieldType
- * length/scale defaults here are the single cross-lane source: the studio resolver
- * delegates to {@link #builtinFieldDefaults()} rather than a {@code design_*} table.
- *
- * <p>{@code @ConditionalOnMissingBean(DdlMetadataResolver.class)} ensures this
- * fallback only kicks in when no other implementation is present. Studio's
- * impl wins when both are on classpath.
+ * Built-in {@link DdlMetadataResolver} for annotation-sourced/runtime Softa DDL.
+ * The caller chooses this resolver explicitly through {@code DdlDialectFactory};
+ * it is deliberately not a Spring bean, so it cannot compete with studio's
+ * design-backed metadata source.
  *
  * <p>Provides hardcoded defaults for the common {@link FieldType}s that need
  * column length/scale (STRING / BIG_DECIMAL / multi-*). Other types
  * (INTEGER / LONG / BOOLEAN / DATE / DATE_TIME / TIME / JSON) don't need
  * declared lengths under the framework's column-type map.
  *
- * <p>Without this fallback, {@code MySqlDdlDialect} / {@code PostgreSqlDdlDialect}
- * Spring constructors fail with "No qualifying bean of type 'DdlMetadataResolver'
- * available" in apps that include {@code softa-orm} but not {@code studio-starter}.
+ * <p>The per-FieldType length/scale defaults here are the single cross-lane source:
+ * studio's design-backed DDL adapter delegates to {@link #builtinFieldDefaults()}
+ * rather than a {@code design_*} table.
  */
-@Component
-@ConditionalOnMissingBean(DdlMetadataResolver.class)
 public class BuiltinDdlMetadataResolver implements DdlMetadataResolver {
+
+    public static final BuiltinDdlMetadataResolver INSTANCE = new BuiltinDdlMetadataResolver();
 
     private static final Map<FieldType, FieldDdlDefault> DEFAULTS = new EnumMap<>(FieldType.class);
 
@@ -88,7 +81,7 @@ public class BuiltinDdlMetadataResolver implements DdlMetadataResolver {
      * authoritative rather than left null for the DDL layer to fill. This is
      * sound for the annotation lane specifically: the scanner / platform apply
      * always render DDL through this builtin resolver (never the pluggable
-     * studio resolver — see {@code BuiltinDdlDialects}), so the builtin default
+     * studio resolver — see {@code DdlDialectFactory#builtin}), so the builtin default
      * <i>is</i> the effective width for annotation-sourced fields. The studio
      * (no-code) lane keeps sourcing its own per-flavor defaults at render time.
      */

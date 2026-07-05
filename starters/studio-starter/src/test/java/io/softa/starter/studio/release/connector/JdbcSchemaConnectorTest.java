@@ -18,7 +18,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.enums.DatabaseType;
-import io.softa.starter.metadata.ddl.BuiltinDdlDialects;
+import io.softa.starter.metadata.ddl.DdlDialectFactory;
 import io.softa.starter.metadata.ddl.dialect.DdlDialect;
 import io.softa.starter.metadata.dto.ChangeOp;
 import io.softa.starter.metadata.dto.MetaChange;
@@ -71,7 +71,7 @@ class JdbcSchemaConnectorTest {
     @Test
     @DisplayName("the dialect is the configured value")
     void dialectFromConfig() {
-        DdlDialect dialect = BuiltinDdlDialects.registry().getDialect(DatabaseType.MYSQL);
+        DdlDialect dialect = DdlDialectFactory.builtin(DatabaseType.MYSQL);
         JdbcSchemaConnector connector = new JdbcSchemaConnector(
                 dialect, mock(JdbcDdlExecutor.class), mock(JdbcSchemaReader.class), env());
 

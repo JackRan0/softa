@@ -1,12 +1,8 @@
 package io.softa.starter.metadata.ddl;
 
-import io.softa.starter.metadata.ddl.dialect.DdlDialect;
-import io.softa.starter.metadata.ddl.dialect.MySqlDdlDialect;
-import io.softa.starter.metadata.ddl.spi.BuiltinDdlMetadataResolver;
-
 /**
  * {@link DdlOrchestrator} end-to-end tests against H2 in MySQL compatibility mode,
- * driving the {@link MySqlDdlDialect}.
+ * driving the MySQL DDL dialect.
  *
  * <p>The production-style URL ({@code jdbc:mysql://...}) is what
  * {@code DBUtil.parseDatabaseType} reads to pick the dialect; the actual SQL
@@ -23,10 +19,5 @@ class MySqlDdlOrchestratorTest extends AbstractDdlOrchestratorTest {
     @Override
     protected String productionJdbcUrl() {
         return "jdbc:mysql://localhost/test";
-    }
-
-    @Override
-    protected DdlDialect createDialect(BuiltinDdlMetadataResolver resolver) {
-        return new MySqlDdlDialect(resolver);
     }
 }

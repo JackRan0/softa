@@ -1,7 +1,5 @@
 package io.softa.starter.metadata.ddl.dialect;
 
-import org.springframework.stereotype.Component;
-
 import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.starter.metadata.ddl.context.FieldDdlCtx;
@@ -13,7 +11,6 @@ import io.softa.starter.metadata.ddl.spi.DdlMetadataResolver;
  *
  * <p>Depends on {@link DdlMetadataResolver}.
  */
-@Component
 public class MySqlDdlDialect extends AbstractTemplateDdlDialect {
 
     private static final String TEMPLATE_DIR = "templates/sql/mysql/";

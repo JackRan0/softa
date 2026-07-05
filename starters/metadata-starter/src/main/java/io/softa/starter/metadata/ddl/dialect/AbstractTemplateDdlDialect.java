@@ -18,9 +18,9 @@ import io.softa.starter.metadata.ddl.spi.FieldDdlDefault;
 /**
  * Shared template-backed DDL dialect support.
  *
- * <p>Depends on the framework-level {@link DdlMetadataResolver} SPI;
- * studio's {@code DesignGenerationMetadataResolver} extends this SPI with
- * adapter default methods.
+ * <p>Depends on the framework-level {@link DdlMetadataResolver} SPI. Callers
+ * construct dialects with the resolver for the current lane; dialects are not
+ * Spring beans and do not pick a metadata source implicitly.
  */
 public abstract class AbstractTemplateDdlDialect implements DdlDialect {
 

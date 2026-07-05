@@ -52,11 +52,13 @@ DDL rendering is shared with metadata-starter's annotation DDL infrastructure.
 
 - `MetadataChangeDdlRenderer` converts row-level metadata changes to
   `DdlTemplateContext`.
-- `ConnectorFactory` selects the `DdlDialect` for the target env.
-- `SOFTA` connectors use `BuiltinDdlDialects.registry()`, matching the boot-time
-  annotation scanner.
-- `JDBC` connectors use a design-backed registry, so `DesignFieldDbMapping` and
-  `DesignSqlTemplate` can customize external database DDL.
+- `ConnectorFactory` selects the `DdlDialect` for the target env through
+  `DdlDialectFactory`.
+- `SOFTA` connectors use the builtin resolver, matching the boot-time annotation
+  scanner.
+- `JDBC` connectors adapt `DesignGenerationMetadataResolver` through
+  `DesignDdlMetadataResolver`, so `DesignFieldDbMapping` and `DesignSqlTemplate`
+  can customize external database DDL without becoming global DDL beans.
 - Classpath fallback SQL templates are in metadata-starter, not in
   studio-starter.
 

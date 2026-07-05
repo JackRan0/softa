@@ -1,42 +1,36 @@
 package io.softa.starter.studio.release.connector;
 
-import java.util.List;
-
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.enums.DatabaseType;
-import io.softa.starter.metadata.ddl.BuiltinDdlDialects;
-import io.softa.starter.metadata.ddl.dialect.DdlDialectRegistry;
-import io.softa.starter.metadata.ddl.dialect.MySqlDdlDialect;
-import io.softa.starter.metadata.ddl.dialect.PostgreSqlDdlDialect;
+import io.softa.starter.metadata.ddl.DdlDialectFactory;
+import io.softa.starter.metadata.ddl.spi.DdlMetadataResolver;
 import io.softa.starter.studio.release.entity.DesignAppEnv;
 import io.softa.starter.studio.release.enums.ConnectorType;
 import io.softa.starter.studio.release.upgrade.RemoteApiClient;
+import io.softa.starter.studio.template.generator.DesignDdlMetadataResolver;
 import io.softa.starter.studio.template.generator.DesignGenerationMetadataResolver;
 
 /**
  * Builds the {@link Connector} for a {@link DesignAppEnv}. Selection is data-driven on the
  * env's {@code connectorType} (null ⇒ {@link ConnectorType#SOFTA}).
  *
- * <p>The two connectors render DDL on different dialects (by-connector resolver):
+ * <p>The two connectors render DDL with different metadata sources:
  * <ul>
- *   <li><b>Softa</b> → the shared {@link BuiltinDdlDialects#registry() builtin registry} (compile-time
- *       annotation knowledge, identical to the boot scanner), binding the env + the shared
- *       {@link RemoteApiClient} so the connector owns all signed runtime calls.</li>
- *   <li><b>JDBC</b> → a {@code design_*}-backed registry built here from the
- *       {@link DesignGenerationMetadataResolver} (forward FieldType→SQL via {@code DesignFieldDbMapping}),
- *       plus the {@link JdbcDdlExecutor} that runs the rendered DDL against the external database. Built
- *       explicitly (not the ambiguous Spring {@code DdlDialectRegistry} bean — both the builtin and the
- *       design resolver are beans) so the resolver is unambiguous.</li>
+ *   <li><b>Softa</b> → builtin annotation/runtime defaults, identical to the boot scanner.</li>
+ *   <li><b>JDBC</b> → a {@code design_*}-backed resolver adapted from
+ *       {@link DesignGenerationMetadataResolver}.</li>
  * </ul>
+ *
+ * <p>The resolver choice is explicit at this boundary; there is no shared Spring
+ * {@code DdlMetadataResolver} or dialect registry to reason about.
  */
 @Component
 public class ConnectorFactory {
 
-    private final DdlDialectRegistry builtinRegistry = BuiltinDdlDialects.registry();
-    /** design_*-backed registry (forward FieldType→SQL via DesignFieldDbMapping) — for JDBC targets. */
-    private final DdlDialectRegistry designRegistry;
+    /** design_*-backed resolver (forward FieldType→SQL via DesignFieldDbMapping) — for JDBC targets. */
+    private final DdlMetadataResolver designDdlResolver;
     private final RemoteApiClient remoteApiClient;
     private final JdbcDdlExecutor jdbcDdlExecutor;
     private final JdbcSchemaReader jdbcSchemaReader;
@@ -48,9 +42,7 @@ public class ConnectorFactory {
         this.remoteApiClient = remoteApiClient;
         this.jdbcDdlExecutor = jdbcDdlExecutor;
         this.jdbcSchemaReader = jdbcSchemaReader;
-        this.designRegistry = new DdlDialectRegistry(List.of(
-                new MySqlDdlDialect(designResolver),
-                new PostgreSqlDdlDialect(designResolver)));
+        this.designDdlResolver = new DesignDdlMetadataResolver(designResolver);
     }
 
     public Connector forEnv(DesignAppEnv env) {
@@ -71,7 +63,7 @@ public class ConnectorFactory {
         // so the endpoint is mandatory here — it is no longer @Field(required), since a JDBC env has none.
         Assert.notBlank(env.getUpgradeEndpoint(),
                 "SOFTA env {0} has no upgradeEndpoint — cannot address its runtime.", env.getId());
-        return new SoftaRuntimeConnector(builtinRegistry.getDialect(dbType), remoteApiClient, env);
+        return new SoftaRuntimeConnector(DdlDialectFactory.builtin(dbType), remoteApiClient, env);
     }
 
     private Connector jdbcConnector(DesignAppEnv env) {
@@ -83,7 +75,7 @@ public class ConnectorFactory {
                 "JDBC env {0} has no databaseType — cannot select its DDL dialect.", env.getId());
         Assert.notBlank(env.getJdbcUrl(),
                 "JDBC env {0} has no jdbcUrl — cannot connect to its database.", env.getId());
-        return new JdbcSchemaConnector(designRegistry.getDialect(dbType),
+        return new JdbcSchemaConnector(DdlDialectFactory.create(dbType, designDdlResolver),
                 jdbcDdlExecutor, jdbcSchemaReader, env);
     }
 }

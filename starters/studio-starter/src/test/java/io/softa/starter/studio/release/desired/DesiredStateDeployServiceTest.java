@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import io.softa.framework.orm.enums.DatabaseType;
-import io.softa.starter.metadata.ddl.BuiltinDdlDialects;
+import io.softa.starter.metadata.ddl.DdlDialectFactory;
 import io.softa.starter.metadata.ddl.dialect.DdlDialect;
 import io.softa.starter.metadata.dto.MetaTable;
 import io.softa.starter.metadata.dto.MetadataChangeSet;
@@ -60,7 +60,7 @@ class DesiredStateDeployServiceTest {
     /** A mocked connector whose dialect is the real builtin MySQL dialect; {@code apply} is verified. */
     private static Connector connector() {
         Connector connector = mock(Connector.class);
-        when(connector.dialect()).thenReturn(BuiltinDdlDialects.registry().getDialect(DatabaseType.MYSQL));
+        when(connector.dialect()).thenReturn(DdlDialectFactory.builtin(DatabaseType.MYSQL));
         return connector;
     }
 

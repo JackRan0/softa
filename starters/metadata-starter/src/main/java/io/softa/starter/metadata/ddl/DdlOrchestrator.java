@@ -18,7 +18,7 @@ import io.softa.framework.orm.jdbc.database.DBUtil;
 import io.softa.starter.metadata.ddl.DdlPolicy.ModelOps;
 import io.softa.starter.metadata.ddl.context.ModelDdlCtx;
 import io.softa.starter.metadata.ddl.dialect.DdlDialect;
-import io.softa.starter.metadata.ddl.dialect.DdlDialectRegistry;
+import io.softa.starter.metadata.ddl.spi.DdlMetadataResolver;
 import io.softa.starter.metadata.entity.SysField;
 import io.softa.starter.metadata.entity.SysModel;
 import io.softa.starter.metadata.entity.SysModelIndex;
@@ -80,14 +80,14 @@ import io.softa.starter.metadata.scanner.diff.SchemaDiff;
 public class DdlOrchestrator {
 
     private final JdbcTemplate jdbcTemplate;
-    private final DdlDialectRegistry dialectRegistry;
+    private final DdlMetadataResolver metadataResolver;
     private final String datasourceUrl;
 
     public DdlOrchestrator(JdbcTemplate jdbcTemplate,
-                           DdlDialectRegistry dialectRegistry,
+                           DdlMetadataResolver metadataResolver,
                            @Value("${spring.datasource.url:}") String datasourceUrl) {
         this.jdbcTemplate = jdbcTemplate;
-        this.dialectRegistry = dialectRegistry;
+        this.metadataResolver = metadataResolver;
         this.datasourceUrl = datasourceUrl;
     }
 
@@ -431,6 +431,6 @@ public class DdlOrchestrator {
 
     private DdlDialect resolveDialect() {
         DatabaseType type = DBUtil.parseDatabaseType(datasourceUrl);
-        return dialectRegistry.getDialect(type);
+        return DdlDialectFactory.create(type, metadataResolver);
     }
 }

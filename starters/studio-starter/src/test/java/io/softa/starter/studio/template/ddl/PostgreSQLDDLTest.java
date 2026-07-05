@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PostgreSQLDDLTest {
 
-    private final PostgreSqlDdlDialect postgreSQLDDL = new PostgreSqlDdlDialect(TestMetadataResolver.INSTANCE);
+    private final PostgreSqlDdlDialect postgreSQLDDL = new PostgreSqlDdlDialect(TestMetadataResolver.DDL);
 
     @Test
     void createTableUsesIdentityForDbAutoId() {

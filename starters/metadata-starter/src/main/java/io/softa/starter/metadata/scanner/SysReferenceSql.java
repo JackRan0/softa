@@ -18,7 +18,7 @@ import io.softa.framework.orm.enums.DatabaseType;
  * cross-link a child to another app's model/option-set of the same name.
  *
  * <p>MySQL uses multi-table {@code UPDATE ... JOIN}; PostgreSQL uses {@code UPDATE ... SET ... FROM ...
- * WHERE}. Only these two flavors have a {@code DdlDialect} (BuiltinDdlDialects), so any other type is
+ * WHERE}. Only these two flavors have a {@code DdlDialect}, so any other type is
  * rejected. Mirrors the reference seed SQL in {@code deploy/<app>/init_mysql/4.update_reference.dml.sql}.
  */
 public final class SysReferenceSql {

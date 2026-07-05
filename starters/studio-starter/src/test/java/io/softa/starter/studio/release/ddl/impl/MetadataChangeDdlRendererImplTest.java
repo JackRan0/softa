@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 import io.softa.framework.orm.enums.DatabaseType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
-import io.softa.starter.metadata.ddl.BuiltinDdlDialects;
+import io.softa.starter.metadata.ddl.DdlDialectFactory;
 import io.softa.starter.metadata.ddl.dialect.DdlDialect;
 import io.softa.starter.metadata.ddl.dialect.MySqlDdlDialect;
 import io.softa.starter.metadata.ddl.dialect.PostgreSqlDdlDialect;
@@ -26,8 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class MetadataChangeDdlRendererImplTest {
 
     private final MetadataChangeDdlRendererImpl renderer = new MetadataChangeDdlRendererImpl();
-    private final DdlDialect mysql = new MySqlDdlDialect(TestMetadataResolver.INSTANCE);
-    private final DdlDialect postgres = new PostgreSqlDdlDialect(TestMetadataResolver.INSTANCE);
+    private final DdlDialect mysql = new MySqlDdlDialect(TestMetadataResolver.DDL);
+    private final DdlDialect postgres = new PostgreSqlDdlDialect(TestMetadataResolver.DDL);
 
     @Test
     void rendersModelRenameAndDescription() {
@@ -85,7 +85,7 @@ class MetadataChangeDdlRendererImplTest {
         // type-default width (STRING -> 64, BIG_DECIMAL -> (32,8)), not a bare VARCHAR/DECIMAL. The
         // default TestMetadataResolver returns empty defaults and cannot exercise this fill, yet it is
         // exactly the defaulting the publish path depends on for byte-equality with the boot scanner.
-        DdlDialect builtinMysql = BuiltinDdlDialects.registry().getDialect(DatabaseType.MYSQL);
+        DdlDialect builtinMysql = DdlDialectFactory.builtin(DatabaseType.MYSQL);
         ModelChangesDTO fieldChanges = new ModelChangesDTO("DesignField");
         fieldChanges.addCreatedRow(rowChange(
                 fieldData("Widget", "title", "title", FieldType.STRING, null, null,

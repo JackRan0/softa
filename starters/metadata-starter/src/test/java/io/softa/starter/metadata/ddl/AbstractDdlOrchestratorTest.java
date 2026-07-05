@@ -10,8 +10,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.enums.StorageType;
-import io.softa.starter.metadata.ddl.dialect.DdlDialect;
-import io.softa.starter.metadata.ddl.dialect.DdlDialectRegistry;
 import io.softa.starter.metadata.ddl.spi.BuiltinDdlMetadataResolver;
 import io.softa.starter.metadata.entity.*;
 import io.softa.starter.metadata.scanner.diff.SchemaDiff;
@@ -39,8 +37,6 @@ abstract class AbstractDdlOrchestratorTest {
 
     protected abstract String productionJdbcUrl();
 
-    protected abstract DdlDialect createDialect(BuiltinDdlMetadataResolver resolver);
-
     @BeforeEach
     void setUp() {
         JdbcDataSource ds = new JdbcDataSource();
@@ -49,11 +45,8 @@ abstract class AbstractDdlOrchestratorTest {
         ds.setPassword("");
         this.jdbcTemplate = new JdbcTemplate(ds);
 
-        BuiltinDdlMetadataResolver resolver = new BuiltinDdlMetadataResolver();
-        DdlDialect dialect = createDialect(resolver);
-        DdlDialectRegistry registry = new DdlDialectRegistry(List.of(dialect));
-
-        this.orchestrator = new DdlOrchestrator(jdbcTemplate, registry, productionJdbcUrl());
+        this.orchestrator = new DdlOrchestrator(
+                jdbcTemplate, BuiltinDdlMetadataResolver.INSTANCE, productionJdbcUrl());
     }
 
     // ---- fixtures -------------------------------------------------------

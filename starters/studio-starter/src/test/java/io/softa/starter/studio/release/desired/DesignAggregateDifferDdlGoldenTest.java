@@ -29,7 +29,7 @@ class DesignAggregateDifferDdlGoldenTest {
 
     private final DesignAggregateDiffer differ = new DesignAggregateDiffer();
     private final MetadataChangeDdlRendererImpl renderer = new MetadataChangeDdlRendererImpl();
-    private final DdlDialect mysql = new MySqlDdlDialect(TestMetadataResolver.INSTANCE);
+    private final DdlDialect mysql = new MySqlDdlDialect(TestMetadataResolver.DDL);
 
     private static Map<String, Object> model(long id, String name, String table) {
         Map<String, Object> m = new HashMap<>();

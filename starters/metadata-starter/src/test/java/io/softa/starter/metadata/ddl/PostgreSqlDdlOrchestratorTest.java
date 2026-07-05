@@ -1,12 +1,8 @@
 package io.softa.starter.metadata.ddl;
 
-import io.softa.starter.metadata.ddl.dialect.DdlDialect;
-import io.softa.starter.metadata.ddl.dialect.PostgreSqlDdlDialect;
-import io.softa.starter.metadata.ddl.spi.BuiltinDdlMetadataResolver;
-
 /**
  * {@link DdlOrchestrator} end-to-end tests against H2 in PostgreSQL compatibility mode,
- * driving the {@link PostgreSqlDdlDialect}.
+ * driving the PostgreSQL DDL dialect.
  *
  * <p>The production-style URL ({@code jdbc:postgresql://...}) is what
  * {@code DBUtil.parseDatabaseType} reads to pick the dialect; the actual SQL
@@ -23,10 +19,5 @@ class PostgreSqlDdlOrchestratorTest extends AbstractDdlOrchestratorTest {
     @Override
     protected String productionJdbcUrl() {
         return "jdbc:postgresql://localhost/test";
-    }
-
-    @Override
-    protected DdlDialect createDialect(BuiltinDdlMetadataResolver resolver) {
-        return new PostgreSqlDdlDialect(resolver);
     }
 }

@@ -11,8 +11,9 @@ import io.softa.framework.orm.enums.FieldType;
  * overrides per database flavor.
  *
  * <p>Decouples DDL rendering from the storage of mappings and templates
- * (studio's design-time DB, config file, in-memory, etc.). Implementations
- * provide a thin adapter; dialects depend only on this SPI.
+ * (builtin code, studio's design-time DB, config file, in-memory, etc.).
+ * Callers pass the appropriate resolver when creating a dialect; there is no
+ * process-wide "current" resolver.
  *
  * <p>This clean SPI lets the entire {@code ddl/} render layer (context /
  * dialect / mapping) live in {@code metadata-starter} and be reused by

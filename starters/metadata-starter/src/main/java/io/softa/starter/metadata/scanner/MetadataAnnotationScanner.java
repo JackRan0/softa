@@ -11,9 +11,9 @@ import org.springframework.stereotype.Component;
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.orm.meta.MetadataInitializer;
 import io.softa.starter.metadata.config.MetadataProperties;
-import io.softa.starter.metadata.ddl.BuiltinDdlDialects;
 import io.softa.starter.metadata.ddl.DdlOrchestrator;
 import io.softa.starter.metadata.ddl.ReferenceColumnResolver;
+import io.softa.starter.metadata.ddl.spi.BuiltinDdlMetadataResolver;
 import io.softa.starter.metadata.entity.SysField;
 import io.softa.starter.metadata.entity.SysModel;
 import io.softa.starter.metadata.entity.SysOptionSet;
@@ -82,7 +82,7 @@ public class MetadataAnnotationScanner implements MetadataInitializer {
             @Value("${spring.datasource.url:}") String datasourceUrl) {
         this(pipeline, properties, systemConfig.getAppCode(),
                 new SysJdbcWriter(jdbcTemplate, systemConfig.getAppCode(), datasourceUrl),
-                new DdlOrchestrator(jdbcTemplate, BuiltinDdlDialects.registry(), datasourceUrl));
+                new DdlOrchestrator(jdbcTemplate, BuiltinDdlMetadataResolver.INSTANCE, datasourceUrl));
     }
 
     /**
