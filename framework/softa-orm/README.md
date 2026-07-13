@@ -187,12 +187,17 @@ transaction — chunking bounds statement size, not lock duration).
 For a OneToMany "delete parent → delete children", put `CASCADE` on the **child's back-reference FK**
 (the FK is the single source of truth; `onDelete` is not declared on `ONE_TO_MANY`).
 
-Boot-time guards (fail-fast): `onDelete` is valid only on TO_ONE; `SET_NULL` requires a nullable FK; the
-target may not be a timeline model; a **cyclic / self-referential `CASCADE`** is rejected (delete such
-hierarchies — org trees, BOM, category trees — in application code); a **`CASCADE` chain deeper than
-`MAX_CASCADE_DEPTH` models** is rejected (bounds recursion; the error names the full chain); and a
-`CASCADE` from a **soft-delete parent to a hard-delete child**, or from a **shared parent to a
-multi-tenant child**, is rejected (see the matrix above).
+Boot-time guards (fail-fast): `onDelete` is valid only on TO_ONE; `SET_NULL` requires a nullable FK; a
+**cyclic / self-referential `CASCADE`** is rejected (delete such hierarchies — org trees, BOM, category
+trees — in application code); a **`CASCADE` chain deeper than `MAX_CASCADE_DEPTH` models** is rejected
+(bounds recursion; the error names the full chain); and a `CASCADE` from a **soft-delete parent to a
+hard-delete child**, or from a **shared parent to a multi-tenant child**, is rejected (see the matrix
+above).
+
+A **timeline** target is allowed: the inbound-FK strategy fires on **entity deletion** (`deleteByIds`,
+which removes all slices of the logical id — referencing FKs store that logical id, so RESTRICT counts /
+CASCADE deletes / SET_NULL nulls by it, no effective-date resolution involved); slice-level
+`deleteBySliceId` keeps the entity alive and deliberately does not trigger it.
 
 ### `@OptionSet` ↔ `SysOptionSet`
 
@@ -520,6 +525,10 @@ A timeline model records historical slices of data over time. It is useful for b
 #### 1.1 Timeline Attribute at Model Level
 - `timeline = true` indicates this is a timeline model. It must contain the reserved fields `effectiveStartDate` and `effectiveEndDate`. The system validates these fields on startup and throws an exception if missing.
 - `timeline = false` indicates a non-timeline model. Non-timeline models must not define the reserved fields `effectiveStartDate` and `effectiveEndDate`.
+- A timeline model **requires an app-generated logical id** — `idStrategy = DISTRIBUTED_LONG` (or
+  `DISTRIBUTED_STRING` / `EXTERNAL_ID`). `DB_AUTO_ID` is rejected at boot: the auto-increment lands on the
+  physical `sliceId`, so nothing would fill the shared logical `id` column of a first slice (split/correct
+  rows arrive carrying the entity's existing id and keep it).
 
 #### 1.2 Primary Keys and Fields
 - `sliceId`: physical primary key of a timeline model, used to update a slice.
@@ -527,7 +536,16 @@ A timeline model records historical slices of data over time. It is useful for b
 - `effectiveEndDate`: effective end date of the timeline data.
 - `id`: logical (business) primary key, compatible with non-timeline models. All business foreign keys referencing a timeline model use this field.
 - If your database needs an auto-increment record number (such as `record_id`) for change logs, you can add it yourself. It is not a framework-reserved field.
-- Recommended unique constraint: `(id, effectiveStartDate, effectiveEndDate)`.
+- Recommended unique constraint: `(id, effectiveStartDate, effectiveEndDate)` — one index doubles as the
+  as-of read cover (the end date is checked in-index) and as an integrity backstop: interval maintenance is
+  a check-then-act sequence, so a true concurrent write race on one entity surfaces as a unique violation
+  instead of silent same-start slices. Declare it with an **explicit `indexName`** (the default concatenated
+  name exceeds the 60-char global limit for longer table names):
+
+  ```java
+  @Index(indexName = "uk_<table>_timeline",
+         fields = {"id", "effectiveStartDate", "effectiveEndDate"}, unique = true)
+  ```
 
 #### 1.3 Metadata Relationships
 - Timeline models can relate to themselves via One2One, Many2One, One2Many, Many2Many. Storage and references use the logical primary key `id`.
@@ -582,10 +600,32 @@ Example timeline slices (same logical department `id`):
 - If an upper layer provides a "correct"-style API (update data without creating a new slice), it should locate by `sliceId` (the ORM currently does not provide a dedicated correct API).
 
 #### 2.5 delete APIs
-- `deleteById/deleteByIds`: deletes all slices for a business `id`.
-- `deleteBySliceId`: deletes a single slice and automatically corrects adjacent slice ranges.
+- `deleteById/deleteByIds`: deletes all slices for a business `id` — this is **entity deletion**, and it is
+  the point where the inbound-FK delete strategy (`onDelete` RESTRICT / CASCADE / SET_NULL, keyed by the
+  logical `id`) fires against referencing models.
+- `deleteBySliceId`: deletes a single slice and automatically corrects adjacent slice ranges. The entity
+  survives, so `onDelete` deliberately does **not** fire.
 
-#### 2.6 search Join Rules for Timeline Associations
+#### 2.6 Versioning seam (engine internals)
+- All timeline handling in `ModelServiceImpl` routes through one `VersioningStrategy` seam
+  (`service/versioning/`): `IdentityStrategy` is a no-op for regular models, `TimelineStrategy` adapts the
+  interval-maintenance algorithm in `TimelineService`. New read paths must route Filters/FlexQuery through
+  the `scopedRead` exits — there is no per-call-site `if (isTimelineModel)` to forget.
+- The across-timeline opt-out is a **dual trigger by contract**: the explicit
+  `FlexQuery.acrossTimelineData()` flag, **or** caller-supplied `effectiveStartDate`/`effectiveEndDate`
+  conditions (which declare "I am doing my own temporal filtering"). Either suppresses the default
+  effective-date clamp; both are intended, stable behavior.
+- **Accepted limitations** (a master-detail table split was evaluated and rejected — its headline benefit,
+  a real DB FK target, is moot because referential integrity is enforced app-level and no physical FKs are
+  emitted): version-invariant fields (e.g. `code`) repeat on every slice, and a **declarative
+  reference-by-code relation to a timeline model is not supported** (`code` is not physically unique across
+  slices). Reference timeline entities by logical `id` (as-of) or pin one slice via `sliceId`; a **runtime**
+  "`code` + effective date" as-of query is fully supported (non-overlapping intervals make it unique).
+- `Context.effectiveDate` is ambient state (defaults to today). Batch engines that fan work out across
+  threads must propagate the context (ScopedValue) to workers — e.g. a payroll run pricing by `payDate` —
+  or that branch silently prices "as of today".
+
+#### 2.7 search Join Rules for Timeline Associations
 - When the related object is a timeline model, Many2One/One2One queries automatically append to the `LEFT JOIN ON` clause:
   `effectiveStartDate <= effectiveDate AND effectiveEndDate >= effectiveDate`.
 - One2Many/Many2Many cascades also filter slices based on `effectiveDate`.
@@ -596,7 +636,9 @@ Example timeline slices (same logical department `id`):
 ```java
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(label = "Product Price", timeline = true)
+@Model(label = "Product Price", timeline = true, idStrategy = IdStrategy.DISTRIBUTED_LONG)
+@Index(indexName = "uk_product_price_timeline",
+       fields = {"id", "effectiveStartDate", "effectiveEndDate"}, unique = true)
 public class ProductPrice extends TimelineModel {
     @Serial
     private static final long serialVersionUID = 1L;

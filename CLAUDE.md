@@ -185,12 +185,14 @@ public enum CustomerTier {
   hard-delete only); unset = KEEP (default, do nothing). Declared on the **FK** (single source of
   truth), never on `ONE_TO_MANY` (a parent→children cascade is `CASCADE` on the child's back-ref FK).
   Enforced in `ModelServiceImpl.deleteByIds`; no physical DB FK. Boot-rejected: `onDelete` on a
-  non-TO_ONE field, `SET_NULL` on a `required` FK, a timeline target, a **cyclic / self-referential
+  non-TO_ONE field, `SET_NULL` on a `required` FK, a **cyclic / self-referential
   `CASCADE`** (delete such hierarchies in app code), a **`CASCADE` chain deeper than `MAX_CASCADE_DEPTH`
   models** (bounds recursion; the error names the full chain), a **`CASCADE` from a soft-delete parent to a
   hard-delete child** (a recoverable parent must not irreversibly delete children — make the child
   soft-delete too, or use RESTRICT/SET_NULL), or a **`CASCADE` from a shared (non-multi-tenant) parent
-  to a multi-tenant child** (one delete would cascade across all tenants — use RESTRICT). Runtime guard:
+  to a multi-tenant child** (one delete would cascade across all tenants — use RESTRICT). A **timeline**
+  target is allowed: the strategy fires on **entity deletion** (`deleteByIds` = all slices of the logical
+  id); slice-level `deleteBySliceId` keeps the entity alive and does not trigger it. Runtime guard:
   a `CASCADE`/`SET_NULL` affecting more than `MAX_BATCH_SIZE` referrers per level is rejected (accidental
   high-fanout), and large deletes are chunked to `DEFAULT_BATCH_SIZE` to bound statement size.
 
