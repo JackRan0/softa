@@ -589,6 +589,15 @@ Example timeline slices (same logical department `id`):
 - Queries like `getById/getByIds/searchList/searchPage` return only slices effective on `effectiveDate` by default.
 - To query history across time, use `FlexQuery#acrossTimelineData()` or include `effectiveStartDate`/`effectiveEndDate` in filters.
 - Cascaded reads propagate `effectiveDate`.
+- **View a record's version list from the REST API**: `/searchPage` (or `/searchList`) with the row's
+  `id` in `filters` and `acrossTimeline: true` returns all slices (each carrying its own `sliceId` and
+  effective range). The `acrossTimeline` flag is the explicit half of the dual trigger, exposed on
+  `QueryParams` / `SearchListParams`; it is not on `SearchNameParams` (a displayName picker wants the
+  as-of option, not every version). Example:
+  ```jsonc
+  POST /{model}/searchPage
+  { "filters": [["id","=",6]], "orders": [["effectiveStartDate","DESC"]], "acrossTimeline": true }
+  ```
 
 #### 2.3 create APIs
 - For `createOne/createList`, if `effectiveStartDate` is empty, it uses the current `effectiveDate`; if `effectiveEndDate` is empty, it is set to `9999-12-31`.

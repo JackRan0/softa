@@ -44,8 +44,13 @@ public class SearchListParams {
     @Schema(description = "Pivot split field list.", example = "[]")
     private List<String> splitBy;
 
-    @Schema(description = "Effective date, default is `Today`.")
+    @Schema(description = "Effective date, default is `Today`. Ignored when `acrossTimeline` is true.")
     private LocalDate effectiveDate;
+
+    @Schema(description = "Timeline models only: when true, return ALL version slices (skip the "
+            + "effective-date clamp) — e.g. a record's full version list. Default false returns the "
+            + "single slice effective on `effectiveDate`.")
+    private Boolean acrossTimeline;
 
     @Schema(description = "Sub queries for relational fields: {fieldName: SubQuery}", example = "{}")
     private Map<String, SubQuery> subQueries;
@@ -79,6 +84,10 @@ public class SearchListParams {
             flexQuery.setSubQueries(subQueries);
         }
         ContextHolder.getContext().setEffectiveDate(searchListParams.getEffectiveDate());
+        // Timeline: opt into the full version list (no-op for non-timeline models).
+        if (Boolean.TRUE.equals(searchListParams.getAcrossTimeline())) {
+            flexQuery.acrossTimelineData();
+        }
         return flexQuery;
     }
 }

@@ -50,8 +50,13 @@ public class QueryParams {
     @Schema(description = "Whether to return the summary result of numeric fields, default no summary.")
     private Boolean summary;
 
-    @Schema(description = "Effective date, default is `Today`.")
+    @Schema(description = "Effective date, default is `Today`. Ignored when `acrossTimeline` is true.")
     private LocalDate effectiveDate;
+
+    @Schema(description = "Timeline models only: when true, return ALL version slices (skip the "
+            + "effective-date clamp) — e.g. a record's full version list. Default false returns the "
+            + "single slice effective on `effectiveDate`.")
+    private Boolean acrossTimeline;
 
     @Schema(description = "Sub queries for relational fields: {fieldName: SubQuery}", example = "{}")
     private Map<String, SubQuery> subQueries;
@@ -80,6 +85,10 @@ public class QueryParams {
             flexQuery.setSubQueries(subQueries);
         }
         ContextHolder.getContext().setEffectiveDate(queryParams.getEffectiveDate());
+        // Timeline: opt into the full version list (no-op for non-timeline models).
+        if (Boolean.TRUE.equals(queryParams.getAcrossTimeline())) {
+            flexQuery.acrossTimelineData();
+        }
         return flexQuery;
     }
 }
