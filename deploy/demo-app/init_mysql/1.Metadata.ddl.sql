@@ -1,10 +1,10 @@
 CREATE TABLE sys_model(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
-    label_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label Name' ,
+    app_code VARCHAR(64)    COMMENT 'App Code' ,
+    label VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label' ,
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
-    display_name VARCHAR(255)   DEFAULT '' COMMENT 'Display Name' ,
-    search_name VARCHAR(255)   DEFAULT '' COMMENT 'Search Name' ,
+    display_name VARCHAR(256)   DEFAULT '' COMMENT 'Display Name' ,
+    search_name VARCHAR(256)   DEFAULT '' COMMENT 'Search Name' ,
     default_order VARCHAR(256)    COMMENT 'Default Order' ,
     table_name VARCHAR(64)    COMMENT 'Table Name' ,
     soft_delete TINYINT(1)   DEFAULT 0 COMMENT 'Enable Soft Delete' ,
@@ -15,11 +15,12 @@ CREATE TABLE sys_model(
     storage_type VARCHAR(64)   DEFAULT 'RDBMS' COMMENT 'Storage Type' ,
     version_lock TINYINT(1)   DEFAULT 0 COMMENT 'Enable Version Lock' ,
     multi_tenant TINYINT(1)   DEFAULT 0 COMMENT 'Enable Multi-tenancy' ,
+    copyable TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Copyable' ,
     data_source VARCHAR(64)    COMMENT 'Data Source' ,
     service_name VARCHAR(64)    COMMENT 'Service Name' ,
-    business_key VARCHAR(255)    COMMENT 'Business Primary Key' ,
+    business_key VARCHAR(256)    COMMENT 'Business Primary Key' ,
     partition_field VARCHAR(64)   DEFAULT '' COMMENT 'Partition Field' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    description VARCHAR(512)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
@@ -36,8 +37,8 @@ CREATE TABLE sys_field_trans(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     language_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     row_id BIGINT(32)    COMMENT 'Row ID' ,
-    label_name VARCHAR(64)    COMMENT 'Label Name' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
+    label VARCHAR(64)    COMMENT 'Label' ,
+    description VARCHAR(512)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
@@ -47,31 +48,12 @@ CREATE TABLE sys_field_trans(
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Field Translation';
 
-CREATE TABLE language_profile(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    tenant_id VARCHAR(32)    COMMENT 'Tenant ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Name' ,
-    language VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language' ,
-    date_format VARCHAR(32)    COMMENT 'Date Format' ,
-    time_format VARCHAR(32)    COMMENT 'Time Format' ,
-    decimal_separator VARCHAR(32)    COMMENT 'Decimal Separator' ,
-    thousand_separator VARCHAR(32)    COMMENT 'Thousand Separator' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
-    active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Language Profile';
-
 CREATE TABLE sys_model_trans(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     language_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     row_id BIGINT(32)    COMMENT 'Row ID' ,
-    label_name VARCHAR(64)    COMMENT 'Label Name' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
+    label VARCHAR(64)    COMMENT 'Label' ,
+    description VARCHAR(512)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
@@ -83,13 +65,13 @@ CREATE TABLE sys_model_trans(
 
 CREATE TABLE sys_field(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
-    label_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label Name' ,
+    app_code VARCHAR(64)    COMMENT 'App Code' ,
+    label VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label' ,
     field_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Field Name' ,
     column_name VARCHAR(64)   DEFAULT '' COMMENT 'Column Name' ,
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
     model_id BIGINT(32)    COMMENT 'Model ID' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    description VARCHAR(512)   DEFAULT '' COMMENT 'Description' ,
     field_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Field Type' ,
     option_set_code VARCHAR(64)   DEFAULT '' COMMENT 'Option Set Code;Set when FieldType is Option or MultiOption' ,
     related_model VARCHAR(64)   DEFAULT '' COMMENT 'Related Model' ,
@@ -106,7 +88,7 @@ CREATE TABLE sys_field(
     readonly TINYINT(1)   DEFAULT 0 COMMENT 'Is Readonly' ,
     hidden TINYINT(1)   DEFAULT 0 COMMENT 'Hidden' ,
     translatable TINYINT(1)   DEFAULT 0 COMMENT 'Translatable' ,
-    non_copyable TINYINT(1)   DEFAULT 0 COMMENT 'Non Copyable' ,
+    copyable TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Copyable' ,
     unsearchable TINYINT(1)   DEFAULT 0 COMMENT 'Unsearchable' ,
     computed TINYINT(1)   DEFAULT 0 COMMENT 'Is Computed' ,
     expression TEXT(20000)    COMMENT 'Expression' ,
@@ -114,6 +96,8 @@ CREATE TABLE sys_field(
     encrypted TINYINT(1)   DEFAULT 0 COMMENT 'Is Encrypted' ,
     masking_type VARCHAR(64)    COMMENT 'Masking Type' ,
     widget_type VARCHAR(64)    COMMENT 'Widget Type' ,
+    related_field_type VARCHAR(64)    COMMENT 'Resolved physical type of a TO_ONE FK referenced column (system-computed)' ,
+    on_delete VARCHAR(32)    COMMENT 'TO_ONE FK delete strategy (Restrict/Cascade/SetNull); NULL = KEEP.' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
@@ -128,10 +112,10 @@ ALTER TABLE sys_field ADD UNIQUE INDEX uniq_modelname_fieldname (model_name,fiel
 
 CREATE TABLE sys_option_set(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Option Set Name' ,
+    app_code VARCHAR(64)    COMMENT 'App Code' ,
+    label VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label' ,
     option_set_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Option Set Code' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    description VARCHAR(512)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
@@ -149,8 +133,8 @@ CREATE TABLE sys_option_set_trans(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     language_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     row_id BIGINT(32)    COMMENT 'Row ID' ,
-    name VARCHAR(64)    COMMENT 'Option Set Name' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
+    label VARCHAR(64)    COMMENT 'Label' ,
+    description VARCHAR(512)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
@@ -162,16 +146,16 @@ CREATE TABLE sys_option_set_trans(
 
 CREATE TABLE sys_option_item(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
+    app_code VARCHAR(64)    COMMENT 'App Code' ,
     option_set_id BIGINT(32)    COMMENT 'Option Set ID' ,
     option_set_code VARCHAR(64)   DEFAULT '' COMMENT 'Option Set Code' ,
     sequence INT(11)   DEFAULT 1 COMMENT 'Sequence' ,
     item_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Item Code' ,
-    item_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Item Name' ,
+    label VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label' ,
     parent_item_code VARCHAR(64)   DEFAULT '' COMMENT 'Parent Item Code' ,
     item_tone VARCHAR(64)   DEFAULT '' COMMENT 'Item Tone' ,
     item_icon VARCHAR(64)   DEFAULT '' COMMENT 'Item Icon' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    description VARCHAR(512)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
@@ -186,8 +170,8 @@ CREATE TABLE sys_option_item_trans(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     language_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     row_id BIGINT(32)    COMMENT 'Row ID' ,
-    item_name VARCHAR(64)    COMMENT 'Item Name' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
+    label VARCHAR(64)    COMMENT 'Label' ,
+    description VARCHAR(512)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
@@ -197,9 +181,27 @@ CREATE TABLE sys_option_item_trans(
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Option Items Translation';
 
+CREATE TABLE sys_model_index(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    app_code VARCHAR(64)    COMMENT 'App Code' ,
+    model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
+    model_id BIGINT(32)    COMMENT 'Model ID' ,
+    index_name VARCHAR(60)   DEFAULT '' COMMENT 'Index Name' ,
+    index_fields VARCHAR(256)   DEFAULT '' COMMENT 'Index Fields' ,
+    unique_index TINYINT(1)   DEFAULT 0 COMMENT 'Is Unique Index' ,
+    message VARCHAR(256)   DEFAULT NULL COMMENT 'Unique-violation message' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Model Index';
+
 CREATE TABLE sys_config(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)   DEFAULT 0 COMMENT 'App ID' ,
+    app_code VARCHAR(64)    COMMENT 'App Code' ,
     name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Name' ,
     code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Code' ,
     value TEXT NOT NULL   COMMENT 'Value' ,
@@ -220,7 +222,7 @@ ALTER TABLE sys_config ADD UNIQUE INDEX uniq_config_key (code);
 
 CREATE TABLE sys_view(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
+    app_code VARCHAR(64)    COMMENT 'App Code' ,
     model_name VARCHAR(64)   DEFAULT '' COMMENT 'Model Name' ,
     name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'View Name' ,
     code VARCHAR(64)   DEFAULT '' COMMENT 'View Code' ,
@@ -233,10 +235,10 @@ CREATE TABLE sys_view(
     public_view TINYINT(1)   DEFAULT 1 COMMENT 'Public View' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System View';
@@ -249,10 +251,10 @@ CREATE TABLE sys_view_default(
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'User Default View';
 
@@ -262,7 +264,7 @@ CREATE TABLE import_template(
     name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Template Name' ,
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
     import_rule VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Import Rule' ,
-    unique_constraints VARCHAR(255)    COMMENT 'Unique Constraints' ,
+    unique_constraints VARCHAR(256)    COMMENT 'Unique Constraints' ,
     ignore_empty TINYINT(1)   DEFAULT true COMMENT 'Ignore Empty Value' ,
     skip_exception TINYINT(1)   DEFAULT true COMMENT 'Skip Abnormal Data' ,
     custom_handler VARCHAR(128)    COMMENT 'Custom Import Handler;The simpleName of the CustomImportHandler interface implementation class' ,
@@ -336,7 +338,7 @@ CREATE TABLE export_template(
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
     custom_file_template TINYINT(1)    COMMENT 'Custom File Template' ,
     file_id BIGINT(32)    COMMENT 'File Template ID' ,
-    filters VARCHAR(1000)    COMMENT 'Filters' ,
+    filters VARCHAR(256)    COMMENT 'Filters' ,
     orders VARCHAR(256)    COMMENT 'Orders;The orders of the exported data.' ,
     custom_handler VARCHAR(128)    COMMENT 'Custom Export Handler;The simpleName of the CustomExportHandler interface implementation class' ,
     enable_transpose TINYINT(1)    COMMENT 'Enable Transpose;Transpose the data filled in the file template.' ,
@@ -417,9 +419,9 @@ CREATE TABLE flow_node(
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Flow Node';
 
@@ -438,10 +440,10 @@ CREATE TABLE sys_cron(
     tenant_job_mode VARCHAR(64)    COMMENT 'Tenant job execution mode: PER_TENANT or CROSS_TENANT' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'System Cron;Carries the task ownership time during execution and supports automatic compensation for missed tasks.';
@@ -458,9 +460,9 @@ CREATE TABLE flow_trigger(
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Flow Trigger';
@@ -479,10 +481,10 @@ CREATE TABLE flow_config(
     data_scope VARCHAR(1000)   DEFAULT '' COMMENT 'Data Scope' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Flow Config';
@@ -500,9 +502,9 @@ CREATE TABLE flow_instance(
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Flow Instance';
 
@@ -520,7 +522,7 @@ CREATE TABLE flow_debug_history(
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Flow Debug History';
@@ -534,9 +536,9 @@ CREATE TABLE flow_edge(
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Flow Edge';
 
@@ -549,15 +551,15 @@ CREATE TABLE sys_model_onchange(
     name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Name' ,
     code VARCHAR(64)   DEFAULT '' COMMENT 'Code' ,
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
-    onchange_fields VARCHAR(255) NOT NULL  DEFAULT '' COMMENT 'Onchange Fields' ,
+    onchange_fields VARCHAR(256) NOT NULL  DEFAULT '' COMMENT 'Onchange Fields' ,
     expression VARCHAR(1000) NOT NULL  DEFAULT '' COMMENT 'Expression' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Model Onchange Event';
 
@@ -573,10 +575,10 @@ CREATE TABLE sys_model_validation(
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Model Validation;';
 
@@ -584,13 +586,13 @@ CREATE TABLE flow_stage(
     id BIGINT(32) NOT NULL   COMMENT 'ID' ,
     flow_id BIGINT(32) NOT NULL   COMMENT 'Flow ID' ,
     name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Stage Name' ,
-    description VARCHAR(64)    COMMENT 'Stage Description' ,
+    description VARCHAR(256)    COMMENT 'Stage Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Flow Stage';
 
@@ -605,20 +607,18 @@ CREATE TABLE flow_event(
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    created_by VARCHAR(32)    COMMENT 'Created By' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(32)    COMMENT 'Updated By' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Flow Event';
 
 CREATE TABLE design_app(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    portfolio_id BIGINT(32) NOT NULL   COMMENT 'Portfolio' ,
     owner_id BIGINT(32)    COMMENT 'Owner' ,
     app_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'App Name' ,
     app_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'App Code' ,
     app_type VARCHAR(64)   DEFAULT '' COMMENT 'App Type' ,
-    database_type VARCHAR(64)   DEFAULT '' COMMENT 'Database Type' ,
     package_name VARCHAR(64)   DEFAULT '' COMMENT 'Package Name;Fill in when you need to generate code, the model in the same App belongs to the same Module.' ,
     status VARCHAR(64)   DEFAULT 'Active' COMMENT 'App Status' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
@@ -632,65 +632,25 @@ CREATE TABLE design_app(
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design App';
 
-CREATE TABLE design_portfolio(
-    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
-    owner_id BIGINT(32)    COMMENT 'Owner' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Name' ,
-    code VARCHAR(64)   DEFAULT '' COMMENT 'Code' ,
-    status VARCHAR(64)   DEFAULT 'Active' COMMENT 'Status' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT false COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Portfolio';
-
-CREATE TABLE design_work_item(
-    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
-    app_id BIGINT(32)    COMMENT 'App ID' ,
-    version_id BIGINT(32)    COMMENT 'Version ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Name' ,
-    status VARCHAR(64)   DEFAULT 'InProgress' COMMENT 'Status' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
-    closed_time DATETIME    COMMENT 'Closed Time' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT false COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Work Item';
-
-CREATE TABLE design_deployment_version(
-    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
-    deployment_id BIGINT(32)    COMMENT 'Deployment ID' ,
-    version_id BIGINT(32)    COMMENT 'Version ID' ,
-    sequence INT(11)   DEFAULT 1 COMMENT 'Sequence' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Deployment Version';
-
 CREATE TABLE design_app_env(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     app_id BIGINT(32) NOT NULL  DEFAULT 0 COMMENT 'App ID' ,
     name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Env Name' ,
     sequence INT(11)    COMMENT 'Sequence' ,
     env_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Env Type' ,
-    env_status VARCHAR(32) NOT NULL DEFAULT 'Stable' COMMENT 'Env runtime status — deployment mutex (Stable / Deploying)' ,
+    env_status VARCHAR(64) NOT NULL DEFAULT 'Stable' COMMENT 'Env runtime status — deployment mutex (Stable / Deploying)' ,
+    database_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Target runtime database flavor (moved here from DesignApp)' ,
+    connector_type VARCHAR(64)    COMMENT 'Connector kind to the target — Softa runtime or raw JDBC' ,
+    jdbc_url VARCHAR(256)   DEFAULT '' COMMENT 'Raw JDBC connection URL when connectorType = JDBC' ,
+    jdbc_username VARCHAR(128)   DEFAULT '' COMMENT 'JDBC Username' ,
+    jdbc_password VARCHAR(512)   DEFAULT '' COMMENT 'JDBC Password;ORM-layer encrypted at rest' ,
     protected_env TINYINT(1)    COMMENT 'Protected Env' ,
-    current_version_id BIGINT(32)    COMMENT 'Current Version' ,
-    last_deployment_id BIGINT(32)    COMMENT 'Last Deployment' ,
     active TINYINT(1)    DEFAULT 1 COMMENT 'Active' ,
-    upgrade_endpoint VARCHAR(128) NOT NULL  DEFAULT '' COMMENT 'Upgrade API EndPoint' ,
+    upgrade_endpoint VARCHAR(128)   DEFAULT '' COMMENT 'Upgrade API EndPoint (mandatory only for connectorType = SOFTA)' ,
     public_key VARCHAR(256)   DEFAULT '' COMMENT 'Public Key;Base64-encoded X.509 SubjectPublicKeyInfo' ,
     private_key VARCHAR(512)   DEFAULT '' COMMENT 'Private Key;Base64-encoded PKCS#8, ORM-layer encrypted at rest' ,
-    auto_upgrade TINYINT(1)   DEFAULT 0 COMMENT 'Auto Upgrade;Metadata is automatically synchronized' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    version BIGINT(32) NOT NULL DEFAULT 1 COMMENT 'Optimistic-lock version guarding the env-status mutex' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
@@ -701,90 +661,44 @@ CREATE TABLE design_app_env(
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design App Env';
 
-CREATE TABLE design_app_env_snapshot(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32) NOT NULL  DEFAULT 0 COMMENT 'App ID' ,
-    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
-    deployment_id BIGINT(32) NOT NULL   COMMENT 'Deployment ID' ,
-    snapshot MEDIUMTEXT    COMMENT 'Snapshot' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id),
-    UNIQUE KEY unique_env_snapshot (app_id, env_id, deployment_id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design App Env Snapshot';
-
-CREATE TABLE design_app_env_drift(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32) NOT NULL  DEFAULT 0 COMMENT 'App ID' ,
-    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
-    has_drift TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'True when the last check found drift' ,
-    drift_content MEDIUMTEXT    COMMENT 'Serialized List<ModelChangesDTO>' ,
-    check_status VARCHAR(32) NOT NULL DEFAULT 'Success' COMMENT 'Outcome of the last drift check' ,
-    error_message VARCHAR(1024)   DEFAULT '' COMMENT 'Error message from the last failed check' ,
-    last_checked_time DATETIME   COMMENT 'When the last drift check completed' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id),
-    UNIQUE KEY unique_env_drift (app_id, env_id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design App Env Drift Cache';
-
-CREATE TABLE design_app_version(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    app_id BIGINT(32)   DEFAULT 0 COMMENT 'App ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Version Name' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Upgrade description' ,
-    version_type VARCHAR(64)   DEFAULT 'Normal' COMMENT 'Version Type' ,
-    versioned_content MEDIUMTEXT    COMMENT 'Version Content' ,
-    diff_hash VARCHAR(64)    COMMENT 'Diff Hash' ,
-    status VARCHAR(64)    COMMENT 'Status' ,
-    sealed_time DATETIME    COMMENT 'Sealed Time' ,
-    frozen_time DATETIME    COMMENT 'Frozen Time' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design App Version';
-
-CREATE TABLE design_deployment(
+CREATE TABLE design_activity(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     app_id BIGINT(32) NOT NULL   COMMENT 'App ID' ,
-    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
-    source_version_id BIGINT(32) NOT NULL   COMMENT 'Source Version' ,
-    target_version_id BIGINT(32) NOT NULL   COMMENT 'Target Version' ,
-    name VARCHAR(64)    COMMENT 'Name' ,
-    summary TEXT(20000)    COMMENT 'Deployment Summary' ,
-    deploy_status VARCHAR(64)    COMMENT 'Deploy Status' ,
-    deploy_duration DOUBLE(24,2)    COMMENT 'Deploy Duration (S)' ,
-    diff_hash VARCHAR(64)    COMMENT 'Diff Hash;SHA-256 of the serialized mergedContent' ,
-    merged_content MEDIUMTEXT    COMMENT 'Merged Content;The merged versionedContent from the sealedTime release interval' ,
-    merged_ddl_table TEXT(20000)    COMMENT 'Merged Table DDL' ,
-    merged_ddl_index TEXT(20000)    COMMENT 'Merged Index DDL' ,
+    env_id BIGINT(32) NOT NULL   COMMENT 'The environment this activity targets' ,
+    kind VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'PUBLISH (design->runtime) / IMPORT (runtime->design) / MERGE (env->env)' ,
+    status VARCHAR(64)    COMMENT 'Status' ,
+    source_env_id BIGINT(32)    COMMENT 'MERGE only: the env whose design was merged from' ,
+    operator_id BIGINT(32)    COMMENT 'Operator' ,
     started_time DATETIME    COMMENT 'Started Time' ,
     finished_time DATETIME    COMMENT 'Finished Time' ,
-    callback_token VARCHAR(128)    COMMENT 'Callback Token;One-time token sent to the runtime and verified on webhook return. ORM-layer encrypted at rest' ,
-    callback_token_expire_at DATETIME    COMMENT 'Callback Token Expire At;Tokens received after this point are rejected' ,
-    callback_received_at DATETIME    COMMENT 'Callback Received At;When the runtime webhook landed' ,
-    operator_id VARCHAR(32)    COMMENT 'Operator' ,
+    change_set MEDIUMTEXT    COMMENT 'The per-row business-key change set applied (PUBLISH / MERGE)' ,
+    detail MEDIUMTEXT    COMMENT 'Kind-specific audit: rendered DDL + per-statement results (PUBLISH), counts (MERGE)' ,
+    snapshot_id BIGINT(32)    COMMENT 'The post-operation DesignSnapshot this activity produced (restore source)' ,
     error_message TEXT(20000)    COMMENT 'Error Message' ,
     created_time DATETIME    COMMENT 'Created Time' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
     PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Deployment';
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Activity';
+
+CREATE TABLE design_snapshot(
+    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
+    activity_id BIGINT(32) NOT NULL   COMMENT 'The DesignActivity that produced this snapshot' ,
+    content MEDIUMTEXT    COMMENT 'Full per-env design set (DesignRows) captured after the activity' ,
+    created_time DATETIME    COMMENT 'Created Time' ,
+    created_id BIGINT(32)    COMMENT 'Created ID' ,
+    created_by VARCHAR(64)    COMMENT 'Created By' ,
+    updated_time DATETIME    COMMENT 'Updated Time' ,
+    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
+    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
+    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_design_snapshot_activity (activity_id)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Snapshot';
 
 CREATE TABLE design_field_db_mapping(
     id BIGINT(32) NOT NULL   COMMENT 'ID' ,
@@ -802,43 +716,11 @@ CREATE TABLE design_field_db_mapping(
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Field DB Mapping;Mapping between the FieldType and the column type of the database.';
 
-CREATE TABLE design_field_code_mapping(
+CREATE TABLE design_field_domain(
     id BIGINT(32) NOT NULL   COMMENT 'ID' ,
+    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Domain name — the business key fields reference' ,
     field_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Field Type' ,
-    code_lang VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Code Lang' ,
-    property_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Property Type' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Field Code Mapping';
-
-CREATE TABLE design_code_template(
-    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
-    code_lang VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Code Lang' ,
-    sequence INT(11)   DEFAULT 1 COMMENT 'Sequence' ,
-    sub_directory VARCHAR(64)    COMMENT 'Sub Directory' ,
-    file_name VARCHAR(64)    COMMENT 'File Name' ,
-    template_content TEXT(20000)    COMMENT 'Template Content' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Code Template';
-
-CREATE TABLE design_field_type_default(
-    id BIGINT(32) NOT NULL   COMMENT 'ID' ,
-    field_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Field Type' ,
+    widget_type VARCHAR(64)    COMMENT 'UI widget hint (dbType-agnostic)' ,
     default_value VARCHAR(64)    COMMENT 'Default Value' ,
     length INT(11)    COMMENT 'Length' ,
     scale INT(11)    COMMENT 'Scale' ,
@@ -849,8 +731,9 @@ CREATE TABLE design_field_type_default(
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Field Type Default';
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_design_field_domain_name (name)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Field Domain (renamed from design_field_type_default)';
 
 CREATE TABLE design_sql_template(
     id BIGINT(32) NOT NULL   COMMENT 'ID' ,
@@ -873,10 +756,11 @@ CREATE TABLE design_sql_template(
 CREATE TABLE design_model(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     app_id BIGINT(32)    COMMENT 'App ID' ,
-    label_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label Name' ,
+    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
+    label VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label' ,
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
-    display_name VARCHAR(255)   DEFAULT '' COMMENT 'Display Name' ,
-    search_name VARCHAR(255)   DEFAULT '' COMMENT 'Search Name' ,
+    display_name VARCHAR(256)   DEFAULT '' COMMENT 'Display Name' ,
+    search_name VARCHAR(256)   DEFAULT '' COMMENT 'Search Name' ,
     default_order VARCHAR(256)    COMMENT 'Default Order' ,
     table_name VARCHAR(64)    COMMENT 'Table Name' ,
     soft_delete TINYINT(1)   DEFAULT 0 COMMENT 'Enable Soft Delete' ,
@@ -887,11 +771,12 @@ CREATE TABLE design_model(
     storage_type VARCHAR(64)   DEFAULT 'RDBMS' COMMENT 'Storage Type' ,
     version_lock TINYINT(1)   DEFAULT 0 COMMENT 'Enable Version Lock' ,
     multi_tenant TINYINT(1)   DEFAULT 0 COMMENT 'Enable Multi-tenancy' ,
+    copyable TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Copyable' ,
     data_source VARCHAR(64)    COMMENT 'Data Source' ,
     service_name VARCHAR(64)    COMMENT 'Service Name' ,
-    business_key VARCHAR(255)    COMMENT 'Business Primary Key' ,
+    business_key VARCHAR(256)    COMMENT 'Business Primary Key' ,
     partition_field VARCHAR(64)   DEFAULT '' COMMENT 'Partition Field' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    description VARCHAR(512)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
@@ -899,18 +784,20 @@ CREATE TABLE design_model(
     updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 1 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_design_model_env_name (env_id, model_name)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Model';
 
 CREATE TABLE design_field(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     app_id BIGINT(32)    COMMENT 'App ID' ,
-    label_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label Name' ,
+    label VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label' ,
     field_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Field Name' ,
     column_name VARCHAR(64)   DEFAULT '' COMMENT 'Column Name' ,
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
     model_id BIGINT(32)    COMMENT 'Model ID' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
+    description VARCHAR(512)   DEFAULT '' COMMENT 'Description' ,
     field_type VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Field Type' ,
     option_set_code VARCHAR(64)   DEFAULT '' COMMENT 'Option Set Code;Set when FieldType is Option or MultiOption' ,
     related_model VARCHAR(64)   DEFAULT '' COMMENT 'Related Model' ,
@@ -927,7 +814,7 @@ CREATE TABLE design_field(
     readonly TINYINT(1)   DEFAULT 0 COMMENT 'Is Readonly' ,
     hidden TINYINT(1)   DEFAULT 0 COMMENT 'Hidden' ,
     translatable TINYINT(1)   DEFAULT 0 COMMENT 'Translatable' ,
-    non_copyable TINYINT(1)   DEFAULT 0 COMMENT 'Non Copyable' ,
+    copyable TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Copyable' ,
     unsearchable TINYINT(1)   DEFAULT 0 COMMENT 'Unsearchable' ,
     computed TINYINT(1)   DEFAULT 0 COMMENT 'Is Computed' ,
     expression TEXT(20000)    COMMENT 'Expression' ,
@@ -935,6 +822,9 @@ CREATE TABLE design_field(
     encrypted TINYINT(1)   DEFAULT 0 COMMENT 'Is Encrypted' ,
     masking_type VARCHAR(64)    COMMENT 'Masking Type' ,
     widget_type VARCHAR(64)    COMMENT 'Widget Type' ,
+    related_field_type VARCHAR(64)    COMMENT 'Resolved physical type of a TO_ONE FK referenced column (system-computed)' ,
+    on_delete VARCHAR(32)    COMMENT 'TO_ONE FK delete strategy (Restrict/Cascade/SetNull); NULL = KEEP.' ,
+    domain_id BIGINT(32)    COMMENT 'DesignFieldDomain applied as a one-time template — design-time provenance only' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
@@ -942,15 +832,17 @@ CREATE TABLE design_field(
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_design_field_env_model_field (env_id, model_name, field_name)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Field';
 
 CREATE TABLE design_option_set(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     app_id BIGINT(32)    COMMENT 'App ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Option Set Name' ,
+    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
+    label VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label' ,
     option_set_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Option Set Code' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    description VARCHAR(512)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
@@ -958,21 +850,23 @@ CREATE TABLE design_option_set(
     updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_design_option_set_env_code (env_id, option_set_code)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Option Set';
 
 CREATE TABLE design_option_item(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     app_id BIGINT(32)    COMMENT 'App ID' ,
     option_set_id BIGINT(32)    COMMENT 'Option Set ID' ,
+    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
     option_set_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Option Set Code' ,
     sequence INT(11) NOT NULL  DEFAULT 1 COMMENT 'Sequence' ,
     item_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Item Code' ,
-    item_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Item Name' ,
+    label VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label' ,
     parent_item_code VARCHAR(64)   DEFAULT '' COMMENT 'Parent Item Code' ,
     item_tone VARCHAR(64)   DEFAULT '' COMMENT 'Item Tone' ,
     item_icon VARCHAR(64)   DEFAULT '' COMMENT 'Item Icon' ,
-    description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
+    description VARCHAR(512)   DEFAULT '' COMMENT 'Description' ,
     active TINYINT(1)   DEFAULT 1 COMMENT 'Active' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
@@ -981,7 +875,8 @@ CREATE TABLE design_option_item(
     updated_id VARCHAR(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_design_option_item_env_set_item (env_id, option_set_code, item_code)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Option Items';
 
 CREATE TABLE design_view(
@@ -1010,12 +905,13 @@ CREATE TABLE design_view(
 CREATE TABLE design_model_index(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     app_id BIGINT(32)   DEFAULT 0 COMMENT 'APP ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Index Title' ,
     model_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Model Name' ,
-    model_id BIGINT(32) NOT NULL  DEFAULT 0 COMMENT 'Model ID' ,
-    index_name VARCHAR(64)   DEFAULT '' COMMENT 'Index Name' ,
-    index_fields VARCHAR(255)   DEFAULT '' COMMENT 'Index Fields' ,
+    model_id BIGINT(32)    COMMENT 'Model ID' ,
+    env_id BIGINT(32) NOT NULL   COMMENT 'Env ID' ,
+    index_name VARCHAR(60)   DEFAULT '' COMMENT 'Index Name' ,
+    index_fields VARCHAR(256)   DEFAULT '' COMMENT 'Index Fields' ,
     unique_index TINYINT(1)   DEFAULT 0 COMMENT 'Is Unique Index' ,
+    message VARCHAR(256)   DEFAULT NULL COMMENT 'Unique-violation message' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
@@ -1023,15 +919,16 @@ CREATE TABLE design_model_index(
     updated_id BIGINT(32)    COMMENT 'Updated ID' ,
     updated_by VARCHAR(64)    COMMENT 'Updated By' ,
     deleted TINYINT(1)   DEFAULT 0 COMMENT 'Deleted' ,
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_design_model_index_env_model_index (env_id, model_name, index_name)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Design Model Index';
 
 CREATE TABLE design_model_trans(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     language_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     row_id BIGINT(32)    COMMENT 'Row ID' ,
-    label_name VARCHAR(64)    COMMENT 'Label Name' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
+    label VARCHAR(64)    COMMENT 'Label' ,
+    description VARCHAR(512)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
@@ -1045,8 +942,8 @@ CREATE TABLE design_field_trans(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     language_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     row_id BIGINT(32)    COMMENT 'Row ID' ,
-    label_name VARCHAR(64)    COMMENT 'Label Name' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
+    label VARCHAR(64)    COMMENT 'Label' ,
+    description VARCHAR(512)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
@@ -1060,8 +957,8 @@ CREATE TABLE design_option_set_trans(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     language_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     row_id BIGINT(32)    COMMENT 'Row ID' ,
-    name VARCHAR(64)    COMMENT 'Option Set Name' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
+    label VARCHAR(64)    COMMENT 'Label' ,
+    description VARCHAR(512)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
@@ -1075,8 +972,8 @@ CREATE TABLE design_option_item_trans(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     language_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     row_id BIGINT(32)    COMMENT 'Row ID' ,
-    item_name VARCHAR(64)    COMMENT 'Item Name' ,
-    description VARCHAR(256)    COMMENT 'Description' ,
+    label VARCHAR(64)    COMMENT 'Label' ,
+    description VARCHAR(512)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
     created_id VARCHAR(32)    COMMENT 'Created ID' ,
@@ -1116,7 +1013,6 @@ CREATE TABLE ai_robot(
     ai_provider VARCHAR(64)   DEFAULT '' COMMENT 'AI Provider' ,
     system_prompt TEXT(20000)    COMMENT 'system_prompt' ,
     model_max_tokens INT(11)    COMMENT 'Model Max Context Tokens' ,
-    input_tokens_limit INT(11)    COMMENT 'Input Tokens Limit' ,
     output_tokens_limit INT(11)    COMMENT 'Output Tokens Limit' ,
     temperature DOUBLE(24,2)   DEFAULT 0 COMMENT 'Temperature;From 0 to 1' ,
     stream TINYINT(1)   DEFAULT 0 COMMENT 'Enable Stream Output' ,
@@ -1138,7 +1034,8 @@ CREATE TABLE ai_conversation(
     id BIGINT(32) NOT NULL   COMMENT 'ID' ,
     title VARCHAR(64)   DEFAULT '' COMMENT 'Conversation Title' ,
     robot_id BIGINT(32)    COMMENT 'Robot ID' ,
-    total_tokens INT(11)   DEFAULT 0 COMMENT 'Total Tokens' ,
+    input_tokens INT(11)   DEFAULT 0 COMMENT 'Input Tokens' ,
+    output_tokens INT(11)   DEFAULT 0 COMMENT 'Output Tokens' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_id BIGINT(32)    COMMENT 'Created ID' ,
@@ -1155,7 +1052,8 @@ CREATE TABLE ai_message(
     conversation_id BIGINT(32) NOT NULL   COMMENT 'Conversation ID' ,
     role VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Role' ,
     content TEXT(20000)    COMMENT 'Query Content' ,
-    tokens INT(11)   DEFAULT 0 COMMENT 'Tokens' ,
+    input_tokens INT(11)   DEFAULT 0 COMMENT 'Input Tokens' ,
+    output_tokens INT(11)   DEFAULT 0 COMMENT 'Output Tokens' ,
     stream TINYINT(1)    COMMENT 'Stream Output' ,
     parent_id BIGINT(32)    COMMENT 'Parent Message ID' ,
     status VARCHAR(64)    COMMENT 'Status' ,
@@ -1412,7 +1310,7 @@ CREATE TABLE tenant_option_set(
     id BIGINT(32) NOT NULL   COMMENT 'ID' ,
     tenant_id BIGINT(32)    COMMENT 'Tenant ID' ,
     app_id BIGINT(32)    COMMENT 'App ID' ,
-    name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Option Set Name' ,
+    label VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label' ,
     option_set_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Option Set Code' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
@@ -1432,7 +1330,7 @@ CREATE TABLE tenant_option_set_trans(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     language_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     row_id BIGINT(32)    COMMENT 'Row ID' ,
-    name VARCHAR(64)    COMMENT 'Option Set Name' ,
+    label VARCHAR(64)    COMMENT 'Label' ,
     description VARCHAR(256)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
@@ -1452,7 +1350,7 @@ CREATE TABLE tenant_option_item(
     parent_item_id BIGINT(32)    COMMENT 'Parent Item ID' ,
     sequence INT(11)   DEFAULT 1 COMMENT 'Sequence' ,
     item_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Item Code' ,
-    item_name VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Item Name' ,
+    label VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Label' ,
     item_tone VARCHAR(64)   DEFAULT '' COMMENT 'Item Tone' ,
     item_icon VARCHAR(64)   DEFAULT '' COMMENT 'Item Icon' ,
     description VARCHAR(256)   DEFAULT '' COMMENT 'Description' ,
@@ -1470,7 +1368,7 @@ CREATE TABLE tenant_option_item_trans(
     id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
     language_code VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Language Code' ,
     row_id BIGINT(32)    COMMENT 'Row ID' ,
-    item_name VARCHAR(64)    COMMENT 'Item Name' ,
+    label VARCHAR(64)    COMMENT 'Label' ,
     description VARCHAR(256)    COMMENT 'Description' ,
     created_time DATETIME    COMMENT 'Created Time' ,
     created_by VARCHAR(64)    COMMENT 'Created By' ,
@@ -1500,28 +1398,16 @@ CREATE TABLE tenant_config(
     PRIMARY KEY (id)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Tenant Config';
 
-
-CREATE TABLE metadata_upgrade_history(
-    id BIGINT(32) NOT NULL AUTO_INCREMENT  COMMENT 'ID' ,
-    env_id BIGINT(32)    COMMENT 'Env ID' ,
-    callback_token VARCHAR(64) NOT NULL  DEFAULT '' COMMENT 'Callback Token' ,
-    status VARCHAR(64)   DEFAULT '' COMMENT 'Status' ,
-    error_message TEXT(20000)    COMMENT 'Error Message' ,
-    start_time DATETIME    COMMENT 'Execution Start Time' ,
-    end_time DATETIME    COMMENT 'Execution End Time' ,
-    duration_time DOUBLE(24,3)    COMMENT 'Duration Time (s)' ,
-    package_summary MEDIUMTEXT    COMMENT 'Package Summary' ,
-    created_time DATETIME    COMMENT 'Created Time' ,
-    created_id BIGINT(32)    COMMENT 'Created ID' ,
-    created_by VARCHAR(64)    COMMENT 'Created By' ,
-    updated_time DATETIME    COMMENT 'Updated Time' ,
-    updated_id BIGINT(32)    COMMENT 'Updated ID' ,
-    updated_by VARCHAR(64)    COMMENT 'Updated By' ,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT = 'Metadata Upgrade History';
-
-ALTER TABLE metadata_upgrade_history ADD UNIQUE INDEX uniq_metadata_upgrade_history_callback_token (callback_token);
-ALTER TABLE metadata_upgrade_history ADD INDEX idx_metadata_upgrade_history_status_start_time (status, start_time);
+-- single immediately-prior name for a declared rename (the rename credential; excluded from
+-- checksum/diff, written by the scanner/apply on rename). Model / Field / OptionSet / OptionItem only.
+ALTER TABLE sys_model        ADD COLUMN renamed_from VARCHAR(64) COMMENT 'Renamed From';
+ALTER TABLE sys_field        ADD COLUMN renamed_from VARCHAR(64) COMMENT 'Renamed From';
+ALTER TABLE sys_option_set   ADD COLUMN renamed_from VARCHAR(64) COMMENT 'Renamed From';
+ALTER TABLE sys_option_item  ADD COLUMN renamed_from VARCHAR(64) COMMENT 'Renamed From';
+ALTER TABLE design_model       ADD COLUMN renamed_from VARCHAR(64) COMMENT 'Renamed From';
+ALTER TABLE design_field       ADD COLUMN renamed_from VARCHAR(64) COMMENT 'Renamed From';
+ALTER TABLE design_option_set  ADD COLUMN renamed_from VARCHAR(64) COMMENT 'Renamed From';
+ALTER TABLE design_option_item ADD COLUMN renamed_from VARCHAR(64) COMMENT 'Renamed From';
 
 CREATE TABLE sys_sequence(
                              id BIGINT(32) NOT NULL   COMMENT 'ID' ,
