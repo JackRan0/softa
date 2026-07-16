@@ -76,7 +76,7 @@ public enum CustomerTier {
 | (class simple name) | — | — | `modelName` | inferred, no override |
 | `label` | String | `""` | `label` | empty → humanized class name (`DeptInfo`→"Dept Info"); i18n translations override by id |
 | `tableName` | String | `""` | `tableName` | empty → `snake_case(modelName)` |
-| `description` | String | `""` | `description` | |
+| `description` | String | `""` | `description` | **≤512 chars**, parse-time enforced (catalog column width); concise user-facing summary — design notes go in Javadoc |
 | `displayName` | String[] | `{}` | `displayName` | list-display defaults |
 | `searchName` | String[] | `{}` | `searchName` | search-field defaults |
 | `defaultOrder` | String[] | `{}` | `defaultOrder` | e.g. `"createdTime:desc"` |
@@ -107,7 +107,7 @@ extends `AuditableModel`.
 | (Java field name) | — | — | `fieldName` | inferred, no override |
 | (Java type) | — | — | `fieldType` | inferred via `TypeInference` |
 | `label` | String | `""` | `label` | empty → humanized field name (`deptId`→"Dept Id"); i18n translations override by id |
-| `description` | String | `""` | `description` | |
+| `description` | String | `""` | `description` | **≤512 chars**, parse-time enforced (catalog column width); concise user-facing summary — design notes go in Javadoc |
 | `fieldType` | `FieldType[]` | `{}` | `fieldType` | single value, no braces (e.g. `fieldType = FieldType.MULTI_FILE`); `OPTION`/`MULTI_OPTION` **cannot** be written explicitly |
 | `columnName` | String | `""` | `columnName` | empty → `snake_case(fieldName)` |
 | `length` | int | `0` | `length` | `0` → type default: STRING/OPTION 64, MULTI_STRING/ORDERS 256, DOUBLE 24 (measurements), BIG_DECIMAL 32 (money); declare explicitly for anything else. MySQL renders `length > 16383` as TEXT |
@@ -205,7 +205,7 @@ CASCADE deletes / SET_NULL nulls by it, no effective-date resolution involved); 
 |---|---|---|---|---|
 | (enum simple name) | — | — | `optionSetCode` | inferred, no override |
 | `name` | String | `""` | `name` | display label; empty → humanized enum name (`TenantStatus`→"Tenant Status") |
-| `description` | String | `""` | `description` | |
+| `description` | String | `""` | `description` | **≤512 chars**, parse-time enforced (catalog column width); concise user-facing summary — design notes go in Javadoc |
 | (scanner sets) | — | — | `appCode` / `id` | |
 | (Studio toggle) | — | — | `deleted` / `optionItems` | runtime aggregation |
 
@@ -216,7 +216,7 @@ CASCADE deletes / SET_NULL nulls by it, no effective-date resolution involved); 
 | (`@JsonValue` field value on enum) | — | — | `itemCode` | fallback to `enum.name()` when no `@JsonValue` |
 | (enclosing enum simple name) | — | — | `optionSetCode` | inferred |
 | `label` | String | `""` | `label` | defaults to humanized constant name (`MULTI_FILE`→"Multi File"); declare explicitly to customize. Omit when it equals the humanized name (and omit the whole `@OptionItem` if nothing else remains) |
-| `description` | String | `""` | `description` | |
+| `description` | String | `""` | `description` | **≤512 chars**, parse-time enforced (catalog column width); concise user-facing summary — design notes go in Javadoc |
 | `sequence` | int | `-1` | `sequence` | `-1` → use `ordinal() + 1` |
 | `parentItemCode` | String | `""` | `parentItemCode` | hierarchy |
 | `itemTone` | `OptionItemTone[]` | `{}` | `itemTone` | single element |

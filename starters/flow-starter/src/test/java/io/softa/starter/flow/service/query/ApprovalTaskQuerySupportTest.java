@@ -1,4 +1,4 @@
-package io.softa.starter.flow.service.impl;
+package io.softa.starter.flow.service.query;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -10,7 +10,11 @@ import io.softa.starter.flow.enums.FlowApprovalTaskType;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class FlowApprovalTaskServiceImplTest {
+/**
+ * In-memory inbox filter/sort semantics (moved from FlowApprovalTaskServiceImplTest
+ * when the logic was extracted into this support class).
+ */
+class ApprovalTaskQuerySupportTest {
 
     @Test
     void shouldFilterAndSortPendingInboxOldestFirst() {
@@ -30,7 +34,7 @@ class FlowApprovalTaskServiceImplTest {
                 FlowApprovalTaskStatus.PENDING,
                 LocalDateTime.now().minusHours(4), null);
 
-        var result = FlowApprovalTaskServiceImpl.filterAndSortPendingTasks(
+        var result = ApprovalTaskQuerySupport.filterAndSortPendingTasks(
                 List.of(newest, completed, oldest, otherActor, unreadCc),
                 "actor-1", "leave", null, null);
 
@@ -55,7 +59,7 @@ class FlowApprovalTaskServiceImplTest {
                 FlowApprovalTaskStatus.REJECTED,
                 LocalDateTime.now().minusHours(5), LocalDateTime.now().minusMinutes(5));
 
-        var result = FlowApprovalTaskServiceImpl.filterAndSortCompletedTasks(
+        var result = ApprovalTaskQuerySupport.filterAndSortCompletedTasks(
                 List.of(older, pending, newer, otherFlow, readCcTask),
                 "actor-1", "leave", null, null);
 
@@ -73,11 +77,11 @@ class FlowApprovalTaskServiceImplTest {
         var readCc = ccTask(13L, "actor-1", "leave", "inst-3", "approvalC",
                 FlowApprovalTaskStatus.READ,
                 LocalDateTime.now().minusHours(2), LocalDateTime.now().minusMinutes(5));
-        var approvalTask = approvalTask(14L, "actor-1", "leave", "inst-4", "approvalD",
+        var approvalTask = task(14L, "actor-1", "leave", "inst-4", "approvalD",
                 FlowApprovalTaskStatus.PENDING,
                 LocalDateTime.now().minusHours(3), null);
 
-        var result = FlowApprovalTaskServiceImpl.filterAndSortCcTasks(
+        var result = ApprovalTaskQuerySupport.filterAndSortCcTasks(
                 List.of(newestUnreadCc, readCc, oldestUnreadCc, approvalTask),
                 "actor-1", false, "leave", null, null);
 
@@ -96,7 +100,7 @@ class FlowApprovalTaskServiceImplTest {
                 FlowApprovalTaskStatus.PENDING,
                 LocalDateTime.now().minusHours(1), null);
 
-        var result = FlowApprovalTaskServiceImpl.filterAndSortCcTasks(
+        var result = ApprovalTaskQuerySupport.filterAndSortCcTasks(
                 List.of(olderReadCc, unreadCc, newerReadCc),
                 "actor-1", true, "leave", null, null);
 
@@ -115,14 +119,14 @@ class FlowApprovalTaskServiceImplTest {
                 FlowApprovalTaskStatus.READ,
                 LocalDateTime.now().minusHours(3), LocalDateTime.now().minusMinutes(5));
 
-        var result = FlowApprovalTaskServiceImpl.filterAndSortCcTasks(
+        var result = ApprovalTaskQuerySupport.filterAndSortCcTasks(
                 List.of(olderReadCc, unreadCc, newerReadCc),
                 "actor-1", null, "leave", null, null);
 
         assertEquals(List.of(unreadCc, newerReadCc, olderReadCc), result);
     }
 
-    private FlowApprovalTask task(Long id,
+    private static FlowApprovalTask task(Long id,
                                          String actorId,
                                          String flowCode,
                                          String instanceId,
@@ -143,18 +147,7 @@ class FlowApprovalTaskServiceImplTest {
         return task;
     }
 
-    private FlowApprovalTask approvalTask(Long id,
-                                                 String actorId,
-                                                 String flowCode,
-                                                 String instanceId,
-                                                 String nodeId,
-                                                 FlowApprovalTaskStatus status,
-                                                 LocalDateTime startTime,
-                                                 LocalDateTime endTime) {
-        return task(id, actorId, flowCode, instanceId, nodeId, status, startTime, endTime);
-    }
-
-    private FlowApprovalTask ccTask(Long id,
+    private static FlowApprovalTask ccTask(Long id,
                                            String actorId,
                                            String flowCode,
                                            String instanceId,
@@ -167,4 +160,3 @@ class FlowApprovalTaskServiceImplTest {
         return task;
     }
 }
-

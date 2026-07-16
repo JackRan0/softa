@@ -33,10 +33,10 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
     @Override
     public List<FlowNodeDescriptor> getDescriptors() {
         return List.of(
-                structural(FlowNodeType.START,             "Start",            "Flow entry point",                    "play-circle",      0,  Ports.entry(),    ALL_SCENARIOS),
-                structural(FlowNodeType.END,               "End",              "Flow terminal point",                 "stop-circle",      1,  Ports.terminal(), ALL_SCENARIOS),
+                structural(FlowNodeType.START,             "Start",            "Flow entry point",                    "circle-play",      0,  Ports.entry(),    ALL_SCENARIOS),
+                structural(FlowNodeType.END,               "End",              "Flow terminal point",                 "circle-stop",      1,  Ports.terminal(), ALL_SCENARIOS),
                 structural(FlowNodeType.TIMER,             "Timer",            "Scheduled wait node",                 "clock",            5,  null, PROCESS_ONLY, timerConfigSchema()),
-                structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "check-circle",     10, null, PROCESS_ONLY, approvalConfigSchema()),
+                structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "circle-check",     10, null, PROCESS_ONLY, approvalConfigSchema()),
                 // HUMAN_TASK is intentionally omitted: the runtime has no human-task wait
                 // (dedicated wait token, assignee resolution, completion API) and the node is
                 // rejected at compile time. Restore this entry (+ humanTaskConfigSchema) from

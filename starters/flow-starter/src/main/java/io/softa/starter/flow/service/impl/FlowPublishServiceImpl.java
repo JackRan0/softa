@@ -1,6 +1,5 @@
 package io.softa.starter.flow.service.impl;
 
-import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -65,16 +64,6 @@ public class FlowPublishServiceImpl implements FlowPublishService {
             designService.upsertFromPublish(designId, compiled.getRevision());
         }
         return compiled;
-    }
-
-    @Override
-    public Optional<CompiledFlowDefinition> getLatest(Long designId) {
-        return bundleRegistry.getActiveByDesignId(designId);
-    }
-
-    @Override
-    public List<CompiledFlowDefinition> getRevisions(Long designId) {
-        return bundleRegistry.listRevisionsByDesignId(designId);
     }
 
     @Override

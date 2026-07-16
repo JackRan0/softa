@@ -11,10 +11,6 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.ResponseCode;
-import io.softa.framework.base.utils.LambdaUtils;
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.dto.FlowInstanceOverlay;
@@ -44,25 +40,6 @@ import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 @RestController
 @RequestMapping("/flow/runtime")
 public class FlowRuntimeController {
-
-    /** Instance search projection — the heavy JSON state columns are deliberately excluded. */
-    private static final List<String> INSTANCE_SUMMARY_FIELDS = List.of(
-            LambdaUtils.getAttributeName(FlowInstance::getId),
-            LambdaUtils.getAttributeName(FlowInstance::getInstanceId),
-            LambdaUtils.getAttributeName(FlowInstance::getBundleId),
-            LambdaUtils.getAttributeName(FlowInstance::getDesignId),
-            LambdaUtils.getAttributeName(FlowInstance::getFlowCode),
-            LambdaUtils.getAttributeName(FlowInstance::getFlowRevision),
-            LambdaUtils.getAttributeName(FlowInstance::getTitle),
-            LambdaUtils.getAttributeName(FlowInstance::getModelName),
-            LambdaUtils.getAttributeName(FlowInstance::getRowId),
-            LambdaUtils.getAttributeName(FlowInstance::getInitiatorId),
-            LambdaUtils.getAttributeName(FlowInstance::getStatus),
-            LambdaUtils.getAttributeName(FlowInstance::getFailedNodeId),
-            LambdaUtils.getAttributeName(FlowInstance::getNextFireAt),
-            LambdaUtils.getAttributeName(FlowInstance::getResubmissionCount),
-            LambdaUtils.getAttributeName(FlowInstance::getCreatedTime),
-            LambdaUtils.getAttributeName(FlowInstance::getUpdatedTime));
 
     private final FlowRuntimeEngine runtimeEngine;
     private final FlowAutomationService flowAutomationService;
@@ -106,8 +83,8 @@ public class FlowRuntimeController {
                     return state;
                 })
                 .map(ApiResponse::success)
-                .orElseGet(() -> new ApiResponse<>(ResponseCode.REQUEST_NOT_FOUND.getCode(),
-                        "Flow instance not found: " + instanceId, null));
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
     }
 
     @GetMapping("/instances/{instanceId}/overlay")
@@ -121,8 +98,8 @@ public class FlowRuntimeController {
                     return FlowInstanceOverlay.of(state);
                 })
                 .map(ApiResponse::success)
-                .orElseGet(() -> new ApiResponse<>(ResponseCode.REQUEST_NOT_FOUND.getCode(),
-                        "Flow instance not found: " + instanceId, null));
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
     }
 
     @GetMapping("/instances/{instanceId}/trace")
@@ -140,38 +117,18 @@ public class FlowRuntimeController {
                             .toList();
                     return ApiResponse.success(entries);
                 })
-                .orElseGet(() -> new ApiResponse<>(ResponseCode.REQUEST_NOT_FOUND.getCode(),
-                        "Flow instance not found: " + instanceId, null));
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
     }
 
     @PostMapping("/instances/search")
-    @Operation(summary = "Search flow instances",
-            description = "Paged instance summaries for monitoring views — heavy JSON state columns and "
-                    + "the trace are excluded; fetch a single instance or its overlay for detail.")
+    @Operation(summary = "Search my flow instances",
+            description = "Paged summaries of the caller's own instances — the initiator filter is always "
+                    + "the authenticated user (any requested initiatorId is overridden). Heavy JSON state "
+                    + "columns and the trace are excluded; fetch a single instance or its overlay for detail. "
+                    + "Cross-initiator monitoring lives on POST /flow/monitor/instances/search.")
     public ApiResponse<Page<FlowInstance>> searchInstances(@RequestBody FlowInstanceSearchRequest request) {
-        Filters filters = new Filters();
-        if (request.flowCode() != null) {
-            filters.eq(FlowInstance::getFlowCode, request.flowCode());
-        }
-        if (request.designId() != null) {
-            filters.eq(FlowInstance::getDesignId, request.designId());
-        }
-        if (request.status() != null) {
-            filters.eq(FlowInstance::getStatus, request.status());
-        }
-        filters.eq(FlowInstance::getInitiatorId, currentUserId());
-        if (request.modelName() != null) {
-            filters.eq(FlowInstance::getModelName, request.modelName());
-        }
-        if (request.rowId() != null) {
-            filters.eq(FlowInstance::getRowId, request.rowId());
-        }
-        FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowInstance::getCreatedTime));
-        query.select(INSTANCE_SUMMARY_FIELDS);
-        Page<FlowInstance> page = Page.of(
-                request.pageNumber() == null ? 1 : request.pageNumber(),
-                request.pageSize() == null ? 50 : request.pageSize());
-        return ApiResponse.success(instanceService.searchInstances(query, page));
+        return ApiResponse.success(instanceService.searchSummaries(request, currentUserId()));
     }
 
     @PostMapping("/instances/approve")
@@ -274,8 +231,8 @@ public class FlowRuntimeController {
                     accessGuard.requireInstanceViewer(state, currentUserId());
                     return ApiResponse.success(formPermissionService.getFieldPermissions(instanceId, nodeId));
                 })
-                .orElseGet(() -> new ApiResponse<>(ResponseCode.REQUEST_NOT_FOUND.getCode(),
-                        "Flow instance not found: " + instanceId, null));
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
     }
 
     @PostMapping("/trigger")

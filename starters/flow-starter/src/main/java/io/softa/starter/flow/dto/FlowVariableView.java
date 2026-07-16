@@ -22,7 +22,15 @@ public record FlowVariableView(
         String sourceNodeId,
 
         @Schema(description = "Human-readable origin, e.g. the producing node's label or the trigger model")
-        String sourceLabel
+        String sourceLabel,
+
+        @Schema(description = "Value type when derivable — the platform FieldType wire value "
+                + "(String/Integer/DateTime/ManyToOne/...) for trigger fields, or a coarse "
+                + "Object/List/String for node outputs; null = unknown")
+        String type,
+
+        @Schema(description = "Model name when the variable is record-shaped (relation target or data-node model)")
+        String modelName
 ) {
 
     @Getter

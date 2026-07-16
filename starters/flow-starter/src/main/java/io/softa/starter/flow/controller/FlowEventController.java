@@ -2,16 +2,21 @@ package io.softa.starter.flow.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.time.LocalDateTime;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.starter.flow.dto.FlowEventDetailView;
 import io.softa.starter.flow.dto.FlowEventView;
 import io.softa.starter.flow.entity.FlowEvent;
 import io.softa.starter.flow.service.FlowEventService;
@@ -39,6 +44,12 @@ public class FlowEventController {
                                                    @RequestParam(required = false) String sourceRowId,
                                                    @RequestParam(required = false) String instanceId,
                                                    @RequestParam(required = false) Boolean success,
+                                                   @RequestParam(required = false)
+                                                   @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+                                                   LocalDateTime eventTimeFrom,
+                                                   @RequestParam(required = false)
+                                                   @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+                                                   LocalDateTime eventTimeTo,
                                                    @RequestParam(defaultValue = "1") Integer pageNumber,
                                                    @RequestParam(defaultValue = "50") Integer pageSize) {
         Filters filters = new Filters();
@@ -57,6 +68,12 @@ public class FlowEventController {
         if (success != null) {
             filters.eq(FlowEvent::getSuccess, success);
         }
+        if (eventTimeFrom != null) {
+            filters.ge(FlowEvent::getEventTime, eventTimeFrom);
+        }
+        if (eventTimeTo != null) {
+            filters.le(FlowEvent::getEventTime, eventTimeTo);
+        }
         FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowEvent::getEventTime));
         Page<FlowEvent> page = eventService.searchEvents(query, Page.of(pageNumber, pageSize));
 
@@ -66,6 +83,17 @@ public class FlowEventController {
                 .map(FlowEventController::toView)
                 .toList());
         return ApiResponse.success(views);
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Get one trigger event",
+            description = "Single event including the raw trigger-parameters payload that list rows exclude.")
+    public ApiResponse<FlowEventDetailView> getById(@PathVariable Long id) {
+        return eventService.findEventById(id)
+                .map(FlowEventDetailView::of)
+                .map(ApiResponse::success)
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow event not found: " + id));
     }
 
     private static FlowEventView toView(FlowEvent event) {

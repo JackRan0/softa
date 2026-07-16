@@ -1,11 +1,13 @@
 package io.softa.starter.flow.service;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Page;
+import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
@@ -35,6 +37,12 @@ public interface FlowInstanceService {
     Optional<FlowInstance> findByInstanceId(String instanceId);
 
     /**
+     * Batch finder by runtime instance ids — the one-query backbone of task
+     * projection enrichment. Missing ids are simply absent from the result.
+     */
+    List<FlowInstance> findByInstanceIds(Collection<String> instanceIds);
+
+    /**
      * Find all instances by flow code.
      *
      * @param flowCode the flow code
@@ -49,14 +57,6 @@ public interface FlowInstanceService {
      * @return list of matching instances
      */
     List<FlowInstance> findByStatus(FlowExecutionStatus status);
-
-    /**
-     * Find all instances by related model name.
-     *
-     * @param modelName the model name
-     * @return list of matching instances
-     */
-    List<FlowInstance> findByModelName(String modelName);
 
     /**
      * Find all instances by related model name and row id.
@@ -98,6 +98,19 @@ public interface FlowInstanceService {
      * Paged instance query for monitoring views.
      */
     Page<FlowInstance> searchInstances(FlexQuery query, Page<FlowInstance> page);
+
+    /**
+     * Paged summary search shared by the runtime "my instances" endpoint and the
+     * cross-initiator monitor endpoint. Builds the summary projection (heavy JSON
+     * state columns excluded) and the filter set from the request, newest first.
+     *
+     * @param request           search filters and paging
+     * @param forcedInitiatorId when non-null, overrides any requested initiator filter —
+     *                          the caller-facing "my instances" contract; when {@code null}
+     *                          the request's own {@code initiatorId} is honored (monitor views)
+     * @return one page of instance summary rows
+     */
+    Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId);
 
     /**
      * Find non-terminal instances (RUNNING / WAITING_*) whose last update time is before

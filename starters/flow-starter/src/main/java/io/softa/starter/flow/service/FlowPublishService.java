@@ -1,6 +1,5 @@
 package io.softa.starter.flow.service;
 
-import java.util.List;
 import java.util.Optional;
 
 import io.softa.starter.flow.design.DesignFlowDefinition;
@@ -26,16 +25,6 @@ public interface FlowPublishService {
      * {@code designId} is optional — pass null for headless / test publishing.
      */
     CompiledFlowDefinition publish(Long designId, DesignFlowDefinition definition);
-
-    /**
-     * Get the current (latest) compiled definition for a design id.
-     */
-    Optional<CompiledFlowDefinition> getLatest(Long designId);
-
-    /**
-     * List all active revisions for a design id, ordered by revision descending.
-     */
-    List<CompiledFlowDefinition> getRevisions(Long designId);
 
     /**
      * Activate the specified published bundle as its design's effective revision

@@ -66,7 +66,7 @@ public class CreateDataTaskExecutor extends AbstractTaskExecutor {
 
     @Override
     public String getIcon() {
-        return "plus-square";
+        return "square-plus";
     }
 
     @Override

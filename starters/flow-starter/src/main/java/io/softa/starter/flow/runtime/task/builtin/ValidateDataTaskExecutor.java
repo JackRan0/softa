@@ -63,7 +63,7 @@ public class ValidateDataTaskExecutor extends AbstractTaskExecutor {
 
     @Override
     public String getIcon() {
-        return "check-square";
+        return "square-check";
     }
 
     @Override

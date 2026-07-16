@@ -1,10 +1,15 @@
 package io.softa.starter.flow.service.support;
 
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.PermissionInfo;
+import io.softa.framework.base.enums.SystemRole;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
@@ -24,9 +29,12 @@ import io.softa.starter.flow.service.FlowInstanceService;
  * everyone else is denied with {@link FlowAuthorizationException} (HTTP 403)
  * rather than the previous unscoped read open to any authenticated user.
  * <p>
- * Spring Security method-security ({@code @PreAuthorize}) is not on the
- * classpath, so an annotation-based {@code FLOW_ADMIN} route would not be
- * enforced; participant-scoping is enforced in code instead.
+ * Monitor-admin bypass: a caller holding the system admin role may view any
+ * instance — the cross-initiator monitoring console pairs with
+ * {@code POST /flow/monitor/instances/search}. The role codes are read from the
+ * framework-layer {@link Context#getPermissionInfo()} exactly like the
+ * {@code @RequireRole} aspect does, and the check fails closed when the
+ * consuming application populated no role provider.
  */
 @Component
 public class FlowInstanceAccessGuard {
@@ -52,7 +60,7 @@ public class FlowInstanceAccessGuard {
         if (!StringUtils.hasText(requesterId)) {
             throw new FlowAuthorizationException("Authentication is required to view instance " + instanceId);
         }
-        if (participantInResult || isInitiator(instanceId, requesterId)) {
+        if (isMonitorAdmin() || participantInResult || isInitiator(instanceId, requesterId)) {
             return;
         }
         throw new FlowAuthorizationException(
@@ -67,6 +75,9 @@ public class FlowInstanceAccessGuard {
         if (!StringUtils.hasText(requesterId)) {
             throw new FlowAuthorizationException("Authentication is required to view instance " + instanceId);
         }
+        if (isMonitorAdmin()) {
+            return;
+        }
         if (state != null
                 && (requesterId.equals(state.getInitiatorId())
                 || isParticipant(state, requesterId)
@@ -75,6 +86,18 @@ public class FlowInstanceAccessGuard {
         }
         throw new FlowAuthorizationException(
                 "User is not a participant of flow instance " + instanceId);
+    }
+
+    /**
+     * Whether the current caller holds the system admin role — the monitor-console
+     * bypass. Mirrors the {@code @RequireRole} aspect's read of the framework-layer
+     * Context; an absent context, permission info, or role set denies (fail-closed).
+     */
+    private static boolean isMonitorAdmin() {
+        Context context = ContextHolder.getContext();
+        PermissionInfo permissionInfo = context == null ? null : context.getPermissionInfo();
+        Set<String> roleCodes = permissionInfo == null ? null : permissionInfo.getRoleCodes();
+        return roleCodes != null && roleCodes.contains(SystemRole.SYSTEM_ROLE_ADMIN.getCode());
     }
 
     private boolean hasInitiatorFallback(FlowExecutionState state, String requesterId) {

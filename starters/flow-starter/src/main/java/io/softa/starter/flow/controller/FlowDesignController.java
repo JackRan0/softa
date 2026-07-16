@@ -208,8 +208,8 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
         return service.getById(id)
                 .map(design -> ApiResponse.success(
                         debugHistoryService.listByFlowCode(design.getFlowCode())))
-                .orElseGet(() -> new ApiResponse<>(ResponseCode.REQUEST_NOT_FOUND.getCode(),
-                        "FlowDesign not found: " + id, null));
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "FlowDesign not found: " + id));
     }
 
     private static String currentUserId() {

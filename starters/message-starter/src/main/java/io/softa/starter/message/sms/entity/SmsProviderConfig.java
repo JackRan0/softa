@@ -81,11 +81,11 @@ public class SmsProviderConfig extends AuditableModel {
     @Field(description = "Max SMS per day (null = unlimited)")
     private Integer dailySendLimit;
 
-    @Field(description = "Marks this provider as a catchall — included in the SMS dispatcher's "
-                    + "second tier when no enabled sms_provider_region route matches the recipient's country. "
-                    + "Multiple providers may be defaults; they're ordered by priority before one provider is "
-                    + "selected and persisted. Orthogonal to precise region routing — a provider can be both "
-                    + "a TW route (via sms_provider_region) and a catchall (via this flag).")
+    @Field(description = "Marks this provider as a catchall for second-tier dispatch, used when "
+                    + "no enabled sms_provider_region route matches the recipient's country. "
+                    + "Multiple defaults are ordered by priority before one is selected and "
+                    + "persisted. Orthogonal to region routing — a provider can be both a region "
+                    + "route and a catchall.")
     private Boolean isDefault;
 
     @Field(description = "Whether this config is active")

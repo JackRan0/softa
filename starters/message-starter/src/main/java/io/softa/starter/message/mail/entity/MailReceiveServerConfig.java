@@ -41,11 +41,9 @@ public class MailReceiveServerConfig extends AuditableModel {
     private String description;
 
     @Field(label = "Receive Protocol", required = true,
-            description = "Receive protocol. "
-                    + "IMAP/IMAPS: non-destructive observation (recommended) — fetched mails stay on server, "
-                    + "incremental fetch tracks IMAP UID per folder. "
-                    + "POP3/POP3S: destructive drain — each fetched message is deleted from the server. "
-                    + "See ReceiveProtocol enum for per-value detail.")
+            description = "IMAP/IMAPS: non-destructive observation (recommended) — fetched mails "
+                    + "stay on the server, incremental fetch tracks IMAP UID per folder. "
+                    + "POP3/POP3S: destructive drain — each fetched message is deleted from the server.")
     private ReceiveProtocol protocol;
 
     @Field(label = "Mail Server Host", required = true, length = 255)
@@ -74,10 +72,12 @@ public class MailReceiveServerConfig extends AuditableModel {
     @Field(description = "Whether this config is enabled")
     private Boolean isEnabled;
 
-    @Field(description = "Polling order for cron-driven fetch + display order in admin UIs. "
+    /**
+     * If receive-side failover is ever introduced, rename to {@code priority};
+     * 'sequence' honestly reflects the current no-failover reality.
+     */
+    @Field(description = "Polling order for cron-driven fetch and display order in admin UIs. "
                     + "Ascending — lower = polled first / shown first. NOT a failover priority: "
-                    + "all enabled configs get polled each tick. If receive-side failover semantics "
-                    + "are ever introduced, rename to 'priority' then; current name 'sequence' "
-                    + "honestly reflects the no-failover reality.")
+                    + "all enabled configs get polled each tick.")
     private Integer sequence;
 }

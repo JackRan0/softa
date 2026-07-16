@@ -67,7 +67,7 @@ public class SysOptionItem extends AuditableModel {
     @Field
     private OptionItemIcon itemIcon;
 
-    @Field(length = 256)
+    @Field(length = 512)
     private String description;
 
     @Field

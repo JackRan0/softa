@@ -1,8 +1,12 @@
 package io.softa.starter.flow.service.impl;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.*;
+import java.util.Map;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -13,6 +17,7 @@ import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
+import io.softa.starter.flow.dto.FlowInboxCountView;
 import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
@@ -24,6 +29,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.service.FlowApprovalTaskQueryService;
 import io.softa.starter.flow.service.query.ApprovalTaskQuerySupport;
+import io.softa.starter.flow.service.query.TaskInstanceContextEnricher;
 import io.softa.starter.flow.service.support.FlowApprovalTaskProjector;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 import io.softa.starter.flow.service.support.view.FlowApprovalTaskViewMapper;
@@ -35,33 +41,19 @@ import io.softa.starter.flow.service.support.view.FlowApprovalTaskViewMapper;
 public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalTask, Long>
         implements FlowApprovalTaskQueryService, FlowStateChangeListener {
 
-    private static final List<FlowApprovalTaskStatus> COMPLETED_STATUSES = List.of(
-            FlowApprovalTaskStatus.APPROVED,
-            FlowApprovalTaskStatus.REJECTED,
-            FlowApprovalTaskStatus.RETURNED,
-            FlowApprovalTaskStatus.TRANSFERRED,
-            FlowApprovalTaskStatus.DELEGATED,
-            FlowApprovalTaskStatus.CANCELED,
-            FlowApprovalTaskStatus.WITHDRAWN,
-            FlowApprovalTaskStatus.CC,
-            FlowApprovalTaskStatus.READ
-    );
-
     private final FlowApprovalTaskProjector projector;
     private final FlowInstanceAccessGuard accessGuard;
     private final ApprovalAuditReader auditReader;
+    private final TaskInstanceContextEnricher instanceContextEnricher;
 
     public FlowApprovalTaskServiceImpl(FlowApprovalTaskProjector projector,
                                        FlowInstanceAccessGuard accessGuard,
-                                       ApprovalAuditReader auditReader) {
+                                       ApprovalAuditReader auditReader,
+                                       TaskInstanceContextEnricher instanceContextEnricher) {
         this.projector = projector;
         this.accessGuard = accessGuard;
         this.auditReader = auditReader;
-    }
-
-    @Override
-    public List<FlowApprovalTaskView> getPendingTasks(String actorId) {
-        return getPendingTasks(actorId, null, null, null);
+        this.instanceContextEnricher = instanceContextEnricher;
     }
 
     @Override
@@ -77,19 +69,11 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
                                                        Integer pageNumber,
                                                        Integer pageSize) {
         ApprovalTaskQuerySupport.requireActorId(actorId);
-        Filters filters = new Filters()
-                .eq(FlowApprovalTask::getActorId, actorId)
-                .eq(FlowApprovalTask::getStatus, FlowApprovalTaskStatus.PENDING)
-                .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.APPROVAL);
+        Filters filters = ApprovalTaskQuerySupport.pendingApprovalFilters(actorId);
         applyOptionalFilters(filters, flowCode, instanceId, nodeId);
         FlexQuery query = new FlexQuery(filters, Orders.ofAsc(FlowApprovalTask::getStartTime)
                 .addAsc(FlowApprovalTask::getId));
         return mapPage(this.searchPage(query, Page.of(pageNumber, pageSize)), pageNumber, pageSize);
-    }
-
-    @Override
-    public List<FlowApprovalTaskView> getCompletedTasks(String actorId) {
-        return getCompletedTasks(actorId, null, null, null);
     }
 
     @Override
@@ -105,19 +89,11 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
                                                          Integer pageNumber,
                                                          Integer pageSize) {
         ApprovalTaskQuerySupport.requireActorId(actorId);
-        Filters filters = new Filters()
-                .eq(FlowApprovalTask::getActorId, actorId)
-                .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.APPROVAL)
-                .in(FlowApprovalTask::getStatus, COMPLETED_STATUSES);
+        Filters filters = ApprovalTaskQuerySupport.completedApprovalFilters(actorId);
         applyOptionalFilters(filters, flowCode, instanceId, nodeId);
         FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowApprovalTask::getEndTime)
                 .addDesc(FlowApprovalTask::getId));
         return mapPage(this.searchPage(query, Page.of(pageNumber, pageSize)), pageNumber, pageSize);
-    }
-
-    @Override
-    public List<FlowApprovalTaskView> getCcTasks(String actorId, Boolean read) {
-        return getCcTasks(actorId, read, null, null, null);
     }
 
     @Override
@@ -134,14 +110,16 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
                                                   Integer pageNumber,
                                                   Integer pageSize) {
         ApprovalTaskQuerySupport.requireActorId(actorId);
-        Filters filters = new Filters()
-                .eq(FlowApprovalTask::getActorId, actorId)
-                .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.CC);
-        if (Boolean.TRUE.equals(read)) {
-            filters.in(FlowApprovalTask::getStatus,
-                    List.of(FlowApprovalTaskStatus.READ, FlowApprovalTaskStatus.CC));
-        } else if (Boolean.FALSE.equals(read)) {
-            filters.eq(FlowApprovalTask::getStatus, FlowApprovalTaskStatus.PENDING);
+        // read=false shares the unread-CC badge-count definition; read=true its mirror.
+        Filters filters;
+        if (Boolean.FALSE.equals(read)) {
+            filters = ApprovalTaskQuerySupport.unreadCcFilters(actorId);
+        } else if (Boolean.TRUE.equals(read)) {
+            filters = ApprovalTaskQuerySupport.readCcFilters(actorId);
+        } else {
+            filters = new Filters()
+                    .eq(FlowApprovalTask::getActorId, actorId)
+                    .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.CC);
         }
         applyOptionalFilters(filters, flowCode, instanceId, nodeId);
         Orders orders = Boolean.TRUE.equals(read)
@@ -151,49 +129,29 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     }
 
     @Override
+    public FlowInboxCountView countInbox(String actorId) {
+        ApprovalTaskQuerySupport.requireActorId(actorId);
+        long pendingApprovals = this.count(ApprovalTaskQuerySupport.pendingApprovalFilters(actorId));
+        long unreadCc = this.count(ApprovalTaskQuerySupport.unreadCcFilters(actorId));
+        return new FlowInboxCountView(pendingApprovals, unreadCc);
+    }
+
+    @Override
     public List<FlowApprovalTaskView> getTasksByInstanceId(String instanceId, String requesterId) {
         List<FlowApprovalTask> tasks = getTaskEntitiesByInstanceId(instanceId);
         boolean participant = tasks.stream()
                 .anyMatch(task -> requesterId != null && requesterId.equals(task.getActorId()));
         accessGuard.requireInstanceViewer(instanceId, requesterId, participant);
-        return FlowApprovalTaskViewMapper.toViews(tasks);
+        List<FlowApprovalTaskView> views = FlowApprovalTaskViewMapper.toViews(tasks);
+        instanceContextEnricher.enrich(views);
+        return views;
     }
 
     private List<FlowApprovalTask> getTaskEntitiesByInstanceId(String instanceId) {
         Filters filters = new Filters().eq(FlowApprovalTask::getInstanceId, instanceId);
         return this.searchList(filters).stream()
-                .sorted(pendingTaskComparator())
+                .sorted(ApprovalTaskQuerySupport.pendingTaskComparator())
                 .toList();
-    }
-
-    static List<FlowApprovalTask> filterAndSortPendingTasks(List<FlowApprovalTask> tasks,
-                                                                   String actorId,
-                                                                   String flowCode,
-                                                                   String instanceId,
-                                                                   String nodeId) {
-        return ApprovalTaskQuerySupport.filterAndSortPendingTasks(tasks, actorId, flowCode, instanceId, nodeId);
-    }
-
-    static List<FlowApprovalTask> filterAndSortCompletedTasks(List<FlowApprovalTask> tasks,
-                                                                     String actorId,
-                                                                     String flowCode,
-                                                                     String instanceId,
-                                                                     String nodeId) {
-        return ApprovalTaskQuerySupport.filterAndSortCompletedTasks(tasks, actorId, flowCode, instanceId, nodeId);
-    }
-
-    static List<FlowApprovalTask> filterAndSortCcTasks(List<FlowApprovalTask> tasks,
-                                                              String actorId,
-                                                              Boolean read,
-                                                              String flowCode,
-                                                              String instanceId,
-                                                              String nodeId) {
-        return ApprovalTaskQuerySupport.filterAndSortCcTasks(tasks, actorId, read, flowCode, instanceId, nodeId);
-    }
-
-    private static Comparator<FlowApprovalTask> pendingTaskComparator() {
-        return Comparator.comparing(FlowApprovalTask::getStartTime, Comparator.nullsLast(LocalDateTime::compareTo))
-                .thenComparing(FlowApprovalTask::getId, Comparator.nullsLast(Long::compareTo));
     }
 
     private static void applyOptionalFilters(Filters filters, String flowCode, String instanceId, String nodeId) {
@@ -208,17 +166,18 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         }
     }
 
-    private static Page<FlowApprovalTaskView> mapPage(Page<FlowApprovalTask> source,
-                                                      Integer pageNumber,
-                                                      Integer pageSize) {
+    private Page<FlowApprovalTaskView> mapPage(Page<FlowApprovalTask> source,
+                                               Integer pageNumber,
+                                               Integer pageSize) {
         Page<FlowApprovalTaskView> target = Page.of(pageNumber, pageSize);
         target.setTotalCount(source.getTotalCount());
-        target.setRows(FlowApprovalTaskViewMapper.toViews(source.getRows()));
+        List<FlowApprovalTaskView> views = FlowApprovalTaskViewMapper.toViews(source.getRows());
+        instanceContextEnricher.enrich(views);
+        target.setRows(views);
         return target;
     }
 
-    @Transactional(rollbackFor = Exception.class)
-    public void syncFromState(FlowExecutionState state) {
+    private void syncFromState(FlowExecutionState state) {
         if (state == null || state.getInstanceId() == null) {
             return;
         }
@@ -229,7 +188,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         Map<String, FlowApprovalTask> latestTasksByKey = new LinkedHashMap<>();
         for (FlowApprovalTask task : existingTasks) {
             String key = keyOf(task.getNodeId(), task.getCycleNumber(), task.getActorId(), task.getTaskType());
-            latestTasksByKey.merge(key, task, this::latestTask);
+            latestTasksByKey.merge(key, task, FlowApprovalTaskServiceImpl::latestTask);
             if (isOpen(task)) {
                 openTasksByKey.putIfAbsent(key, task);
             }
@@ -269,17 +228,17 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         }
     }
 
-    private FlowApprovalTask latestTask(FlowApprovalTask left, FlowApprovalTask right) {
+    private static FlowApprovalTask latestTask(FlowApprovalTask left, FlowApprovalTask right) {
         return Comparator.comparing(FlowApprovalTask::getId,
                         Comparator.nullsLast(Long::compareTo))
                 .compare(left, right) >= 0 ? left : right;
     }
 
-    private boolean isOpen(FlowApprovalTask task) {
+    private static boolean isOpen(FlowApprovalTask task) {
         return task.getEndTime() == null && FlowApprovalTaskStatus.PENDING.equals(task.getStatus());
     }
 
-    private boolean sameState(FlowApprovalTask current, FlowApprovalTask desired) {
+    private static boolean sameState(FlowApprovalTask current, FlowApprovalTask desired) {
         return Objects.equals(current.getStatus(), desired.getStatus())
                 && Objects.equals(current.getTaskType(), desired.getTaskType())
                 && Objects.equals(current.getAction(), desired.getAction())
@@ -290,7 +249,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
                 && Objects.equals(current.getComment(), desired.getComment());
     }
 
-    private void copyMutableFields(FlowApprovalTask target, FlowApprovalTask source) {
+    private static void copyMutableFields(FlowApprovalTask target, FlowApprovalTask source) {
         target.setStatus(source.getStatus());
         target.setTaskType(source.getTaskType());
         target.setAction(source.getAction());
@@ -331,7 +290,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         return history.isEmpty() ? null : history.getLast();
     }
 
-    private FlowApprovalTaskStatus resolveTerminalStatus(FlowApprovalTask task,
+    private static FlowApprovalTaskStatus resolveTerminalStatus(FlowApprovalTask task,
                                                                 FlowExecutionState state,
                                                                 ApprovalActionAuditEntry latestAudit) {
         if (FlowExecutionStatus.WITHDRAWN.equals(state.getStatus())) {
@@ -374,14 +333,21 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         return FlowApprovalTaskStatus.CANCELED;
     }
 
-    private String keyOf(String nodeId,
-                         Integer cycleNumber,
-                         String actorId,
-                         FlowApprovalTaskType taskType) {
+    private static String keyOf(String nodeId,
+                                Integer cycleNumber,
+                                String actorId,
+                                FlowApprovalTaskType taskType) {
         return nodeId + "::" + cycleNumber + "::" + actorId + "::" + taskType;
     }
 
+    /**
+     * Projection sync entry — annotated HERE (the proxy-visible interface method)
+     * rather than on the internal {@code syncFromState}, where a this-call would
+     * bypass Spring's transactional proxy. Callers inside the engine already run
+     * in {@code FlowRuntimeFacade}'s transaction; this joins it (REQUIRED).
+     */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void onStateChanged(FlowExecutionState state) {
         syncFromState(state);
     }

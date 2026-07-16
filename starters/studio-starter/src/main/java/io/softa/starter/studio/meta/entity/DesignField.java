@@ -63,7 +63,7 @@ public class DesignField extends AuditableModel {
     @Field(required = true)
     private String modelName;
 
-    @Field(length = 256)
+    @Field(length = 512)
     private String description;
 
     @Field(required = true)

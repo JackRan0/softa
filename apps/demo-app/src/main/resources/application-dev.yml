@@ -37,6 +37,14 @@ spring:
   data:
     redis:
       root-key: demo_dev
+#      host: non-prod-redis-fxh0ws.serverless.apse1.cache.amazonaws.com
+#      port: 6379
+#      database: 0
+#      username: non-prod-user
+#      password: ba2b-a235e99a03d4ba2b-a235e99a03d4
+#      timeout: 1000
+#      ssl:
+#        enabled: true
       host: localhost
       port: 6379
       database: 0
@@ -63,10 +71,14 @@ spring:
 #          url: jdbc:mysql://localhost:3306/db2
 #          username: admin
 #          password: admin
+    driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/demo?useUnicode=true&characterEncoding=utf-8&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=GMT%2B8
     username: admin
     password: admin
-    driver-class-name: com.mysql.cj.jdbc.Driver
+#    driver-class-name: org.postgresql.Driver
+#    url: jdbc:postgresql://non-prod-pg.cluster-c5c24ag20xb9.ap-southeast-1.rds.amazonaws.com:5432/dev_hcm?currentSchema=public&sslmode=require&ApplicationName=hcm-dev
+#    username: dev_hcm_user
+#    password: StrPwd_2026!
     hikari:
       maximum-pool-size: 30
       minimum-idle: 10
@@ -96,16 +108,19 @@ mq:
 #    cron-task:
 #      topic: dev_demo_cron_task
 #      flow-sub: dev_demo_cron_task_flow_sub
-#    change-log:
-#      topic: dev_demo_change_log
+    change-log:
+      topic: dev_demo_change_log
 #      flow-sub: dev_demo_change_log_flow_sub
-#      persist-sub: dev_demo_change_log_persist_sub
+      persist-sub: dev_demo_change_log_persist_sub
 #    flow-async-task:
 #      topic: dev_demo_flow_async_task
 #      sub: dev_demo_flow_async_task_sub
 #    flow-event:
 #      topic: dev_demo_flow_event
 #      sub: dev_demo_flow_event_sub
+#    flow-timer:
+#      topic: dev_demo_flow_timer
+#      sub: dev_demo_flow_timer_sub
 #    inner-broadcast:
 #      topic: dev_demo_inner_broadcast
 #      sub: dev_demo_inner_broadcast_sub
@@ -124,7 +139,149 @@ rpc:
   access-key: 123456
   secret-key: 123456
   services:
-    fast-dfs:
-      api-url: http://localhost:8888
+    # Key = the target app's appCode (its system.app-code). SwitchServiceAspect
+    # resolves rpc.services.<ownerAppCode> to route a model op to its owning app.
+    mini-app:
+      api-url: http://localhost:81/api/mini
       api-key: 123456
       api-secret: 123456
+
+# Resilience4j policies for outbound HTTP clients built via
+# io.softa.framework.web.rpc.resilience.ResilientRestClientBuilder.
+# Each `instances.<name>` entry corresponds to a call site that passes the same
+# name to `builder.name(...)`. Missing instances fall back to registry defaults.
+resilience4j:
+  retry:
+    instances:
+      # Studio -> runtime metadata upgrade / export (studio-starter)
+      studio-remote:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        exponential-max-wait-duration: 5s
+        retry-exceptions:
+          - io.softa.framework.web.resilience.TransientHttpException
+          - java.io.IOException
+      # Runtime -> studio async upgrade completion webhook (metadata-starter)
+      metadata-callback:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        exponential-max-wait-duration: 5s
+        retry-exceptions:
+          - io.softa.framework.web.resilience.TransientHttpException
+          - java.io.IOException
+      # Internal model RPC (softa-web/rpc/RPCClientImpl)
+      softa-rpc:
+        max-attempts: 3
+        wait-duration: 300ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        exponential-max-wait-duration: 3s
+        retry-exceptions:
+          - io.softa.framework.web.resilience.TransientHttpException
+          - java.io.IOException
+      # OAuth2 token / userinfo calls (user-starter)
+      user-oauth:
+        max-attempts: 2
+        wait-duration: 500ms
+        retry-exceptions:
+          - io.softa.framework.web.resilience.TransientHttpException
+          - java.io.IOException
+      # SMS provider APIs (message-starter)
+      sms-provider:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        exponential-max-wait-duration: 4s
+        retry-exceptions:
+          - io.softa.framework.web.resilience.TransientHttpException
+          - java.io.IOException
+      # Flow webhook task (flow-starter)
+      flow-webhook:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        exponential-max-wait-duration: 5s
+        retry-exceptions:
+          - io.softa.framework.web.resilience.TransientHttpException
+          - java.io.IOException
+  circuitbreaker:
+    instances:
+      studio-remote:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      metadata-callback:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      softa-rpc:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 15s
+      user-oauth:
+        sliding-window-size: 10
+        failure-rate-threshold: 60
+        wait-duration-in-open-state: 20s
+      sms-provider:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+      flow-webhook:
+        sliding-window-size: 10
+        failure-rate-threshold: 60
+        wait-duration-in-open-state: 30s
+
+# ---- message-starter: incoming mail resource limits ----
+# All five limits below are *defense-in-depth* gates applied to every email
+# pulled from IMAP/POP3. Defaults (shown as comments) are tuned for typical
+# business mail; raise/lower per environment risk profile. Hits land on
+# MailReceiveRecord.truncationReason for SecOps triage.
+#softa:
+#  message:
+#    mail:
+#      fetch:
+#        # Total RFC822 cap. Server-reported size, sender cannot forge.
+#        # Above limit → envelope-only record, BodyTooLarge.
+#        max-message-size: 100MB
+#        # Per-attachment cap. Above limit → that attachment skipped,
+#        # AttachmentTooLarge marker set.
+#        max-attachment-size: 20MB
+#        # Archive raw EML to file-starter. Default false; opt in for
+#        # compliance/audit. Already bounded by max-message-size.
+#        archive-eml: false
+#        # MIME nesting depth. Real emails ≤6; >10 is suspicious.
+#        max-mime-depth: 10
+#        # MIME total part count. Real emails ≤30; >100 is suspicious.
+#        max-mime-parts: 100
+#      transport:
+#        # SMTP / IMAP / POP3 socket timeouts. Applied per-Session by
+#        # SmtpMailTransport + MailReceiveServiceImpl. Tune down for fast
+#        # providers (Gmail, Outlook) to fail faster.
+#        connection-timeout: 5s
+#        read-timeout: 30s
+#    sms:
+#      transport:
+#        # HTTPS REST timeouts for all SMS provider adapters via smsRestClient.
+#        # Resilience4j (sms-provider) wraps these with retry / CB.
+#        connection-timeout: 5s
+#        read-timeout: 30s
+
+# Expose /actuator/retries and /actuator/circuitbreakers for ops visibility.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, retries, circuitbreakers, circuitbreakerevents, retryevents
+  endpoint:
+    circuitbreakers:
+      access: read_only
+    retries:
+      access: read_only

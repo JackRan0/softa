@@ -100,7 +100,7 @@ Common attributes — omit any that equals the default:
 | `label` | humanized class name (`DeptInfo` → "Dept Info") | display name |
 | `businessKey` | `{}` | natural key field(s), e.g. `{"code"}`. Does **not** by itself create a UNIQUE index — add `@Index(... unique = true)` for that |
 | `tableName` | `snake_case(modelName)` | DB table name |
-| `description` | `""` | shown in UI |
+| `description` | `""` | shown in UI; **≤512 chars** (parse-time enforced) — concise user-facing summary, design notes go in Javadoc |
 | `softDelete` | `false` | logical delete instead of physical |
 | `multiTenant` | `false` | adds a `tenant_id` scope to the table |
 | `idStrategy` | `DB_AUTO_ID` | use `DISTRIBUTED_LONG` for CosID distributed IDs; `EXTERNAL_ID` for code-as-id masters |
@@ -116,7 +116,7 @@ Annotate **every declared field**. Most-used attributes:
 | Attribute | Default | What it does |
 |---|---|---|
 | `label` | humanized field name (`deptId` → "Dept Id") | display name |
-| `description` | `""` | shown in UI |
+| `description` | `""` | shown in UI; **≤512 chars** (parse-time enforced) — concise user-facing summary, design notes go in Javadoc |
 | `fieldType` | inferred from the Java type (see §3) | override only when the Java type is ambiguous |
 | `length` | type default (`String` → 64, see §3) | column width; declare only to override |
 | `required` | `false` (primitives auto-`true`) | NOT NULL |

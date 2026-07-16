@@ -75,7 +75,7 @@ public class UpdateDataTaskExecutor extends AbstractTaskExecutor {
 
     @Override
     public String getIcon() {
-        return "edit";
+        return "square-pen";
     }
 
     @Override

@@ -59,8 +59,8 @@ public class FlowBundleController {
         return bundleService.findById(bundleId)
                 .map(entity -> toDetail(entity, "design".equalsIgnoreCase(include)))
                 .map(ApiResponse::success)
-                .orElseGet(() -> new ApiResponse<>(ResponseCode.REQUEST_NOT_FOUND.getCode(),
-                        "Flow bundle not found: " + bundleId, null));
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow bundle not found: " + bundleId));
     }
 
     @PostMapping("/{bundleId}/activate")
@@ -71,8 +71,8 @@ public class FlowBundleController {
         return publishService.activateBundle(bundleId)
                 .map(FlowBundleViews::summarize)
                 .map(ApiResponse::success)
-                .orElseGet(() -> new ApiResponse<>(ResponseCode.REQUEST_NOT_FOUND.getCode(),
-                        "Flow bundle not found: " + bundleId, null));
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow bundle not found: " + bundleId));
     }
 
     private static FlowBundleDetailView toDetail(FlowBundle entity, boolean includeDesign) {

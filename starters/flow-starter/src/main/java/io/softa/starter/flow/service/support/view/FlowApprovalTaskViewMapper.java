@@ -44,6 +44,8 @@ public final class FlowApprovalTaskViewMapper {
                 .closedByActorId(task.getClosedByActorId())
                 .blocked(task.getBlocked())
                 .blockedByActorId(task.getBlockedByActorId())
+                .dueTime(task.getDueTime())
+                .urgency(task.getUrgency())
                 .build();
     }
 

@@ -109,7 +109,7 @@ public class DesignModel extends AuditableModel {
     @Field
     private String partitionField;
 
-    @Field(length = 256)
+    @Field(length = 512)
     private String description;
 
     // Studio is id-based (rename-stable): the FK column modelId stores the parent DesignModel's id,

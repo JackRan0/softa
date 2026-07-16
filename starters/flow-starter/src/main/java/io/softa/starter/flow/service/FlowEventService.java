@@ -1,6 +1,6 @@
 package io.softa.starter.flow.service;
 
-import java.util.List;
+import java.util.Optional;
 
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Page;
@@ -26,28 +26,15 @@ public interface FlowEventService {
     }
 
     /**
-     * List events by flow code, ordered by eventTime descending.
-     *
-     * @param flowCode the flow code
-     * @return list of events
+     * Single event by id — the detail read that carries the trigger-parameters
+     * payload the list rows exclude.
+     * <p>
+     * Dimension-specific list finders were removed: {@link #searchEvents} with
+     * {@code Filters} covers flowCode / source / instanceId / time-range lookups
+     * (REST: {@code GET /flow/events}).
      */
-    List<FlowEvent> listByFlowCode(String flowCode);
-
-    /**
-     * List events by source model and row id.
-     *
-     * @param sourceModel the source model
-     * @param sourceRowId the source row id
-     * @return list of events
-     */
-    List<FlowEvent> listBySource(String sourceModel, String sourceRowId);
-
-    /**
-     * List events by instance id.
-     *
-     * @param instanceId the runtime instance id
-     * @return list of events
-     */
-    List<FlowEvent> listByInstanceId(String instanceId);
+    default Optional<FlowEvent> findEventById(Long id) {
+        return Optional.empty();
+    }
 }
 

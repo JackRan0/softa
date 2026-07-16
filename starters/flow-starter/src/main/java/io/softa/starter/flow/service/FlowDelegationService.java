@@ -16,10 +16,6 @@ public interface FlowDelegationService {
      */
     FlowDelegation createDelegation(FlowDelegation delegation);
 
-    /**
-     * Find active delegations for a delegator at the given point in time.
-     */
-    List<FlowDelegation> findActiveDelegations(String delegatorId, LocalDateTime now);
 
     /**
      * Find the best matching active delegation for a delegator, considering scope (ALL, flow-code, node-id).

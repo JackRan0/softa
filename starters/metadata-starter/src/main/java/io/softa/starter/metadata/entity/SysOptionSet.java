@@ -44,7 +44,7 @@ public class SysOptionSet extends AuditableModel {
     @Field
     private String renamedFrom;
 
-    @Field(length = 256)
+    @Field(length = 512)
     private String description;
 
     @Field

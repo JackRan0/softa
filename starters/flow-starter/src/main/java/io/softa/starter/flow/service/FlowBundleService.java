@@ -21,8 +21,6 @@ public interface FlowBundleService {
 
     Optional<FlowBundle> findActiveByDesignId(Long designId);
 
-    Optional<FlowBundle> findByDesignIdAndRevision(Long designId, Integer revision);
-
     List<FlowBundle> listRevisionsByDesignId(Long designId);
 
     /** Return all currently active bundles (one per design); used for cache warm-up. */

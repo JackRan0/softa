@@ -33,6 +33,6 @@ public class DesignOptionSetTrans extends AuditableModel {
     @Field
     private String label;
 
-    @Field(length = 256)
+    @Field(length = 512)
     private String description;
 }

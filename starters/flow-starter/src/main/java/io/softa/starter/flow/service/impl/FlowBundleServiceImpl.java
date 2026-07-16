@@ -45,8 +45,8 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
         return this.searchOne(filters);
     }
 
-    @Override
-    public Optional<FlowBundle> findByDesignIdAndRevision(Long designId, Integer revision) {
+    /** Revision-addressed lookup — internal backbone of {@code markAsActive}. */
+    private Optional<FlowBundle> findByDesignIdAndRevision(Long designId, Integer revision) {
         Filters filters = new Filters()
                 .eq(FlowBundle::getDesignId, designId)
                 .eq(FlowBundle::getRevision, revision);
@@ -98,7 +98,14 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
         });
     }
 
+    /**
+     * Transactional on the proxy-visible entry: the internal this-call to
+     * {@code markAsActive} bypasses Spring's proxy, so its own annotation does
+     * not apply on this path — and the deactivate+activate writes must be atomic
+     * (a partial failure would leave the design with no active revision).
+     */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public Optional<FlowBundle> activateBundle(Long bundleId) {
         Optional<FlowBundle> target = findById(bundleId);
         if (target.isEmpty()) {

@@ -2,9 +2,14 @@ package io.softa.starter.flow.service.support;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.PermissionInfo;
+import io.softa.framework.base.enums.SystemRole;
 import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.entity.FlowInstance;
@@ -154,5 +159,59 @@ class FlowInstanceAccessGuardTest {
         when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("initiator")));
 
         assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer(state, "outsider"));
+    }
+
+    // ---- monitor-admin bypass ----
+
+    private static Context contextWithRoles(Set<String> roleCodes) {
+        Context ctx = new Context();
+        PermissionInfo permissionInfo = new PermissionInfo();
+        permissionInfo.setRoleCodes(roleCodes);
+        ctx.setPermissionInfo(permissionInfo);
+        return ctx;
+    }
+
+    @Test
+    void monitorAdminBypassesParticipantScoping() {
+        Context ctx = contextWithRoles(Set.of(SystemRole.SYSTEM_ROLE_ADMIN.getCode()));
+        ContextHolder.runWith(ctx, () ->
+                assertDoesNotThrow(() -> guard.requireInstanceViewer("i1", "adminUser", false)));
+    }
+
+    @Test
+    void monitorAdminBypassesStateScoping() {
+        FlowExecutionState state = FlowExecutionState.builder()
+                .instanceId("i1")
+                .initiatorId("someoneElse")
+                .build();
+        Context ctx = contextWithRoles(Set.of(SystemRole.SYSTEM_ROLE_ADMIN.getCode()));
+        ContextHolder.runWith(ctx, () ->
+                assertDoesNotThrow(() -> guard.requireInstanceViewer(state, "adminUser")));
+    }
+
+    @Test
+    void nonAdminRoleIsStillDenied() {
+        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("someoneElse")));
+        Context ctx = contextWithRoles(Set.of("SomeOtherRole"));
+        ContextHolder.runWith(ctx, () ->
+                assertThrows(FlowAuthorizationException.class,
+                        () -> guard.requireInstanceViewer("i1", "u1", false)));
+    }
+
+    @Test
+    void absentRoleProviderFailsClosed() {
+        // A bound context without permission info — e.g. no role provider wired by the host app.
+        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("someoneElse")));
+        ContextHolder.runWith(new Context(), () ->
+                assertThrows(FlowAuthorizationException.class,
+                        () -> guard.requireInstanceViewer("i1", "u1", false)));
+    }
+
+    @Test
+    void adminRoleDoesNotBypassAuthentication() {
+        Context ctx = contextWithRoles(Set.of(SystemRole.SYSTEM_ROLE_ADMIN.getCode()));
+        ContextHolder.runWith(ctx, () ->
+                assertThrows(FlowAuthorizationException.class,
+                        () -> guard.requireInstanceViewer("i1", "", false)));
     }
 }

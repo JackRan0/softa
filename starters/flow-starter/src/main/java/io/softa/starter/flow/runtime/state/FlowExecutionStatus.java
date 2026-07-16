@@ -4,11 +4,18 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
+import io.softa.framework.base.annotation.OptionSet;
+
 /**
  * Runtime status of a flow execution instance.
+ * <p>
+ * Carries {@code @OptionSet} so the metadata scanner materializes the statuses
+ * into {@code sys_option_set} — the monitoring UI renders {@code FlowInstance.status}
+ * as a proper Option column (badge + header filter) via the generic metadata surface.
  */
 @Getter
 @AllArgsConstructor
+@OptionSet
 public enum FlowExecutionStatus {
     /** Instance created but not yet started (async-launch scenario). */
     PENDING("Pending"),

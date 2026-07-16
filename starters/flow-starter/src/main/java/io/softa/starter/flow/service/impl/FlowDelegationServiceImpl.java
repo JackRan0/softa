@@ -27,8 +27,8 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
         return delegation;
     }
 
-    @Override
-    public List<FlowDelegation> findActiveDelegations(String delegatorId, LocalDateTime now) {
+    /** Active rules for one delegator at {@code now} — feeds the scope-aware single lookup below. */
+    private List<FlowDelegation> findActiveDelegations(String delegatorId, LocalDateTime now) {
         Filters filters = new Filters()
                 .eq(FlowDelegation::getDelegatorId, delegatorId)
                 .eq(FlowDelegation::getActive, true);

@@ -4,24 +4,23 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.*;
 import org.apache.commons.lang3.StringUtils;
+import org.jspecify.annotations.Nullable;
 
 import io.softa.framework.base.annotation.OptionItem;
 import io.softa.framework.base.annotation.OptionSet;
-import io.softa.framework.base.enums.OptionItemIcon;
-import io.softa.framework.base.enums.OptionItemTone;
 import io.softa.framework.base.utils.StringTools;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Orders;
-import io.softa.framework.orm.enums.*;
-import io.softa.starter.metadata.scanner.annotation.inference.JsonValueResolver;
-import io.softa.starter.metadata.scanner.annotation.inference.ReflectionTypes;
-import io.softa.starter.metadata.scanner.annotation.inference.TypeInference;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.starter.metadata.ddl.SqlReservedWords;
 import io.softa.starter.metadata.ddl.spi.BuiltinDdlMetadataResolver;
 import io.softa.starter.metadata.ddl.spi.FieldDdlDefault;
 import io.softa.starter.metadata.entity.*;
+import io.softa.starter.metadata.scanner.annotation.inference.JsonValueResolver;
+import io.softa.starter.metadata.scanner.annotation.inference.ReflectionTypes;
+import io.softa.starter.metadata.scanner.annotation.inference.TypeInference;
 
 /**
  * Parses {@code @Model} / {@code @Field} / {@code @OptionSet} / {@code @OptionItem}
@@ -60,6 +59,31 @@ public final class AnnotationParser {
     private static final int STRING_ID_LENGTH = 24;
 
     /**
+     * Max characters for a {@code description} on {@code @Model} / {@code @Field} /
+     * {@code @OptionSet} / {@code @OptionItem}, read off {@code SysField.description}'s
+     * own {@code @Field(length)} — the width every sys_* / design_* catalog table
+     * (and their *Trans twins) declares for its description column.
+     */
+    private static final int DESCRIPTION_MAX_LENGTH = fieldLength(SysField.class, "description");
+
+    /** Max lengths for the {@code @Index}-derived {@code sys_model_index} columns. */
+    private static final int INDEX_NAME_MAX = fieldLength(SysModelIndex.class, "indexName");
+    private static final int MESSAGE_MAX = fieldLength(SysModelIndex.class, "message");
+
+    /**
+     * A catalog entity's declared column width, read reflectively from its own
+     * {@code @Field.length()} so a later widening cannot orphan a stale literal
+     * here (single source of truth).
+     */
+    private static int fieldLength(Class<?> entity, String fieldName) {
+        try {
+            return ormField(entity.getDeclaredField(fieldName)).length();
+        } catch (NoSuchFieldException e) {
+            throw new IllegalStateException(entity.getSimpleName() + "." + fieldName + " not found", e);
+        }
+    }
+
+    /**
      * Parse the supplied classes and enums into Sys* entities.
      *
      * @param modelClasses    classes annotated with {@link Model}
@@ -76,11 +100,7 @@ public final class AnnotationParser {
         List<SysOptionItem> optionItems = new ArrayList<>();
         List<SysModelIndex> modelIndexes = new ArrayList<>();
 
-        // modelName / optionSetCode are the catalog business keys, derived from the
-        // SIMPLE class name — two same-named classes in different packages would
-        // silently merge into one key downstream (diff maps are keyed, last wins).
-        // That collapse happens before anything is written, so no later layer can
-        // detect it; fail here, naming both declarations.
+        // catalog business keys — uniqueness enforced by guardUniqueSimpleName
         Map<String, Class<?>> byModelName = new LinkedHashMap<>();
         Map<String, Class<?>> byOptionSetCode = new LinkedHashMap<>();
 
@@ -90,13 +110,7 @@ public final class AnnotationParser {
                 throw new IllegalArgumentException(
                         "Class " + clazz.getName() + " is not annotated with @Model");
             }
-            Class<?> prev = byModelName.putIfAbsent(clazz.getSimpleName(), clazz);
-            if (prev != null) {
-                throw new IllegalStateException("Duplicate modelName '" + clazz.getSimpleName()
-                        + "': " + prev.getName() + " and " + clazz.getName()
-                        + " — modelName is the catalog business key and must be globally unique;"
-                        + " rename one class.");
-            }
+            guardUniqueSimpleName(byModelName, clazz, "modelName");
             SysModel sysModel = parseModel(clazz, model);
             models.add(sysModel);
             List<SysField> classFields = parseFields(clazz);
@@ -115,19 +129,30 @@ public final class AnnotationParser {
                 throw new IllegalArgumentException(
                         "Enum " + enumClass.getName() + " is not annotated with @OptionSet");
             }
-            Class<?> prev = byOptionSetCode.putIfAbsent(enumClass.getSimpleName(), enumClass);
-            if (prev != null) {
-                throw new IllegalStateException("Duplicate optionSetCode '" + enumClass.getSimpleName()
-                        + "': " + prev.getName() + " and " + enumClass.getName()
-                        + " — optionSetCode is the catalog business key and must be globally unique;"
-                        + " rename one enum.");
-            }
+            guardUniqueSimpleName(byOptionSetCode, enumClass, "optionSetCode");
             optionSets.add(parseOptionSet(enumClass, optionSet));
             optionItems.addAll(parseOptionItems(enumClass));
         }
 
         RenameDeclarations renames = collectRenames(modelClasses);
         return new AnnotationScanResult(models, fields, optionSets, optionItems, modelIndexes, renames);
+    }
+
+    /**
+     * Guard the catalog business key (the SIMPLE class name): two same-named classes
+     * in different packages would silently merge into one key downstream (diff maps
+     * are keyed, last wins), before anything is written and beyond later detection —
+     * fail here, naming both declarations.
+     */
+    private static void guardUniqueSimpleName(
+            Map<String, Class<?>> byKey, Class<?> clazz, String keyKind) {
+        Class<?> prev = byKey.putIfAbsent(clazz.getSimpleName(), clazz);
+        if (prev != null) {
+            throw new IllegalStateException("Duplicate " + keyKind + " '" + clazz.getSimpleName()
+                    + "': " + prev.getName() + " and " + clazz.getName()
+                    + " — " + keyKind + " is the catalog business key and must be globally unique;"
+                    + " rename one " + (clazz.isEnum() ? "enum" : "class") + ".");
+        }
     }
 
     // ------------------------------------------------------------ renamedFrom
@@ -158,16 +183,7 @@ public final class AnnotationParser {
             if (old == null) {
                 continue;
             }
-            if (currentModelNames.contains(old)) {
-                throw new IllegalStateException("renamedFrom on model " + modelName
-                        + " lists prior name '" + old + "', which is still a live model — a rename"
-                        + " cannot claim a name that still exists.");
-            }
-            String prev = oldModelClaimedBy.putIfAbsent(old, modelName);
-            if (prev != null) {
-                throw new IllegalStateException("Models " + prev + " and " + modelName
-                        + " both declare renamedFrom=\"" + old + "\"; a prior name can be claimed once.");
-            }
+            claimRename("model", modelName, old, currentModelNames, oldModelClaimedBy);
             modelOldNames.put(modelName, old);
         }
 
@@ -177,27 +193,36 @@ public final class AnnotationParser {
             Set<String> currentFieldNames = metadataFieldNames(clazz);
             Map<String, String> oldFieldClaimedBy = new HashMap<>();
             for (Field jf : metadataFields(clazz)) {
-                io.softa.framework.orm.annotation.Field fieldAnno =
-                        jf.getAnnotation(io.softa.framework.orm.annotation.Field.class);
-                String old = renamedFromOf(fieldAnno.renamedFrom());
+                String old = renamedFromOf(ormField(jf).renamedFrom());
                 if (old == null) {
                     continue;
                 }
-                if (currentFieldNames.contains(old)) {
-                    throw new IllegalStateException("renamedFrom on field " + modelName + "."
-                            + jf.getName() + " lists prior name '" + old + "', which is still a live"
-                            + " field on " + modelName + ".");
-                }
-                String prev = oldFieldClaimedBy.putIfAbsent(old, jf.getName());
-                if (prev != null) {
-                    throw new IllegalStateException("Fields " + modelName + "." + prev + " and "
-                            + modelName + "." + jf.getName() + " both declare renamedFrom=\"" + old
-                            + "\"; a prior name can be claimed once.");
-                }
-                fieldOldNames.put(modelName + "." + jf.getName(), old);
+                String owner = modelName + "." + jf.getName();
+                claimRename("field", owner, old, currentFieldNames, oldFieldClaimedBy);
+                fieldOldNames.put(owner, old);
             }
         }
         return new RenameDeclarations(modelOldNames, fieldOldNames);
+    }
+
+    /**
+     * Register a single-step rename claim: the prior name must not still be live,
+     * and no two owners may claim one prior name — either would silently collapse
+     * business keys in the diff.
+     */
+    private static void claimRename(
+            String what, String owner, String old,
+            Set<String> liveNames, Map<String, String> claimedBy) {
+        if (liveNames.contains(old)) {
+            throw new IllegalStateException("renamedFrom on " + what + " " + owner
+                    + " lists prior name '" + old + "', which is still a live " + what
+                    + " — a rename cannot claim a name that still exists.");
+        }
+        String prev = claimedBy.putIfAbsent(old, owner);
+        if (prev != null) {
+            throw new IllegalStateException(StringUtils.capitalize(what) + "s " + prev + " and " + owner
+                    + " both declare renamedFrom=\"" + old + "\"; a prior name can be claimed once.");
+        }
     }
 
     /** The set of {@code @Field}-annotated field names on a model (chain-walked, leaf-wins). */
@@ -229,7 +254,7 @@ public final class AnnotationParser {
                 if (!seen.add(jf.getName())) {
                     continue; // shadowed by a subclass declaration (leaf wins)
                 }
-                if (jf.getAnnotation(io.softa.framework.orm.annotation.Field.class) != null) {
+                if (ormField(jf) != null) {
                     out.add(jf);
                 }
             }
@@ -252,16 +277,14 @@ public final class AnnotationParser {
 
         SysModel m = new SysModel();
         m.setModelName(modelName);
-        m.setLabel(StringUtils.isBlank(anno.label())
-                ? StringTools.humanize(modelName)
-                : anno.label());
+        m.setLabel(labelOf(anno.label(), modelName));
         m.setTableName(StringUtils.isBlank(anno.tableName())
                 ? StringTools.toUnderscoreCase(modelName)
                 : anno.tableName());
         validateSqlIdentifier("Table name", m.getTableName(), "of model " + modelName,
                 "Declare a different @Model(tableName = ...), e.g. \"biz_"
                         + m.getTableName() + "\".");
-        m.setDescription(blankToNull(anno.description()));
+        m.setDescription(checkedDescription(anno.description(), "model " + modelName));
         m.setDisplayName(toList(anno.displayName()));
         m.setSearchName(toList(anno.searchName()));
         // @Model.defaultOrder() is String[] e.g. {"createdTime:desc"}.
@@ -307,9 +330,7 @@ public final class AnnotationParser {
             if (ModelConstant.ID.equals(javaField.getName())) {
                 continue;
             }
-            io.softa.framework.orm.annotation.Field anno =
-                    javaField.getAnnotation(io.softa.framework.orm.annotation.Field.class);
-            out.add(parseField(modelName, javaField, anno));
+            out.add(parseField(modelName, javaField, ormField(javaField)));
         }
         return out;
     }
@@ -326,15 +347,7 @@ public final class AnnotationParser {
      */
     private SysField buildIdField(Class<?> clazz, String modelName) {
         Field idJavaField = findDeclaredField(clazz, ModelConstant.ID);
-        io.softa.framework.orm.annotation.Field anno =
-                idJavaField != null
-                        ? idJavaField.getAnnotation(io.softa.framework.orm.annotation.Field.class)
-                        : null;
-        if (anno != null && anno.fieldType().length > 0) {
-            throw new IllegalStateException(
-                    "@Field(fieldType = ...) is not allowed on the id of " + modelName
-                            + "; the primary-key type is inferred from the Java field type.");
-        }
+        io.softa.framework.orm.annotation.Field anno = validatedIdFieldAnnotation(modelName, idJavaField);
 
         FieldType type = FieldType.LONG;
         if (idJavaField != null) {
@@ -342,7 +355,6 @@ public final class AnnotationParser {
                 type = TypeInference.infer(idJavaField.getType(), null).fieldType();
             } catch (RuntimeException e) {
                 // Unusual id types (e.g. Serializable) fall back to a Long PK.
-                type = FieldType.LONG;
             }
         }
 
@@ -353,8 +365,7 @@ public final class AnnotationParser {
         f.setFieldType(type);
         f.setRequired(true);
         if (anno != null) {
-            f.setLabel(blankToNull(anno.label()));
-            f.setDescription(blankToNull(anno.description()));
+            f.setDescription(checkedDescription(anno.description(), "field " + modelName + ".id"));
             if (anno.length() > 0) {
                 f.setLength(anno.length());
             }
@@ -362,10 +373,25 @@ public final class AnnotationParser {
         if (f.getLength() == null && type == FieldType.STRING) {
             f.setLength(STRING_ID_LENGTH);
         }
-        if (f.getLabel() == null) {
-            f.setLabel(StringTools.humanize(ModelConstant.ID));
-        }
+        f.setLabel(labelOf(anno != null ? anno.label() : "", ModelConstant.ID));
         return f;
+    }
+
+    /**
+     * The {@code @Field} annotation on the {@code id} field ({@code null} when absent),
+     * validated: {@code @Field(fieldType = ...)} on the id is rejected — the PK type
+     * must follow the Java field type.
+     */
+    private static io.softa.framework.orm.annotation.@Nullable Field validatedIdFieldAnnotation(
+            String modelName, Field idJavaField) {
+        io.softa.framework.orm.annotation.Field anno =
+                idJavaField != null ? ormField(idJavaField) : null;
+        if (anno != null && anno.fieldType().length > 0) {
+            throw new IllegalStateException(
+                    "@Field(fieldType = ...) is not allowed on the id of " + modelName
+                            + "; the primary-key type is inferred from the Java field type.");
+        }
+        return anno;
     }
 
     /** Find a declared field by name, walking up the superclass chain. */
@@ -388,16 +414,15 @@ public final class AnnotationParser {
         SysField f = new SysField();
         f.setModelName(modelName);
         f.setFieldName(javaField.getName());
-        f.setLabel(StringUtils.isBlank(anno.label())
-                ? StringTools.humanize(javaField.getName())
-                : anno.label());
+        f.setLabel(labelOf(anno.label(), javaField.getName()));
         f.setColumnName(StringUtils.isBlank(anno.columnName())
                 ? StringTools.toUnderscoreCase(javaField.getName())
                 : anno.columnName());
         validateSqlIdentifier("Column name", f.getColumnName(),
                 "of field " + modelName + "." + javaField.getName(),
                 "Rename the field or declare a different @Field(columnName = ...).");
-        f.setDescription(blankToNull(anno.description()));
+        f.setDescription(checkedDescription(anno.description(),
+                "field " + modelName + "." + javaField.getName()));
 
         // Resolve fieldType + optionSetCode + relatedModel
         TypeInference.FieldTypeResolution resolved = resolveFieldType(modelName, javaField, anno);
@@ -454,20 +479,11 @@ public final class AnnotationParser {
         f.setDynamic(anno.dynamic());
         f.setEncrypted(anno.encrypted());
 
-        MaskingType[] maskings = anno.maskingType();
-        if (maskings.length > 0) {
-            f.setMaskingType(maskings[0]);
-        }
-
-        WidgetType[] widgets = anno.widgetType();
-        if (widgets.length > 0) {
-            f.setWidgetType(widgets[0]);
-        }
-
+        f.setMaskingType(firstOrNull(anno.maskingType()));
+        f.setWidgetType(firstOrNull(anno.widgetType()));
         // onDelete: only for TO_ONE relations + explicit declaration (empty array = KEEP).
-        OnDelete[] onDeletes = anno.onDelete();
-        if (onDeletes.length > 0 && FieldType.TO_ONE_TYPES.contains(resolved.fieldType())) {
-            f.setOnDelete(onDeletes[0]);
+        if (FieldType.TO_ONE_TYPES.contains(resolved.fieldType())) {
+            f.setOnDelete(firstOrNull(anno.onDelete()));
         }
 
         return f;
@@ -589,10 +605,9 @@ public final class AnnotationParser {
     private SysOptionSet parseOptionSet(Class<?> enumClass, OptionSet anno) {
         SysOptionSet os = new SysOptionSet();
         os.setOptionSetCode(enumClass.getSimpleName());
-        os.setLabel(StringUtils.isBlank(anno.label())
-                ? StringTools.humanize(enumClass.getSimpleName())
-                : anno.label());
-        os.setDescription(blankToNull(anno.description()));
+        os.setLabel(labelOf(anno.label(), enumClass.getSimpleName()));
+        os.setDescription(checkedDescription(anno.description(),
+                "option set " + enumClass.getSimpleName()));
         return os;
     }
 
@@ -647,25 +662,14 @@ public final class AnnotationParser {
         SysOptionItem item = new SysOptionItem();
         item.setOptionSetCode(optionSetCode);
         item.setItemCode(itemCode);
-
+        item.setLabel(labelOf(anno != null ? anno.label() : "", constant.name()));
+        item.setSequence(anno != null && anno.sequence() >= 0 ? anno.sequence() : ordinal + 1);
         if (anno != null) {
-            item.setLabel(StringUtils.isBlank(anno.label())
-                    ? StringTools.humanize(constant.name())
-                    : anno.label());
-            item.setDescription(blankToNull(anno.description()));
-            item.setSequence(anno.sequence() >= 0 ? anno.sequence() : ordinal + 1);
+            item.setDescription(checkedDescription(anno.description(),
+                    "option item " + optionSetCode + "." + itemCode));
             item.setParentItemCode(blankToNull(anno.parentItemCode()));
-            OptionItemTone[] tones = anno.itemTone();
-            if (tones.length > 0) {
-                item.setItemTone(tones[0]);
-            }
-            OptionItemIcon[] icons = anno.itemIcon();
-            if (icons.length > 0) {
-                item.setItemIcon(icons[0]);
-            }
-        } else {
-            item.setLabel(StringTools.humanize(constant.name()));
-            item.setSequence(ordinal + 1);
+            item.setItemTone(firstOrNull(anno.itemTone()));
+            item.setItemIcon(firstOrNull(anno.itemIcon()));
         }
         return item;
     }
@@ -701,12 +705,11 @@ public final class AnnotationParser {
             return List.of();
         }
         String modelName = clazz.getSimpleName();
-        // Build a fieldName → parsed-field lookup for column resolution + validation
+        // fieldName → parsed-field lookup for column resolution + validation
+        // (parsedFields is this class's own parseFields output)
         Map<String, SysField> fieldsByName = new LinkedHashMap<>();
         for (SysField f : parsedFields) {
-            if (modelName.equals(f.getModelName())) {
-                fieldsByName.put(f.getFieldName(), f);
-            }
+            fieldsByName.put(f.getFieldName(), f);
         }
 
         // indexName keys the sys_model_index row within the model — two @Index
@@ -791,38 +794,6 @@ public final class AnnotationParser {
     }
 
     /**
-     * Max lengths for the {@code @Index}-derived {@code sys_model_index} columns, read
-     * reflectively from the entity's own {@code @Field.length()} so a later column widening
-     * cannot orphan a stale literal here (single source of truth).
-     */
-    private static final int INDEX_NAME_MAX = fieldLength("indexName");
-    private static final int MESSAGE_MAX = fieldLength("message");
-
-    private static int fieldLength(String fieldName) {
-        try {
-            return SysModelIndex.class
-                    .getDeclaredField(fieldName)
-                    .getAnnotation(io.softa.framework.orm.annotation.Field.class)
-                    .length();
-        } catch (NoSuchFieldException e) {
-            throw new IllegalStateException("SysModelIndex." + fieldName + " not found", e);
-        }
-    }
-
-    private static void validateSqlIdentifier(
-            String label, String identifier, String owner, String action) {
-        if (!StringTools.isTableOrColumn(identifier)) {
-            throw new IllegalStateException(label + " '" + identifier + "' " + owner
-                    + " is not a valid SQL identifier (identifiers render unquoted); "
-                    + "it must satisfy StringTools.isTableOrColumn. " + action);
-        }
-        if (SqlReservedWords.isReserved(identifier)) {
-            throw new IllegalStateException(label + " '" + identifier + "' " + owner
-                    + " is a reserved SQL keyword (identifiers render unquoted); " + action);
-        }
-    }
-
-    /**
      * {@code uk_<table>_<col1>_<col2>...} or {@code idx_<table>_<col1>_<col2>...}. Not
      * truncated: an over-length derived name is rejected by the caller so the developer
      * supplies a shorter explicit {@code indexName} (silent truncation could collide).
@@ -848,9 +819,7 @@ public final class AnnotationParser {
         String modelName = clazz.getSimpleName();
         Set<String> fieldNames = new HashSet<>();
         for (SysField f : classFields) {
-            if (modelName.equals(f.getModelName())) {
-                fieldNames.add(f.getFieldName());
-            }
+            fieldNames.add(f.getFieldName());
         }
         checkFieldRefs(modelName, "displayName", anno.displayName(), fieldNames);
         checkFieldRefs(modelName, "searchName", anno.searchName(), fieldNames);
@@ -878,8 +847,58 @@ public final class AnnotationParser {
 
     // -------------------------------------------------------------- helpers
 
+    /** The ORM {@code @Field} annotation of a Java field ({@code null} when absent). */
+    private static io.softa.framework.orm.annotation.@Nullable Field ormField(Field javaField) {
+        return javaField.getAnnotation(io.softa.framework.orm.annotation.Field.class);
+    }
+
+    /**
+     * First element or {@code null}. Annotation attributes use {@code T[]} as
+     * "optional": an annotation cannot declare a {@code null} default, so an
+     * empty array means "unset".
+     */
+    private static <T> T firstOrNull(T[] arr) {
+        return arr.length > 0 ? arr[0] : null;
+    }
+
+    /** The declared label, or {@code humanize(fallbackName)} when blank — the label convention. */
+    private static String labelOf(String declared, String fallbackName) {
+        return StringUtils.isBlank(declared) ? StringTools.humanize(fallbackName) : declared;
+    }
+
+    private static void validateSqlIdentifier(
+            String label, String identifier, String owner, String action) {
+        if (!StringTools.isTableOrColumn(identifier)) {
+            throw new IllegalStateException(label + " '" + identifier + "' " + owner
+                    + " is not a valid SQL identifier (identifiers render unquoted); "
+                    + "it must satisfy StringTools.isTableOrColumn. " + action);
+        }
+        if (SqlReservedWords.isReserved(identifier)) {
+            throw new IllegalStateException(label + " '" + identifier + "' " + owner
+                    + " is a reserved SQL keyword (identifiers render unquoted); " + action);
+        }
+    }
+
     private static String blankToNull(String s) {
         return StringUtils.isBlank(s) ? null : s;
+    }
+
+    /**
+     * {@link #blankToNull} for {@code description} attributes, rejecting values the
+     * sys_* / design_* catalog columns cannot hold — at parse time, so the boot fails
+     * with the owner named, before any DDL side effect and instead of a raw SQL error
+     * while writing catalog rows.
+     */
+    private static String checkedDescription(String description, String owner) {
+        String value = blankToNull(description);
+        if (value != null && value.length() > DESCRIPTION_MAX_LENGTH) {
+            throw new IllegalStateException("Description of " + owner + " is "
+                    + value.length() + " characters, exceeding the " + DESCRIPTION_MAX_LENGTH
+                    + "-char catalog limit. Keep the description a concise user-facing summary"
+                    + " (it renders as a form tooltip and in API docs); move design rationale"
+                    + " and contributor notes to Javadoc.");
+        }
+        return value;
     }
 
     private static List<String> toList(String[] arr) {

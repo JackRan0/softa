@@ -101,7 +101,7 @@ public class SysModel extends AuditableModel {
     @Field
     private String partitionField;
 
-    @Field(length = 256)
+    @Field(length = 512)
     private String description;
 
     /**

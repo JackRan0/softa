@@ -414,8 +414,8 @@ class OrmFlowBundleRegistryTest {
                     .max(Comparator.comparingInt(FlowBundle::getRevision));
         }
 
-        @Override
-        public Optional<FlowBundle> findByDesignIdAndRevision(Long designId, Integer revision) {
+        // Fake-internal helper (no longer part of FlowBundleService).
+        private Optional<FlowBundle> findByDesignIdAndRevision(Long designId, Integer revision) {
             return savedBundles.values().stream()
                     .filter(b -> designId.equals(b.getDesignId()) && revision.equals(b.getRevision()))
                     .findFirst();

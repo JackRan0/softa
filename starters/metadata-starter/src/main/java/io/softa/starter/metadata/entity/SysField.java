@@ -60,7 +60,7 @@ public class SysField extends AuditableModel {
     @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = SysModel.class)
     private Long modelId;
 
-    @Field(length = 256)
+    @Field(length = 512)
     private String description;
 
     @Field(required = true)

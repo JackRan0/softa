@@ -67,23 +67,27 @@ public class MailTemplate extends AuditableModel {
                     + "Required for HTML / HTML_WITH_DERIVED_PLAIN / HTML_WITH_AUTHORED_PLAIN modes.")
     private String bodyHtml;
 
+    /**
+     * Front-end note: expose an "extract from HTML" button that populates this field
+     * for HTML_WITH_AUTHORED_PLAIN; the operator may then edit the result.
+     */
     @Field(description = "Plain-text body template, supports {{ variable }} placeholders. "
                     + "Required for PLAIN and HTML_WITH_AUTHORED_PLAIN modes. "
-                    + "Ignored when bodyMode is HTML or HTML_WITH_DERIVED_PLAIN; in those modes the "
-                    + "plain part is either absent or auto-derived from bodyHtml at send time. "
-                    + "Front-end should expose an 'extract from HTML' button populating this field "
-                    + "for HTML_WITH_AUTHORED_PLAIN; the operator may then edit it.")
+                    + "Ignored when bodyMode is HTML or HTML_WITH_DERIVED_PLAIN — there the plain "
+                    + "part is absent or auto-derived from bodyHtml at send time.")
     private String bodyText;
 
+    /**
+     * HTML_WITH_AUTHORED_PLAIN with an empty bodyText falls back to derivation at send
+     * time; the send record is stamped DERIVED so audit can tell the fallback fired.
+     */
     @Field(required = true,
             description = "Body shape for this template. "
-                    + "HTML — bodyHtml only, sent as text/html. "
-                    + "PLAIN — bodyText only, sent as text/plain. "
-                    + "HTML_WITH_DERIVED_PLAIN — bodyHtml only, sent as multipart/alternative with "
-                    + "plain auto-derived from bodyHtml at send time. "
-                    + "HTML_WITH_AUTHORED_PLAIN — bodyHtml + bodyText both, sent as multipart/alternative; "
-                    + "if bodyText is empty at send time the service falls back to derivation but the "
-                    + "resulting record is recorded as DERIVED so audit can tell the fallback fired.")
+                    + "HTML — bodyHtml only (text/html). "
+                    + "PLAIN — bodyText only (text/plain). "
+                    + "HTML_WITH_DERIVED_PLAIN — bodyHtml only, multipart/alternative with the "
+                    + "plain part derived at send time. "
+                    + "HTML_WITH_AUTHORED_PLAIN — bodyHtml + bodyText, multipart/alternative.")
     private BodyMode bodyMode;
 
     @Field(description = "Whether this template is active")
@@ -99,19 +103,17 @@ public class MailTemplate extends AuditableModel {
     private String replyTo;
 
     @Field(fieldType = FieldType.MULTI_FILE,
-            description = "Default attachments for this template — common files automatically "
-                    + "attached to every email rendered from this template (e.g. compliance disclosures, "
-                    + "branded brochures). Used only when SendMailDTO.attachments is empty/null; caller-"
-                    + "supplied attachments override the template default entirely.")
+            description = "Default attachments — files automatically attached to every email "
+                    + "rendered from this template (e.g. compliance disclosures, branded brochures). "
+                    + "Used only when SendMailDTO.attachments is empty; caller-supplied attachments "
+                    + "override the template default entirely.")
     private List<FileInfo> attachments;
 
     @Field(label = "Preferred Server Config ID",
-            description = "Preferred mail send server config for this template. Optional. "
-                    + "Resolution chain at send time: "
+            description = "Preferred send server config. Resolution chain at send time: "
                     + "SendMailDTO.serverConfigId > MailTemplate.preferredServerConfigId > "
                     + "MailServerDispatcher default (tenant default → platform default). "
-                    + "Use this to route specific template categories through dedicated SMTP "
-                    + "(e.g. marketing via SendGrid, transactional via Postmark, "
-                    + "compliance via corporate SMTP). Soft preference — DTO can still override.")
+                    + "Routes template categories through dedicated SMTP "
+                    + "(marketing / transactional / compliance).")
     private Long preferredServerConfigId;
 }

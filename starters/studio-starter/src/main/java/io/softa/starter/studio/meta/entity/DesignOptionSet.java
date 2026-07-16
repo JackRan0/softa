@@ -55,7 +55,7 @@ public class DesignOptionSet extends AuditableModel {
             relatedModel = DesignOptionItem.class, relatedField = "optionSetId")
     private List<DesignOptionItem> optionItems;
 
-    @Field(length = 256)
+    @Field(length = 512)
     private String description;
 
     @Field

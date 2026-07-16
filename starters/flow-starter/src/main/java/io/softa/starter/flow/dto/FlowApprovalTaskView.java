@@ -12,6 +12,7 @@ import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
 import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
+import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
 /**
  * API view of an approval task query result.
@@ -100,5 +101,23 @@ public class FlowApprovalTaskView {
 
     @Schema(description = "Actor who must act before this blocked task can proceed")
     private String blockedByActorId;
+
+    @Schema(description = "Approval deadline derived from the node's timeout config; null = no deadline")
+    private LocalDateTime dueTime;
+
+    @Schema(description = "Urgency marker propagated from urge actions")
+    private String urgency;
+
+    @Schema(description = "Title of the owning instance (batch-enriched; null when the instance row is gone)")
+    private String instanceTitle;
+
+    @Schema(description = "Business model bound to the owning instance")
+    private String modelName;
+
+    @Schema(description = "Business row id bound to the owning instance")
+    private String rowId;
+
+    @Schema(description = "Current execution status of the owning instance")
+    private FlowExecutionStatus instanceStatus;
 }
 

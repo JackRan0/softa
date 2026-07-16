@@ -76,17 +76,16 @@ public class SmsProviderRegion extends AuditableModel {
 
     @Field(required = true, fieldType = FieldType.MANY_TO_ONE, relatedModel = CountryRegion.class,
             description = "Routed country — FK to country_region.id (ISO 3166-1 alpha-2, code-as-id). "
-                    + "Renders a country picker; portable across environments. Mainland China (CN), "
-                    + "Taiwan (TW), Hong Kong (HK), Macau (MO) are four distinct codes — configure "
-                    + "each explicitly if you need them on different providers. No magic values like "
-                    + "'*'; catchall is via SmsProviderConfig.isDefault.")
+                    + "Mainland China (CN), Taiwan (TW), Hong Kong (HK), Macau (MO) are four "
+                    + "distinct codes — configure each explicitly if needed on different providers. "
+                    + "No magic values like '*'; catchall is via SmsProviderConfig.isDefault.")
     private String regionCode;
 
+    /** Denormalised so list views can show "CN (+86)" without joining country_region per query. */
     @Field(cascadedField = "regionCode.dialCode",
-            description = "ITU-T E.164 dial code (digits only, no leading +). Stored cascade derived "
-                    + "from country_region.dial_code via the regionCode relation — framework-maintained, "
-                    + "readonly. Lets the admin UI render 'CN (+86) → Aliyun' without joining "
-                    + "country_region on every list query.")
+            description = "ITU-T E.164 dial code (digits only, no leading +). Stored cascade "
+                    + "derived from country_region.dial_code via the regionCode relation — "
+                    + "framework-maintained, readonly.")
     private String dialCode;
 
     @Field(required = true,

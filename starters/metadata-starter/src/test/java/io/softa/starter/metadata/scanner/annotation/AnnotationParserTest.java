@@ -276,6 +276,49 @@ class AnnotationParserTest {
         assertEquals("Signup Date", signupDate.getLabel());
     }
 
+    // ------- description length is validated at parse time --------------
+    // The sys_*/design_* catalog stores description in VARCHAR(512) columns;
+    // the parser fail-fasts an oversized description with the owner named,
+    // before any DDL side effect and instead of a SQL error mid-reconciliation.
+
+    /** 64 chars; ×8 = exactly the 512-char catalog limit. */
+    private static final String CHUNK_64 =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private static final String DESC_512 = CHUNK_64 + CHUNK_64 + CHUNK_64 + CHUNK_64
+            + CHUNK_64 + CHUNK_64 + CHUNK_64 + CHUNK_64;
+
+    @Model
+    @SuppressWarnings("unused")
+    static class DescriptionAtLimitIsAccepted extends AuditableModel {
+        @Field(description = DESC_512)
+        private String remark;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Model
+    @SuppressWarnings("unused")
+    static class OversizedFieldDescriptionIsRejected extends AuditableModel {
+        @Field(description = DESC_512 + "x")
+        private String remark;
+        @Override public Serializable getId() { return null; }
+    }
+
+    @Test
+    void fieldDescription_atCatalogLimit_isAccepted() {
+        AnnotationScanResult result =
+                parser.parse(List.of(DescriptionAtLimitIsAccepted.class), List.of());
+        assertEquals(DESC_512, byFieldName(result.fields(), "remark").getDescription());
+    }
+
+    @Test
+    void fieldDescription_overCatalogLimit_isRejectedAtParse() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> parser.parse(List.of(OversizedFieldDescriptionIsRejected.class), List.of()));
+        assertTrue(ex.getMessage().contains("OversizedFieldDescriptionIsRejected.remark"));
+        assertTrue(ex.getMessage().contains("513"));
+        assertTrue(ex.getMessage().contains("512"));
+    }
+
     // ------- OPTION / MULTI_OPTION are forward-inferred only ------------
     // OPTION / MULTI_OPTION can never be written explicitly in
     // @Field(fieldType = ...). They are always derived from the Java type

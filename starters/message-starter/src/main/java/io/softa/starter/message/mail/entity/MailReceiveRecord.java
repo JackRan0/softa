@@ -66,12 +66,15 @@ public class MailReceiveRecord extends AuditableModel {
     @Field(length = 500, description = "Email subject")
     private String subject;
 
+    /**
+     * HTML-only emails are converted once at ingest via {@code HtmlUtils.toText} —
+     * one-shot CPU on write, not on every read.
+     */
     @Field(length = 16777215,
             description = "Plain-text body for list preview, search, and any consumer that "
-                    + "wants a single guaranteed string. When the original email had a real text/plain "
-                    + "part it is stored verbatim; when the email is HTML-only it is derived from "
-                    + "bodyHtml at write time via HtmlUtils.toText (one-shot CPU on ingest, not on "
-                    + "every read). Use bodyMode to tell the two apart for audit/forensics.")
+                    + "wants a single guaranteed string. Stored verbatim when the email had a real "
+                    + "text/plain part; derived from bodyHtml at write time when the email is "
+                    + "HTML-only. Use bodyMode to tell the two apart for audit/forensics.")
     private String bodyText;
 
     @Field(length = 16777215,
@@ -79,20 +82,23 @@ public class MailReceiveRecord extends AuditableModel {
                     + "Null for plain-text-only emails.")
     private String bodyHtml;
 
-    @Field(description = "Original wire MIME shape captured during parsing, before any "
-                    + "derivation. HTML — single text/html part (bodyText is derived from bodyHtml). "
-                    + "PLAIN — single text/plain part. HTML_WITH_PLAIN_ALT — multipart/alternative "
-                    + "carrying both (bodyText is the sender's hand-written version). "
-                    + "Null when the email has no text body at all (pure attachments / calendar invites). "
-                    + "Front-end uses this to pick the renderer; audit code uses it to tell whether "
-                    + "bodyText is verbatim or derived.")
+    /**
+     * Front-end picks the body renderer from this; audit uses it to tell whether
+     * bodyText is verbatim or derived.
+     */
+    @Field(description = "Original wire MIME shape, before any derivation. "
+                    + "HTML — text/html only (bodyText derived from bodyHtml). "
+                    + "PLAIN — text/plain only. "
+                    + "HTML_WITH_PLAIN_ALT — multipart/alternative with both (bodyText is the "
+                    + "sender's own). "
+                    + "Null when the email has no text body (pure attachments / calendar invites).")
     private BodyMode bodyMode;
 
+    /** Standard MULTI_FILE persistence: fileId CSV in the column, resolved to FileInfo on read. */
     @Field(fieldType = FieldType.MULTI_FILE,
-            description = "Per-attachment metadata. Each item corresponds to a non-inline MIME part "
-                    + "extracted from the email and uploaded to object storage via file-starter. "
-                    + "Persisted as fileIds (List<Long> CSV) by ORM; resolved to FileInfo on read. "
-                    + "Null/empty when the email has no attachments or fileService is unavailable.")
+            description = "Per-attachment metadata — one item per non-inline MIME part extracted "
+                    + "from the email and uploaded to object storage via file-starter. Null/empty "
+                    + "when the email has no attachments or the file service is unavailable.")
     private List<FileInfo> attachments;
 
     @Field(required = true, description = "Read status")
@@ -112,8 +118,8 @@ public class MailReceiveRecord extends AuditableModel {
     @Field(description = "Primary mutually-exclusive content type: "
                     + "Normal / ReadReceipt / Bounce / AutoReply / CalendarInvite / Unknown. "
                     + "Only ReadReceipt and Bounce trigger downstream actions; the others are "
-                    + "recorded for observability. Orthogonal properties (mailing-list distribution, "
-                    + "encryption, spam) live as separate boolean flags below.")
+                    + "recorded for observability. Mailing-list, encryption and spam signals are "
+                    + "orthogonal boolean flags (isMailingList / isEncrypted / isSpam).")
     private ReceivedMailType mailType;
 
     @Field(description = "True when the message bears List-Id / List-Unsubscribe / "
@@ -155,14 +161,12 @@ public class MailReceiveRecord extends AuditableModel {
 
     // ---- Phase-4 addition: resource-limit truncation ----
 
+    /** BodyTooLarge fires when the raw message exceeds {@code maxMessageSize} (MessageProperties). */
     @Field(length = 32,
-            description = "Why this email was processed in a degraded way. "
-                    + "Null when fully processed. Values: "
-                    + "BodyTooLarge (size > maxMessageSize, only envelope persisted) / "
-                    + "AttachmentTooLarge (one or more parts skipped, body intact) / "
-                    + "MimeDepthExceeded (nested structure aborted parsing) / "
-                    + "MimePartsExceeded (too many parts, parsing aborted) / "
-                    + "ParseFailed (unexpected JavaMail error). "
+            description = "Why this email was processed in a degraded way; null when fully "
+                    + "processed. BodyTooLarge — only the envelope persisted. AttachmentTooLarge — "
+                    + "parts skipped, body intact. MimeDepthExceeded / MimePartsExceeded — parsing "
+                    + "aborted. ParseFailed — unexpected JavaMail error. "
                     + "Orthogonal to mailType — a bounce can also be truncated.")
     private String truncationReason;
 }

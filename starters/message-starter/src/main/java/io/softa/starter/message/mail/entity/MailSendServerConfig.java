@@ -51,8 +51,8 @@ public class MailSendServerConfig extends AuditableModel {
     private Integer port;
 
     @Field(label = "SSL Enabled",
-            description = "Use implicit TLS / SMTPS — the TLS handshake happens immediately after TCP, "
-                    + "the entire session is encrypted from the first byte. Typical port: 465. "
+            description = "Use implicit TLS / SMTPS — the TLS handshake happens immediately after "
+                    + "TCP; the entire session is encrypted from the first byte. "
                     + "Set this OR starttlsEnabled, not both. "
                     + "Choose this when the provider's docs say 'SSL/TLS' or list port 465.")
     private Boolean sslEnabled;
@@ -96,10 +96,11 @@ public class MailSendServerConfig extends AuditableModel {
     @Field(description = "Whether this config is enabled")
     private Boolean isEnabled;
 
-    @Field(description = "Tie-break order among multiple isDefault=true configs + display "
-                    + "order in admin UIs. Ascending — lower wins. NOT a failover priority: dispatcher "
-                    + "picks the first matching default and stops; other defaults are never tried as "
-                    + "backup. If send-side failover is ever introduced, rename to 'priority' then.")
+    /** If send-side failover is ever introduced, rename to {@code priority} then. */
+    @Field(description = "Tie-break order among multiple isDefault=true configs and display "
+                    + "order in admin UIs. Ascending — lower wins. NOT a failover priority: the "
+                    + "dispatcher picks the first matching default and stops; other defaults are "
+                    + "never tried as backup.")
     private Integer sequence;
 
     @Field(description = "Whether to request read receipts by default (Disposition-Notification-To header)")

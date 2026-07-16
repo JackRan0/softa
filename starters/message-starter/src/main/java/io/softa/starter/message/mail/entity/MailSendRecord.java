@@ -63,9 +63,9 @@ public class MailSendRecord extends AuditableModel {
     @Field(required = true, description = "Body shape used to send. "
             + "HTML — bodyHtml only. "
             + "PLAIN — bodyText only. "
-            + "HTML_WITH_DERIVED_PLAIN — bodyHtml + bodyText (plain machine-extracted at send time). "
+            + "HTML_WITH_DERIVED_PLAIN — bodyHtml + bodyText (plain derived at send time). "
             + "HTML_WITH_AUTHORED_PLAIN — bodyHtml + bodyText (plain hand-authored). "
-            + "Audit can distinguish DERIVED vs AUTHORED to find sends whose plain text was reviewed by a human.")
+            + "DERIVED vs AUTHORED tells audit whether the plain text was human-reviewed.")
     private BodyMode bodyMode;
 
     @Field(label = "Body HTML", description = "HTML body persisted verbatim for retry fidelity. Null for PLAIN mode.")

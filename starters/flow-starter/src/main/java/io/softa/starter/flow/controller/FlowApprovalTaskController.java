@@ -9,6 +9,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
+import io.softa.starter.flow.dto.FlowInboxCountView;
 import io.softa.starter.flow.dto.FlowInboxView;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.service.FlowApprovalTaskQueryService;
@@ -29,6 +30,14 @@ public class FlowApprovalTaskController {
                                              FlowInboxService flowInboxService) {
         this.flowApprovalTaskService = flowApprovalTaskService;
         this.flowInboxService = flowInboxService;
+    }
+
+    @GetMapping("/counts")
+    @Operation(summary = "Inbox badge counts for current user",
+            description = "Pending approval count and unread CC count — same filter definitions as the "
+                    + "paged /pending and /cc?read=false queries, but a cheap COUNT instead of a page probe.")
+    public ApiResponse<FlowInboxCountView> counts() {
+        return ApiResponse.success(flowApprovalTaskService.countInbox(currentUserId()));
     }
 
     @GetMapping("/pending")
