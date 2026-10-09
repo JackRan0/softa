@@ -216,7 +216,8 @@ public class UserAccountController extends EntityController<UserAccountService, 
         IdUtils.formatMapId(MODEL, row);
         dropDerivedLock(row);
         dropConsultantFlag(row);
-        boolean ok = onRosterAccounts(List.of(idOf(row)), () -> modelService.updateOne(MODEL, row));
+        boolean ok = onRosterAccounts(List.of(idOf(row)), () -> service.updateCarryingLoginIdentifiers(
+                List.of(row), () -> modelService.updateOne(MODEL, row)));
         evictIfRolesTouched(row);
         return ApiResponse.success(ok);
     }
@@ -231,7 +232,8 @@ public class UserAccountController extends EntityController<UserAccountService, 
         dropDerivedLock(row);
         dropConsultantFlag(row);
         Map<String, Object> result = onRosterAccounts(List.of(idOf(row)),
-                () -> modelService.updateOneAndFetch(MODEL, row, ConvertType.REFERENCE));
+                () -> service.updateCarryingLoginIdentifiers(List.of(row),
+                        () -> modelService.updateOneAndFetch(MODEL, row, ConvertType.REFERENCE)));
         evictIfRolesTouched(row);
         return ApiResponse.success(result);
     }
@@ -402,7 +404,8 @@ public class UserAccountController extends EntityController<UserAccountService, 
             dropConsultantFlag(row);
         });
         List<Long> ids = rows.stream().map(UserAccountController::idOf).toList();
-        boolean ok = onRosterAccounts(ids, () -> modelService.updateList(MODEL, rows));
+        boolean ok = onRosterAccounts(ids, () -> service.updateCarryingLoginIdentifiers(
+                rows, () -> modelService.updateList(MODEL, rows)));
         rows.forEach(this::evictIfRolesTouched);
         return ApiResponse.success(ok);
     }
@@ -420,7 +423,8 @@ public class UserAccountController extends EntityController<UserAccountService, 
         });
         List<Long> ids = rows.stream().map(UserAccountController::idOf).toList();
         List<Map<String, Object>> result = onRosterAccounts(ids,
-                () -> modelService.updateListAndFetch(MODEL, rows, ConvertType.REFERENCE));
+                () -> service.updateCarryingLoginIdentifiers(rows,
+                        () -> modelService.updateListAndFetch(MODEL, rows, ConvertType.REFERENCE)));
         rows.forEach(this::evictIfRolesTouched);
         return ApiResponse.success(result);
     }
@@ -438,6 +442,10 @@ public class UserAccountController extends EntityController<UserAccountService, 
         Assert.notNull(values, "The updated data cannot be empty!");
         Assert.notTrue(values.containsKey(ROLES_FIELD),
                 "Roles are assigned per account, not by filter.");
+        // Contacts are login identifiers, each moved with its own account's person (see
+        // updateCarryingLoginIdentifiers) — and one value written to many rows could only collide.
+        Assert.notTrue(values.containsKey("email") || values.containsKey("mobile"),
+                "Work email and mobile are changed per account, not by filter.");
         dropDerivedLock(values);
         dropConsultantFlag(values);
         // Emptiness is judged on what SURVIVES the derived-field drops, not on what arrived. A
