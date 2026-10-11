@@ -1145,6 +1145,14 @@ public class PermissionServiceImpl implements PermissionService {
         return new PermissionException("You don't have permission to " + verb + " " + set + " fields for this " + label + ".");
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>A null is not refused here. On a create it writes nothing; on an update it clears the stored
+     * value or, where that is already null, changes nothing — which of the two is known only once the
+     * stored row is, so the update path checks it then ({@link #getWriteGuardedFields},
+     * {@link #checkIdsFieldsAccess}).
+     */
     @Override
     public void checkWritePayload(String model, Map<String, Object> payload) {
         if (payload == null || payload.isEmpty() || shouldBypass()) return;
@@ -1154,11 +1162,19 @@ public class PermissionServiceImpl implements PermissionService {
         // a granted field may be written on is checked once the ids are (checkIdsFieldsAccess).
         Set<String> blocked = blockedForAnyRole(pi, model);
         if (blocked.isEmpty()) return;
-        for (String f : payload.keySet()) {
-            if (blocked.contains(f)) {
-                throw sensitiveWriteDenied(model, f);
+        for (Map.Entry<String, Object> entry : payload.entrySet()) {
+            if (entry.getValue() != null && blocked.contains(entry.getKey())) {
+                throw sensitiveWriteDenied(model, entry.getKey());
             }
         }
+    }
+
+    /** {@inheritDoc} — the model's sensitive fields, for a caller whose writes of them are judged at all. */
+    @Override
+    public Set<String> getWriteGuardedFields(String model) {
+        if (shouldBypass() || sfsCache == null || !sfsCache.hasSensitiveFieldsOn(model)) return Set.of();
+        if (PermissionInfo.hasFullDataAccess(currentPi())) return Set.of();
+        return sfsCache.allSensitiveFieldsOn(model);
     }
 
     /** Sensitive fields on {@code model} that none of the caller's roles grants. */

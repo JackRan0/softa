@@ -151,9 +151,13 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         if (writeValidators != null) {
             writeValidators.validateCreate(modelName, rows);
         }
-        // Extracts a set of assigned fields for checking field-level permissions
+        // Extracts a set of assigned fields for checking field-level permissions. A field given only as
+        // null writes nothing on a create, so it is not counted as assigned — a payload serialized with
+        // its nulls must not be refused for a field the caller may not write and did not set.
         Set<String> assignedFields = new HashSet<>();
-        rows.forEach(row -> assignedFields.addAll(row.keySet()));
+        rows.forEach(row -> row.forEach((field, value) -> {
+            if (value != null) assignedFields.add(field);
+        }));
         // The ids can only be extracted after the write is executed
         rows = versioning.of(modelName).create(modelName, rows);
         List<Serializable> ids = rows.stream()
@@ -919,7 +923,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         // Timeline models remap sliceId to the trusted logical id (backfilling row ids);
         // identity models use the rows' own ids.
         Collection<Serializable> targetIds = strategy.resolveTargetIds(modelName, rows);
-        permissionService.checkIdsFieldsAccess(modelName, targetIds, toUpdateFields, AccessType.UPDATE);
+        permissionService.checkIdsFieldsAccess(modelName, targetIds,
+                fieldsChangedForPermission(modelName, toUpdateRows, toUpdateFields, updatableFields, pkField),
+                AccessType.UPDATE);
         // Code-layer rules see each patch merged onto its stored row. The stored rows are read here,
         // whole, only when a validator applies — the pipeline's own read fetches just the changed columns.
         if (writeValidators != null && writeValidators.supports(modelName)) {
@@ -938,6 +944,58 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         }
         Integer updateCount = strategy.update(modelName, rows, toUpdateFields);
         return updateCount > 0;
+    }
+
+    /**
+     * The fields an update is judged by: {@code toUpdateFields}, less a guarded field the payload gives
+     * as null where the stored value is null too — a null echoed over a null changes nothing. A null
+     * over a stored value is a real write (it clears it) and stays.
+     *
+     * <p>Only the fields {@link PermissionService#getWriteGuardedFields} names are read back, and only
+     * when some row carries one of them as null, so an ordinary update costs nothing extra. A timeline
+     * model is left as it was: its rows name slices, and which slice a null would land on is the
+     * versioning strategy's business, not this check's.
+     */
+    private Set<String> fieldsChangedForPermission(String modelName, List<Map<String, Object>> rows,
+                                                   Set<String> toUpdateFields, Set<String> updatableFields,
+                                                   String pkField) {
+        Set<String> guarded = permissionService.getWriteGuardedFields(modelName);
+        if (guarded == null || guarded.isEmpty() || ModelManager.isTimelineModel(modelName)) {
+            return toUpdateFields;
+        }
+        Map<String, Set<String>> nullsByPk = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Set<String> nulls = new HashSet<>();
+            row.forEach((field, value) -> {
+                if (value == null && guarded.contains(field) && updatableFields.contains(field)) nulls.add(field);
+            });
+            if (!nulls.isEmpty()) nullsByPk.put(String.valueOf(row.get(pkField)), nulls);
+        }
+        if (nullsByPk.isEmpty()) {
+            return toUpdateFields;
+        }
+        Set<String> readFields = new HashSet<>();
+        nullsByPk.values().forEach(readFields::addAll);
+        readFields.add(pkField);
+        List<K> pks = rows.stream()
+                .filter(row -> nullsByPk.containsKey(String.valueOf(row.get(pkField))))
+                .map(row -> Cast.<K>of(row.get(pkField)))
+                .toList();
+        Map<String, Map<String, Object>> storedByPk = new HashMap<>();
+        jdbcService.selectByIds(modelName, pks, new ArrayList<>(readFields), ConvertType.ORIGINAL)
+                .forEach(stored -> storedByPk.put(String.valueOf(stored.get(pkField)), stored));
+        Set<String> changed = new HashSet<>();
+        for (Map<String, Object> row : rows) {
+            String pk = String.valueOf(row.get(pkField));
+            Set<String> nulls = nullsByPk.getOrDefault(pk, Set.of());
+            Map<String, Object> stored = storedByPk.get(pk);
+            for (String field : row.keySet()) {
+                if (!toUpdateFields.contains(field)) continue;
+                boolean nullOverNull = nulls.contains(field) && stored != null && stored.get(field) == null;
+                if (!nullOverNull) changed.add(field);
+            }
+        }
+        return changed;
     }
 
     /**

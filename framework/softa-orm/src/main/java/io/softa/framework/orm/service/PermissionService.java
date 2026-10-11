@@ -295,6 +295,25 @@ public interface PermissionService {
     }
 
     /**
+     * The fields of {@code model} whose writes this service judges field by field — the ones for which
+     * a null that merely echoes a stored null must not count as a write.
+     *
+     * <p>A write is judged by the fields it names. For most fields naming one with a null is harmless,
+     * but for a field only some callers may write it decides whether the write is refused: an update
+     * that sends back a whole record, nulls included, would be refused for a field the caller never
+     * changed. {@code updateList} reads the stored values of these fields where the payload carries a
+     * null, and leaves a null over a null out of what it hands {@link #checkIdsFieldsAccess}.
+     *
+     * <p>Default: none, which costs no read.
+     *
+     * @param model the model being written
+     * @return the field names; empty when no field of the model is guarded for the caller
+     */
+    default Set<String> getWriteGuardedFields(String model) {
+        return Set.of();
+    }
+
+    /**
      * The sensitive fields the caller can never see, per model: on each model that has sensitive
      * fields, those no role of the caller grants on any row. A screen can leave them out altogether
      * instead of rendering columns and inputs that would always come back empty or be refused.

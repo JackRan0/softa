@@ -669,4 +669,47 @@ class GrantPairFieldMaskTest {
 
         assertThat(as(service::getHiddenSensitiveFields)).isEmpty();
     }
+
+    // ─── nulls in a write payload ───
+
+    @Test
+    @DisplayName("a payload giving IPA as null is not refused up front; a value is")
+    void aNullForAnUngrantedFieldIsNotRefusedBeforeTheRowsAreKnown() {
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW, CREATE), ScopeType.ALL, null, false)));
+        Map<String, Object> withNull = new HashMap<>();
+        withNull.put("name", "E1");
+        withNull.put("ipaBasic", null);
+
+        as(() -> {
+            service.checkWritePayload("Employee", withNull);
+            return null;
+        });
+        assertThatThrownBy(() -> as(() -> {
+            service.checkWritePayload("Employee", Map.of("ipaBasic", 1800));
+            return null;
+        })).isInstanceOf(PermissionException.class);
+    }
+
+    @Test
+    @DisplayName("an update clearing IPA without the set is still refused once the field is handed over as written")
+    void clearingAnUngrantedFieldIsRefused() {
+        pi.setRoleGrants(List.of(role(1, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, null, false)));
+        when(modelService.count(eq("Employee"), any(Filters.class))).thenReturn(1L);
+
+        assertThatThrownBy(() -> as(() -> {
+            service.checkIdsFieldsAccess("Employee", List.of(1L), Set.of("ipaBasic"), AccessType.UPDATE);
+            return null;
+        })).isInstanceOf(PermissionException.class)
+                .hasMessage("You don't have permission to edit IPA fields for this employee.");
+    }
+
+    @Test
+    @DisplayName("the guarded fields are the model's sensitive ones, and none for an admin")
+    void theWriteGuardedFieldsAreTheSensitiveOnes() {
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
+        assertThat(as(() -> service.getWriteGuardedFields("Employee"))).isEqualTo(IPA);
+
+        pi.setRoleCodes(Set.of(io.softa.framework.base.enums.BuiltinRole.TENANT_ADMIN.getCode()));
+        assertThat(as(() -> service.getWriteGuardedFields("Employee"))).isEmpty();
+    }
 }

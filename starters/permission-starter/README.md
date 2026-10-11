@@ -413,6 +413,10 @@ granting the same sets, mask model-wide as before. Consequences:
   (`employeeId.salary`) is judged by that model's plan: blocked matches nothing; per-row becomes
   `employeeId IN` the target ids where the condition holds and the field is visible, read up front;
   sorts and groupings on such a path follow the same rules. To-many paths are not followed;
+- a write is judged by what it changes, not by the keys it carries: a sensitive field given as null
+  on a create writes nothing and is not refused; on an update a null that clears a stored value needs
+  the set, while a null over a stored null is not counted (`getWriteGuardedFields` tells `updateList`
+  which stored values to read back);
 - a refused write names the set by its `shortName` (falling back to its `name`), worded `update` inside an import (`ImportScope`)
   and `edit` elsewhere.
 
