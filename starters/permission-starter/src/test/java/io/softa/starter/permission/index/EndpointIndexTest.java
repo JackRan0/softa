@@ -201,4 +201,51 @@ class EndpointIndexTest {
         assertThat(idx.lookup("/EmpTransferRequest/updateOne", "POST")).isEmpty();
         assertThat(idx.lookup("/EmpTransferRequest/deleteById", "POST")).isEmpty();
     }
+
+    // ─── modelActionPermissions: who holds an action on a model ───
+
+    @Test
+    void modelAction_aHandListedNonCanonicalEndpointCountsForItsAction() {
+        // Lists neither updateOne nor searchPage — the one URL per action the holder test used to ask by.
+        EndpointIndex idx = build(List.of(
+                explicit("emp.bulkEdit", "POST /Employee/updateList"),
+                explicit("emp.list", "POST /Employee/searchList"),
+                explicit("emp.purge", "POST /Employee/deleteByIds"),
+                explicit("emp.import", "POST /Employee/createList")));
+
+        assertThat(idx.modelActionPermissions("Employee", "update")).containsExactly("emp.bulkEdit");
+        assertThat(idx.modelActionPermissions("Employee", "view")).containsExactly("emp.list");
+        assertThat(idx.modelActionPermissions("Employee", "delete")).containsExactly("emp.purge");
+        assertThat(idx.modelActionPermissions("Employee", "create")).containsExactly("emp.import");
+    }
+
+    @Test
+    void modelAction_aPatternEndpointCountsByItsTemplate() {
+        EndpointIndex idx = build(List.of(explicit("emp.edit", "POST /Employee/onChange/{fieldName}")));
+
+        assertThat(idx.modelActionPermissions("Employee", "update")).containsExactly("emp.edit");
+    }
+
+    @Test
+    void modelAction_aCustomOrSharedEndpointCountsForNothing() {
+        EndpointIndex idx = build(List.of(
+                explicit("emp.confirm", "POST /Employee/confirm"),
+                explicit("emp.get", "GET /Employee/searchList"),
+                explicit("mail.send", "POST /api/mail/send")));
+
+        for (String action : List.of("view", "create", "update", "delete")) {
+            assertThat(idx.modelActionPermissions("Employee", action)).isEmpty();
+            assertThat(idx.modelActionPermissions("api", action)).isEmpty();
+        }
+    }
+
+    @Test
+    void modelAction_isKeptApartPerModel() {
+        EndpointIndex idx = build(List.of(explicit("emp.list", "POST /Employee/searchList",
+                "POST /Department/searchName")));
+
+        assertThat(idx.modelActionPermissions("Department", "view")).containsExactly("emp.list");
+        assertThat(idx.modelActionPermissions("Department", "update")).isEmpty();
+        assertThat(idx.modelActionPermissions("Position", "view")).isEmpty();
+    }
 }

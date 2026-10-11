@@ -385,6 +385,11 @@ hold that action (`holders`), each role bounded by its own company grant and its
   (`The record is outside your data scope.`);
 - `@RequirePermission(accessType = …)` checks a custom endpoint's id / filters against that action.
 
+A role holds an action on a model when one of its permissions reaches any standard endpoint of that
+action on that model (`EndpointIndex.modelActionPermissions`): the endpoints a permission derives, its
+relation lookups included, or a hand-listed `VERB /Model/suffix` whose suffix is in the action's
+standard list — a permission listing only `POST /Employee/updateList` holds `update` on `Employee`.
+
 When no role holds the action, or the action has no registered permission, the old union scope applies,
 so a model nobody configured per action behaves as before. Export is the exception to the first case:
 the export endpoints are shared by every model, so the gate cannot tell which model's export admitted

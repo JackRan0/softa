@@ -78,10 +78,9 @@ class GrantPairFieldMaskTest {
         when(provider.get(anyLong(), anyLong())).thenAnswer(inv -> pi);
 
         EndpointIndex index = mock(EndpointIndex.class);
-        when(index.lookup(anyString(), anyString())).thenReturn(Set.of());
-        when(index.lookup("/Employee/searchPage", "POST")).thenReturn(Set.of(VIEW));
-        when(index.lookup("/Employee/updateOne", "POST")).thenReturn(Set.of(UPDATE));
-        when(index.lookup("/Employee/createOne", "POST")).thenReturn(Set.of(CREATE));
+        when(index.modelActionPermissions("Employee", "view")).thenReturn(Set.of(VIEW));
+        when(index.modelActionPermissions("Employee", "update")).thenReturn(Set.of(UPDATE));
+        when(index.modelActionPermissions("Employee", "create")).thenReturn(Set.of(CREATE));
 
         ScopeApplicabilityResolver applicability = mock(ScopeApplicabilityResolver.class);
         when(applicability.applicableFor("Employee"))

@@ -303,9 +303,10 @@ public class PermissionServiceImpl implements PermissionService {
     /**
      * The permission ids that grant {@code access} on {@code model}; empty when none is registered.
      *
-     * <p>Asked of the endpoint index by a URL the action always derives, the same way
-     * {@link #hasModelActionGrant} asks. An export has no such URL — its endpoints are shared by every
-     * model, the model riding in a parameter — so it is asked by model and action instead.
+     * <p>Asked of the endpoint index by model and action, over every standard endpoint of that action —
+     * derived or hand-listed — the same way {@link #hasModelActionGrant} asks. An export is asked by the
+     * action segment of the permission id instead: its endpoints are shared by every model, the model
+     * riding in a parameter, so no endpoint path names the model.
      */
     private Set<String> actionPermissions(String model, AccessType access) {
         EndpointIndex index = endpointIndexSupplier.get();
@@ -315,8 +316,8 @@ public class PermissionServiceImpl implements PermissionService {
         if (access == AccessType.EXPORT) {
             return index.actionPermissions(model, "export");
         }
-        String uri = CANONICAL_ACTION_URI.get(access);
-        return uri == null ? Set.of() : index.lookup("/" + model + uri, "POST");
+        String action = MODEL_ACTIONS.get(access);
+        return action == null ? Set.of() : index.modelActionPermissions(model, action);
     }
 
     /**
@@ -1504,9 +1505,9 @@ public class PermissionServiceImpl implements PermissionService {
         if (endpointIndex == null) return true;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.isAdmin(pi)) return true;
-        String uri = CANONICAL_ACTION_URI.get(accessType);
-        if (uri == null) return true;
-        Set<String> candidates = endpointIndex.lookup("/" + model + uri, "POST");
+        String action = MODEL_ACTIONS.get(accessType);
+        if (action == null) return true;
+        Set<String> candidates = endpointIndex.modelActionPermissions(model, action);
         // Unregistered means granted — see the interface javadoc for why this default is the opposite
         // of the interceptor's.
         if (candidates.isEmpty()) return true;
@@ -1519,12 +1520,12 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     /**
-     * One endpoint per access type, chosen as the one {@code EndpointIndex} always derives for it — the
-     * lookup only needs a URL that resolves to the same permission set, not every URL of that action.
+     * The action segment of a permission id for each access type a model's own endpoints serve — the
+     * key {@link EndpointIndex#modelActionPermissions} answers by.
      */
-    private static final Map<AccessType, String> CANONICAL_ACTION_URI = Map.of(
-            AccessType.CREATE, "/createOne",
-            AccessType.UPDATE, "/updateOne",
-            AccessType.DELETE, "/deleteById",
-            AccessType.READ, "/searchPage");
+    private static final Map<AccessType, String> MODEL_ACTIONS = Map.of(
+            AccessType.CREATE, "create",
+            AccessType.UPDATE, "update",
+            AccessType.DELETE, "delete",
+            AccessType.READ, "view");
 }

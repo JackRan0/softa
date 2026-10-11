@@ -81,9 +81,8 @@ class GrantPairScopeTest {
         when(provider.get(anyLong(), anyLong())).thenAnswer(inv -> pi);
 
         index = mock(EndpointIndex.class);
-        when(index.lookup(anyString(), anyString())).thenReturn(Set.of());
-        when(index.lookup("/Employee/searchPage", "POST")).thenReturn(Set.of(VIEW));
-        when(index.lookup("/Employee/updateOne", "POST")).thenReturn(Set.of(UPDATE));
+        when(index.modelActionPermissions("Employee", "view")).thenReturn(Set.of(VIEW));
+        when(index.modelActionPermissions("Employee", "update")).thenReturn(Set.of(UPDATE));
         when(index.actionPermissions("Employee", "export")).thenReturn(Set.of(EXPORT));
 
         ScopeApplicabilityResolver applicability = mock(ScopeApplicabilityResolver.class);
@@ -251,6 +250,32 @@ class GrantPairScopeTest {
         pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, null)));
 
         assertThat(Filters.isEmpty(scope(AccessType.EXPORT))).isTrue();
+    }
+
+    @Test
+    @DisplayName("a role whose permission lists only a bulk update still holds update")
+    void aHandListedBulkUpdateHoldsTheUpdate() {
+        // Built from a real index: the hand-listed permission names updateList, never updateOne.
+        EndpointIndex real = new EndpointIndex(() -> List.of(
+                new io.softa.starter.permission.spi.PermissionEndpointSource.PermissionEndpointDef(
+                        "permission.employee.bulkEdit", List.of("POST /Employee/updateList"), null),
+                new io.softa.starter.permission.spi.PermissionEndpointSource.PermissionEndpointDef(
+                        VIEW, List.of("POST /Employee/searchList"), null)));
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(real, "init");
+        PermissionSnapshotProvider provider = mock(PermissionSnapshotProvider.class);
+        when(provider.get(anyLong(), anyLong())).thenAnswer(inv -> pi);
+        ScopeApplicabilityResolver applicability = mock(ScopeApplicabilityResolver.class);
+        when(applicability.applicableFor("Employee"))
+                .thenReturn(Set.of(ScopeType.ALL, ScopeType.CUSTOM, ScopeType.MANAGED_DEPARTMENTS));
+        service = new PermissionServiceImpl(provider, stubCompiler(), null, modelService, applicability,
+                () -> real);
+        pi.setRoleGrants(List.of(
+                role(1, Set.of(VIEW, "permission.employee.bulkEdit"), ScopeType.MANAGED_DEPARTMENTS, null, null),
+                role(3, Set.of(VIEW), ScopeType.ALL, null, null)));
+
+        // Only the bulk editor's departments — not, by falling back to every role, everyone.
+        assertThat(scope(AccessType.UPDATE).toString()).contains("departmentId", "10");
+        assertThat(Filters.isEmpty(scope(AccessType.READ))).isTrue();
     }
 
     @Test

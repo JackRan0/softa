@@ -71,6 +71,26 @@ class EndpointIndexStandardDerivationTest {
     }
 
     @Test
+    void derivedActions_holdTheirActionOnTheirModel() {
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of());
+
+            EndpointIndex idx = build(List.of(
+                    derivedPerm("employee.view", "Employee"),
+                    derivedPerm("employee.update", "Employee"),
+                    derivedPerm("employee.export", "Employee")));
+
+            assertThat(idx.modelActionPermissions("Employee", "view")).containsExactly("employee.view");
+            assertThat(idx.modelActionPermissions("Employee", "update")).containsExactly("employee.update");
+            assertThat(idx.modelActionPermissions("Employee", "create")).isEmpty();
+            // Export endpoints are shared by every model; they are asked by action, not by model path.
+            assertThat(idx.modelActionPermissions("Employee", "export")).isEmpty();
+            assertThat(idx.actionPermissions("Employee", "export")).containsExactly("employee.export");
+        }
+    }
+
+    @Test
     void createAction_registersCreateEndpointSet() {
         try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
             mm.when(() -> ModelManager.existModel("Employee")).thenReturn(true);

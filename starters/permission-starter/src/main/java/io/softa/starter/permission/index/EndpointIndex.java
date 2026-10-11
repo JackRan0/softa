@@ -142,6 +142,24 @@ public class EndpointIndex {
                                         "POST copyByIds", "POST copyByIdsAndFetch",
                                         "GET getCopyableFields")));
 
+    /** The per-model actions a row scope is asked for, by the action segment of a permission id. */
+    private static final List<String> MODEL_ACTIONS = List.of("view", "create", "update", "delete");
+
+    /** {@code "VERB suffix"} → the per-model standard actions whose endpoint list holds it. */
+    private static final Map<String, Set<String>> ACTIONS_BY_ENTRY = actionsByEntry();
+
+    private static Map<String, Set<String>> actionsByEntry() {
+        Map<String, Set<String>> out = new HashMap<>();
+        for (String action : MODEL_ACTIONS) {
+            for (String entry : STANDARD_ACTION_MAP.get(action)) {
+                out.computeIfAbsent(entry, k -> new HashSet<>()).add(action);
+            }
+        }
+        Map<String, Set<String>> frozen = new HashMap<>(out.size());
+        out.forEach((entry, actions) -> frozen.put(entry, Set.copyOf(actions)));
+        return Collections.unmodifiableMap(frozen);
+    }
+
     private final PermissionEndpointSource endpointSource;
 
     /**
@@ -182,11 +200,16 @@ public class EndpointIndex {
      *  the actions whose endpoints are shared across models and so cannot be told apart by URL. */
     private Map<String, Set<String>> actionIndex = Map.of();
 
+    /** {@code "<Model> <action>"} → the permission ids reaching any standard endpoint of a per-model
+     *  action on that model, whether derived or hand-listed. See {@link #modelActionPermissions}. */
+    private Map<String, Set<String>> modelActionIndex = Map.of();
+
     @PostConstruct
     void init() {
         Map<String, Set<String>> exact = new HashMap<>();
         List<PatternEntry> patterns = new ArrayList<>();
         Map<String, Set<String>> actions = new HashMap<>();
+        Map<String, Set<String>> modelActions = new HashMap<>();
 
         for (PermissionEndpointDef def : endpointSource.getPermissionEndpoints()) {
             if (def.model() != null && !def.model().isEmpty() && def.permissionId() != null) {
@@ -195,6 +218,7 @@ public class EndpointIndex {
             }
             List<String> endpoints = explicitOrDerive(def);
             for (String ep : endpoints) {
+                indexModelAction(ep, def.permissionId(), modelActions);
                 if (ep.contains("{")) {
                     patterns.add(PatternEntry.compile(ep, def.permissionId()));
                 } else {
@@ -214,6 +238,9 @@ public class EndpointIndex {
         Map<String, Set<String>> frozenActions = new HashMap<>(actions.size());
         actions.forEach((key, ids) -> frozenActions.put(key, Set.copyOf(ids)));
         this.actionIndex = Collections.unmodifiableMap(frozenActions);
+        Map<String, Set<String>> frozenModelActions = new HashMap<>(modelActions.size());
+        modelActions.forEach((key, ids) -> frozenModelActions.put(key, Set.copyOf(ids)));
+        this.modelActionIndex = Collections.unmodifiableMap(frozenModelActions);
         log.info("EndpointIndex built: {} exact + {} pattern entries",
                 exact.size(), patterns.size());
     }
@@ -255,6 +282,40 @@ public class EndpointIndex {
      */
     public Set<String> actionPermissions(String model, String action) {
         return actionIndex.getOrDefault(model + " " + action, Set.of());
+    }
+
+    /**
+     * The permission ids that reach a standard endpoint of {@code action} on {@code model} — "who may
+     * perform this action on this model", asked without a URL.
+     *
+     * <p>Covers every endpoint a permission registers, whichever way it got there: the standard set a
+     * permission without explicit endpoints derives (its relation lookups included), and a hand-listed
+     * {@code VERB /Model/suffix} whose suffix is one of the action's standard endpoints. A permission
+     * listing only {@code POST /Employee/updateList} therefore counts for {@code update} on
+     * {@code Employee}, as it does at the endpoint gate. Asking by one fixed URL per action missed it,
+     * and a missed holder silently widened the action to the rows of every role.
+     *
+     * @param model  the model the endpoint path names
+     * @param action one of {@code view}, {@code create}, {@code update}, {@code delete}
+     * @return the permission ids, empty when none reaches any of them
+     */
+    public Set<String> modelActionPermissions(String model, String action) {
+        return modelActionIndex.getOrDefault(model + " " + action, Set.of());
+    }
+
+    /** Record {@code endpoint} under each per-model standard action its {@code VERB /Model/suffix} is in. */
+    private static void indexModelAction(String endpoint, String permissionId, Map<String, Set<String>> out) {
+        if (permissionId == null) return;
+        int space = endpoint.indexOf(' ');
+        if (space <= 0 || endpoint.length() < space + 2 || endpoint.charAt(space + 1) != '/') return;
+        int slash = endpoint.indexOf('/', space + 2);
+        if (slash < 0) return;
+        String model = endpoint.substring(space + 2, slash);
+        Set<String> matched = ACTIONS_BY_ENTRY.get(endpoint.substring(0, space) + " " + endpoint.substring(slash + 1));
+        if (model.isEmpty() || matched == null) return;
+        for (String action : matched) {
+            out.computeIfAbsent(model + " " + action, k -> new HashSet<>()).add(permissionId);
+        }
     }
 
     /**

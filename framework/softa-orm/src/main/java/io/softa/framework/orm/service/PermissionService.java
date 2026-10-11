@@ -259,8 +259,8 @@ public interface PermissionService {
      * index. The file upload endpoints cannot be matched that way — their model arrives as a request
      * <em>parameter</em>, so {@code /file/...} resolves to no model — and they are reachable only
      * because they are whitelisted, which means the gate never runs for them at all. They ask here
-     * instead, naming the model and the action, and the same index answers via the canonical endpoint
-     * for that pair.
+     * instead, naming the model and the action, and the same index answers from every standard endpoint
+     * of that action on that model.
      *
      * <p><b>Two defaults point opposite ways, and confusing them is easy.</b> The endpoint gate denies
      * an unregistered URL — an endpoint nobody wrote a permission for is unreachable. This grants an
