@@ -633,4 +633,40 @@ class GrantPairFieldMaskTest {
 
         assertThat(sorted.getOrders().getFields()).containsExactly("employeeId.ipaBasic");
     }
+
+    // ─── fields never visible ───
+
+    @Test
+    @DisplayName("fields no role grants are listed per model as never visible")
+    void fieldsNoRoleGrantsAreHidden() {
+        SensitiveFieldSetCache sets = (SensitiveFieldSetCache) org.springframework.test.util.ReflectionTestUtils
+                .getField(service, "sfsCache");
+        when(sets.modelsWithSensitiveFields()).thenReturn(Set.of("Employee"));
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
+
+        assertThat(as(service::getHiddenSensitiveFields)).containsOnlyKeys("Employee");
+        assertThat(as(service::getHiddenSensitiveFields).get("Employee")).containsExactlyInAnyOrderElementsOf(IPA);
+    }
+
+    @Test
+    @DisplayName("a field some role grants, even on some rows only, is not listed")
+    void aFieldGrantedOnSomeRowsIsNotHidden() {
+        SensitiveFieldSetCache sets = (SensitiveFieldSetCache) org.springframework.test.util.ReflectionTestUtils
+                .getField(service, "sfsCache");
+        when(sets.modelsWithSensitiveFields()).thenReturn(Set.of("Employee"));
+        holdTheExampleRoles();
+
+        assertThat(as(service::getHiddenSensitiveFields)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an admin has nothing hidden")
+    void anAdminHasNothingHidden() {
+        SensitiveFieldSetCache sets = (SensitiveFieldSetCache) org.springframework.test.util.ReflectionTestUtils
+                .getField(service, "sfsCache");
+        when(sets.modelsWithSensitiveFields()).thenReturn(Set.of("Employee"));
+        pi.setRoleCodes(Set.of(io.softa.framework.base.enums.BuiltinRole.TENANT_ADMIN.getCode()));
+
+        assertThat(as(service::getHiddenSensitiveFields)).isEmpty();
+    }
 }

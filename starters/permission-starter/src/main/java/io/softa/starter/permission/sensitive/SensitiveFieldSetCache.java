@@ -195,6 +195,15 @@ public class SensitiveFieldSetCache {
         return codes == null ? Set.of() : codes;
     }
 
+    /** Every model with at least one sensitive field registered. */
+    public Set<String> modelsWithSensitiveFields() {
+        Set<String> out = new HashSet<>();
+        allSensitiveByModel.get().forEach((model, codes) -> {
+            if (codes != null && !codes.isEmpty()) out.add(model);
+        });
+        return out;
+    }
+
     /** True iff this model has at least one sensitive_field_set defined.
      *  Hot-path optimization: callers skip the user-grant lookup entirely
      *  when the model has no sensitive fields. */

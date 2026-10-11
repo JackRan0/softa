@@ -295,6 +295,22 @@ public interface PermissionService {
     }
 
     /**
+     * The sensitive fields the caller can never see, per model: on each model that has sensitive
+     * fields, those no role of the caller grants on any row. A screen can leave them out altogether
+     * instead of rendering columns and inputs that would always come back empty or be refused.
+     *
+     * <p>Fields some role grants are not listed, even where they are hidden on some rows — that is
+     * per record, answered by {@link #getRecordAccess}. Models with nothing hidden are omitted.
+     *
+     * <p>Default: nothing hidden.
+     *
+     * @return model name → field names; empty for a caller with full data access
+     */
+    default Map<String, Set<String>> getHiddenSensitiveFields() {
+        return Map.of();
+    }
+
+    /**
      * Which sensitive sets a form creating a record of {@code model} must not show.
      *
      * <p>Default: none.

@@ -1027,6 +1027,25 @@ public class PermissionServiceImpl implements PermissionService {
         return new CreateAccess(hidden);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The same answer {@link #checkWritePayload} refuses by: per model, the sensitive fields none of
+     * the caller's roles grants.
+     */
+    @Override
+    public Map<String, Set<String>> getHiddenSensitiveFields() {
+        if (shouldBypass() || sfsCache == null) return Map.of();
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.hasFullDataAccess(pi)) return Map.of();
+        Map<String, Set<String>> hidden = new java.util.TreeMap<>();
+        for (String model : sfsCache.modelsWithSensitiveFields()) {
+            Set<String> blocked = blockedForAnyRole(pi, model);
+            if (!blocked.isEmpty()) hidden.put(model, new java.util.TreeSet<>(blocked));
+        }
+        return hidden;
+    }
+
     /** Whether the grant holds {@code set}, wherever the set's own model is — {@code model} when unknown. */
     private boolean grantsSet(Grant g, String model, String set) {
         String setModel = sfsCache == null ? null : sfsCache.modelOf(set);
