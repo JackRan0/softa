@@ -99,7 +99,7 @@ class GrantPairFieldMaskTest {
         });
         when(sets.setIdsContaining(eq("Employee"), anyString())).thenReturn(Set.of("ipa-details"));
         when(sets.nameOf("ipa-details")).thenReturn("IPA Details");
-        when(sets.labelOf("ipa-details")).thenReturn("IPA");
+        when(sets.shortNameOf("ipa-details")).thenReturn("IPA");
         when(sets.setIdsOwnedBy("Employee")).thenReturn(Set.of("ipa-details"));
 
         models = Mockito.mockStatic(ModelManager.class);

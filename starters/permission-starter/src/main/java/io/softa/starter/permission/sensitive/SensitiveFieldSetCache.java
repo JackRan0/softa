@@ -85,7 +85,7 @@ public class SensitiveFieldSetCache {
     private final AtomicReference<Map<String, String>> setIdToName =
             new AtomicReference<>(Map.of());
     /** setId → the short noun refusals name its fields by; only sets that declare one. */
-    private final AtomicReference<Map<String, String>> setIdToLabel = new AtomicReference<>(Map.of());
+    private final AtomicReference<Map<String, String>> setIdToShortName = new AtomicReference<>(Map.of());
 
     /** attachmentModel → list of setIds that declared {@code attachedTo}
      *  containing that model. Powers Wizard "extra rows" so a SFS bound to
@@ -128,7 +128,7 @@ public class SensitiveFieldSetCache {
         Map<String, Set<String>> bySetId = new HashMap<>();
         Map<String, String> setToModel = new HashMap<>();
         Map<String, String> setToName = new HashMap<>();
-        Map<String, String> setToLabel = new HashMap<>();
+        Map<String, String> setToShortName = new HashMap<>();
         Map<String, Set<String>> byAttached = new HashMap<>();
         for (SensitiveFieldSetDef s : sets) {
             if (s.id() == null || s.model() == null) continue;
@@ -136,7 +136,7 @@ public class SensitiveFieldSetCache {
             bySetId.put(s.id(), codes);
             setToModel.put(s.id(), s.model());
             if (s.name() != null) setToName.put(s.id(), s.name());
-            if (s.label() != null && !s.label().isBlank()) setToLabel.put(s.id(), s.label());
+            if (s.shortName() != null && !s.shortName().isBlank()) setToShortName.put(s.id(), s.shortName());
             byModel.computeIfAbsent(s.model(), k -> new HashSet<>()).addAll(codes);
             // Index UI attachment hints. attachedTo lets a SFS bound to
             // model A appear as a Wizard option under nav rows whose
@@ -154,18 +154,18 @@ public class SensitiveFieldSetCache {
         setIdToFieldCodes.set(Map.copyOf(bySetId));
         setIdToModel.set(Map.copyOf(setToModel));
         setIdToName.set(Map.copyOf(setToName));
-        setIdToLabel.set(Map.copyOf(setToLabel));
+        setIdToShortName.set(Map.copyOf(setToShortName));
         setIdsByAttachedModel.set(Map.copyOf(byAttached));
         log.info("SensitiveFieldSetCache — loaded {} sensitive_field_set defs across {} models ({} attachment hints)",
                 sets.size(), byModel.size(), byAttached.size());
     }
 
-    /** The short noun a refusal names the set's fields by ("IPA" → "IPA fields"); falls back to
+    /** The short noun a refusal names the set's fields by ("Pay" → "Pay fields"); falls back to
      *  {@link #nameOf}, then null. */
-    public String labelOf(String setId) {
+    public String shortNameOf(String setId) {
         if (setId == null) return null;
-        String label = setIdToLabel.get().get(setId);
-        return label != null ? label : nameOf(setId);
+        String shortName = setIdToShortName.get().get(setId);
+        return shortName != null ? shortName : nameOf(setId);
     }
 
     /** Display name of a {@code setId}, or null if unknown. Powers Wizard

@@ -1015,13 +1015,13 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     /**
-     * Named the way a user sees them: the set's short label ("IPA") and the model ("employee") —
-     * "You don't have permission to edit IPA fields for this employee." A file import reads "update",
+     * Named the way a user sees them: the set's short name ("Pay") and the model ("employee") —
+     * "You don't have permission to edit Pay fields for this employee." A file import reads "update",
      * since the uploader is not editing anything.
      */
     private PermissionException sensitiveWriteDenied(String model, String field) {
         String set = sfsCache.setIdsContaining(model, field).stream()
-                .map(sfsCache::labelOf)
+                .map(sfsCache::shortNameOf)
                 .filter(StringUtils::isNotBlank)
                 .sorted()
                 .findFirst()

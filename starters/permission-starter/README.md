@@ -408,7 +408,7 @@ granting the same sets, mask model-wide as before. Consequences:
 - `maskRows(model, rows)` masks rows read outside the standard path (change logs);
 - a filter on a conditional field matches only rows where it is visible; a sort on it is dropped; a
   grouping or aggregate on it is refused (`guardQuery`);
-- a refused write names the set by its short `label`, worded `update` inside an import (`ImportScope`)
+- a refused write names the set by its `shortName` (falling back to its `name`), worded `update` inside an import (`ImportScope`)
   and `edit` elsewhere.
 
 **Record access.** `POST /{model}/getRecordAccess` answers, per record, which sets are hidden or
