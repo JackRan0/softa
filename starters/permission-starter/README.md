@@ -386,7 +386,10 @@ hold that action (`holders`), each role bounded by its own company grant and its
 - `@RequirePermission(accessType = …)` checks a custom endpoint's id / filters against that action.
 
 When no role holds the action, or the action has no registered permission, the old union scope applies,
-so a model nobody configured per action behaves as before.
+so a model nobody configured per action behaves as before. Export is the exception to the first case:
+the export endpoints are shared by every model, so the gate cannot tell which model's export admitted
+the caller, and an export of a model whose export permission is registered but held by none of the
+caller's roles reaches no row (and shows no sensitive field).
 
 **Sensitive fields, per row.** A sensitive field is visible on a row only when a role that reaches the
 row also holds the field's set; editable only when one role holds the write action, the set and the

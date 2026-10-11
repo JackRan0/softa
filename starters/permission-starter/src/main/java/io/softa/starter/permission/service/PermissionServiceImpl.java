@@ -273,6 +273,13 @@ public class PermissionServiceImpl implements PermissionService {
      * nothing names who may perform the action, so whatever reached this read was authorized
      * elsewhere — a flow, a service acting for the caller — and row scope stays what it was before
      * actions had scopes of their own. Where a role does hold the action, only the holders count.
+     *
+     * <p>An export is the exception to the last case: when its permission is registered for the model
+     * and none of the caller's roles holds it, there are no holders and the export reaches no row. The
+     * export endpoints are shared by every model — the model rides in a parameter — so the endpoint gate
+     * lets through anyone holding the export of <em>some</em> model, and cannot have authorized this one.
+     * Falling back to every role there let a user who may export one model export or count every
+     * readable row of any other. A model with no export permission registered at all keeps the fallback.
      */
     List<Grant> holders(PermissionInfo pi, String model, AccessType access) {
         List<RoleGrant> roles = pi == null ? null : pi.getRoleGrants();
@@ -287,7 +294,10 @@ public class PermissionServiceImpl implements PermissionService {
         List<Grant> holding = all.stream()
                 .filter(g -> g.permissions().stream().anyMatch(candidates::contains))
                 .toList();
-        return holding.isEmpty() ? all : holding;
+        if (holding.isEmpty()) {
+            return access == AccessType.EXPORT ? List.of() : all;
+        }
+        return holding;
     }
 
     /**

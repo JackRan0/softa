@@ -72,6 +72,7 @@ class GrantPairScopeTest {
     private PermissionInfo pi;
     private ModelService<Long> modelService;
     private PermissionServiceImpl service;
+    private EndpointIndex index;
 
     @BeforeEach
     void setUp() {
@@ -79,7 +80,7 @@ class GrantPairScopeTest {
         PermissionSnapshotProvider provider = mock(PermissionSnapshotProvider.class);
         when(provider.get(anyLong(), anyLong())).thenAnswer(inv -> pi);
 
-        EndpointIndex index = mock(EndpointIndex.class);
+        index = mock(EndpointIndex.class);
         when(index.lookup(anyString(), anyString())).thenReturn(Set.of());
         when(index.lookup("/Employee/searchPage", "POST")).thenReturn(Set.of(VIEW));
         when(index.lookup("/Employee/updateOne", "POST")).thenReturn(Set.of(UPDATE));
@@ -231,6 +232,25 @@ class GrantPairScopeTest {
 
         assertThat(scope(AccessType.EXPORT).toString()).contains("departmentId", "10");
         assertThat(Filters.isEmpty(scope(AccessType.READ))).isTrue();
+    }
+
+    @Test
+    @DisplayName("an export of a model whose export permission nobody holds reaches no row")
+    void anExportNobodyHoldsReachesNothing() {
+        // The shared export endpoints let this user through on another model's export permission.
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW, "permission.department.export"), ScopeType.ALL, null, null)));
+
+        assertThat(scope(AccessType.EXPORT)).isEqualTo(ScopeRuleCompiler.matchNone());
+        assertThat(Filters.isEmpty(scope(AccessType.READ))).isTrue();
+    }
+
+    @Test
+    @DisplayName("an export of a model with no export permission registered keeps every role's rows")
+    void anExportOfAModelWithoutAnExportPermissionKeepsTheMergedRows() {
+        when(index.actionPermissions("Employee", "export")).thenReturn(Set.of());
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, null)));
+
+        assertThat(Filters.isEmpty(scope(AccessType.EXPORT))).isTrue();
     }
 
     @Test
