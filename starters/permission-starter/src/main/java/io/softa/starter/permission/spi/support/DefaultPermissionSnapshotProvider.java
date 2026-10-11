@@ -1,6 +1,7 @@
 package io.softa.starter.permission.spi.support;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -272,6 +273,28 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     }
 
     /**
+     * "My companies" across the roles: the union of each role's own company grant, and {@code null}
+     * (unrestricted) as soon as one role's grant is.
+     *
+     * <p>Not the grant read off the merged rules. A role with no rule on the company model contributes
+     * nothing to the merge, yet on the data plane it is unrestricted — so role A limited to company 1
+     * plus role B with no company rule reaches every company through B, while the merged rules said
+     * "company 1" and narrowed every "my companies / my countries" domain to it. Tri-state as each
+     * role's: {@code null} unrestricted, empty no company, otherwise exactly those.
+     */
+    static Set<Long> unionOfCompanyGrants(Collection<RoleGrant> grants) {
+        Set<Long> union = new HashSet<>();
+        for (RoleGrant grant : grants) {
+            Set<Long> own = grant.getGrantedCompanyIds();
+            if (own == null) {
+                return null;
+            }
+            union.addAll(own);
+        }
+        return union;
+    }
+
+    /**
      * The countries behind a company grant — "my countries" — read from the company model.
      *
      * <p>{@code null} ids mean an unrestricted grant, and resolve to the countries of <b>every</b>
@@ -410,12 +433,14 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         }
 
         // 3b-2. The company axis, derived from the scope just read for the company model, and the
-        // countries behind it. The union answers "my companies"; each role keeps its own for its pair.
-        Set<Long> grantedCompanyIds = readGrantedCompanyIds(modelScopeMap);
-        Set<String> grantedCountries = readGrantedCountries(grantedCompanyIds);
+        // countries behind it. Each role keeps its own for its pair; "my companies" is their union.
         for (RoleGrant grant : grantsByRole.values()) {
             grant.setGrantedCompanyIds(readGrantedCompanyIds(grant.getModelScopeMap()));
         }
+        Set<Long> grantedCompanyIds = grantsByRole.isEmpty()
+                ? readGrantedCompanyIds(modelScopeMap)
+                : unionOfCompanyGrants(grantsByRole.values());
+        Set<String> grantedCountries = readGrantedCountries(grantedCompanyIds);
         // 3c. Sensitive-field-set grants, keyed by the SFS's canonical model.
         Map<String, Set<String>> modelSensitiveFieldSetsMap = new HashMap<>();
         List<RoleSfsView> sfsGrants = modelService.searchList(M_ROLE_SFS,

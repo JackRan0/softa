@@ -369,6 +369,9 @@ Merged, a role seeing every employee and a role editing one department's would e
 The snapshot keeps both shapes: `PermissionInfo.roleGrants` (one `RoleGrant` per role: its permissions,
 its scope rules per model with their `scopeCondition`, its sensitive sets, its company grant) for the
 data plane, and the old unions for menus, endpoint admission and the "my companies / countries" domains.
+"My companies" is the union of the roles' own company grants, unrestricted as soon as one role's is (a
+role with no rule on the company model reaches every company), so the domain matches what the data
+plane lets the user reach.
 The shape changed, so **clear `perm:*` after deploying**; a snapshot cached before that reads by the old
 union until it expires.
 
