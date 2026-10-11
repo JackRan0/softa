@@ -415,6 +415,22 @@ public class PermissionServiceImpl implements PermissionService {
         return rewriteSubtrees(model, originalFilters);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The same steps as {@link #appendScopeAccessFilters} up to, and excluding, the row range — so a
+     * label lookup such as {@code searchName} still crosses the range, but a condition on a sensitive
+     * field matches only where the caller may see that field, exactly as on a direct read.
+     */
+    @Override
+    public Filters appendScopeAccessFiltersIgnoringRowScope(String model, Filters originalFilters) {
+        originalFilters = rewriteScopeFilters(model, originalFilters);
+        if (shouldBypass()) return originalFilters;
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.hasFullDataAccess(pi)) return originalFilters;
+        return guardSensitiveConditions(pi, model, AccessScope.current(), originalFilters);
+    }
+
     private Filters rewriteSubtrees(String model, Filters filters) {
         SubtreeFilterRewriter rewriter = subtreeRewriterSupplier.get();
         return rewriter == null ? filters : rewriter.rewrite(model, filters);

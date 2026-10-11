@@ -503,7 +503,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * <p>What {@code applyRowScope == false} drops is exactly the row range: the role's per-model
      * rules and the company grant. It does NOT drop the country narrowing, nor the subtree rewrite
      * that {@code appendScopeAccessFilters} performs before any of its own early returns — those two
-     * apply to every caller, an admin and a relation expansion included. A subtree condition left
+     * apply to every caller, an admin and a relation expansion included. Nor does it drop the guard on
+     * conditions written against a sensitive field: {@code searchName} takes the caller's filters, and
+     * a condition on a value the caller cannot see would otherwise test it across the whole table. A subtree condition left
      * unrewritten does not widen or narrow a result, it compiles to a pattern match against an id and
      * matches by coincidence; and an expansion reading a country-partitioned model wants the same
      * countries a direct read would.
@@ -512,7 +514,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         Filters narrowed = MultiCountryScope.append(modelName, filters);
         return applyRowScope
                 ? permissionService.appendScopeAccessFilters(modelName, narrowed)
-                : permissionService.rewriteScopeFilters(modelName, narrowed);
+                : permissionService.appendScopeAccessFiltersIgnoringRowScope(modelName, narrowed);
     }
 
     /**

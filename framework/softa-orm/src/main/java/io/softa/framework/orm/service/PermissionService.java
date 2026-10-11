@@ -118,6 +118,27 @@ public interface PermissionService {
     }
 
     /**
+     * Everything {@link #appendScopeAccessFilters} does except adding the caller's row range: the
+     * rewrite of {@link #rewriteScopeFilters}, and the guard on conditions the caller wrote against
+     * fields it may not see on every row.
+     *
+     * <p>Used by a read that legitimately crosses the caller's row range — see
+     * {@link ModelService#searchListIgnoringRowScope}. Crossing the range to resolve a label says
+     * nothing about which values the caller may test: {@code searchName} accepts the caller's own
+     * filters, so without the guard a condition such as {@code salary > 5000} would sort every row of
+     * the table by a figure the caller is never shown.
+     *
+     * <p>Default: the rewrite alone, which is what an implementation without field guards needs.
+     *
+     * @param model the model being queried
+     * @param originalFilters the filters as assembled so far
+     * @return the filters with the rewrite and the condition guard applied, without the row range
+     */
+    default Filters appendScopeAccessFiltersIgnoringRowScope(String model, Filters originalFilters) {
+        return rewriteScopeFilters(model, originalFilters);
+    }
+
+    /**
      * Silently drop blocked-for-{@code accessType} fields from the caller's
      * requested field set. Used inside read entry points
      * ({@code searchList}/{@code searchPage}/etc.) before the SELECT clause

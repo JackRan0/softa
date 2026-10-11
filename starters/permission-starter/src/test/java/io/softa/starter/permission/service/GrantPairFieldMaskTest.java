@@ -290,6 +290,44 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
+    @DisplayName("a label lookup ignoring the row range still matches a condition on an ungranted field nowhere")
+    void ignoringTheRowRangeAConditionOnAnUngrantedFieldStillMatchesNothing() {
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
+
+        Filters guarded = as(() -> service.appendScopeAccessFiltersIgnoringRowScope("Employee",
+                Filters.of("ipaBasic", Operator.GREATER_THAN, 5000)));
+
+        assertThat(guarded).isEqualTo(ScopeRuleCompiler.matchNone());
+    }
+
+    @Test
+    @DisplayName("a label lookup ignoring the row range binds a condition on IPA to the granting role's rows only")
+    void ignoringTheRowRangeAConditionOnAPerRowFieldIsBoundToTheGrantingRole() {
+        pi.setRoleGrants(List.of(
+                role(1, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, null, false),
+                role(2, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, NOT_EP, true)));
+        Filters condition = Filters.of("ipaBasic", Operator.GREATER_THAN, 5000);
+
+        Filters guarded = as(() -> service.appendScopeAccessFiltersIgnoringRowScope("Employee", condition));
+
+        // The condition AND R2's rows — and nothing of the caller's row range, which would add R1's too.
+        assertThat(guarded.toString()).contains("ipaBasic", "residenceStatus");
+        assertThat(guarded.toString().split("departmentId", -1)).hasSize(2);
+        Filters scoped = as(() -> service.appendScopeAccessFilters("Employee", condition));
+        assertThat(scoped.toString().split("departmentId", -1)).hasSizeGreaterThan(2);
+    }
+
+    @Test
+    @DisplayName("a label lookup ignoring the row range leaves a condition on an ordinary field alone")
+    void ignoringTheRowRangeAnOrdinaryConditionIsUntouched() {
+        holdTheExampleRoles();
+        Filters condition = Filters.of("name", Operator.EQUAL, "E1");
+
+        assertThat(as(() -> service.appendScopeAccessFiltersIgnoringRowScope("Employee", condition)))
+                .isSameAs(condition);
+    }
+
+    @Test
     @DisplayName("rows read elsewhere — a change log's values — are masked the same way")
     void rowsFromElsewhereAreMaskedByTheirId() {
         holdTheExampleRoles();
