@@ -213,7 +213,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (node.getType() == FilterType.LEAF) {
             FilterUnit unit = node.getFilterUnit();
             String field = unit == null ? null : unit.getField();
-            return field != null && (plan.blocked().contains(field) || plan.conditional().contains(field));
+            return field != null && (plan.blocked().contains(field) || plan.perRow().contains(field));
         }
         if (node.getType() == FilterType.TREE && node.getChildren() != null) {
             for (Filters child : node.getChildren()) {
@@ -230,7 +230,7 @@ public class PermissionServiceImpl implements PermissionService {
             String field = unit == null ? null : unit.getField();
             if (field == null) return node;
             if (plan.blocked().contains(field)) return ScopeRuleCompiler.matchNone();
-            if (!plan.conditional().contains(field)) return node;
+            if (!plan.perRow().contains(field)) return node;
             List<Grant> granting = new ArrayList<>();
             plan.readersByFields().forEach((fields, readers) -> {
                 if (fields.contains(field)) granting.addAll(readers);
@@ -695,14 +695,14 @@ public class PermissionServiceImpl implements PermissionService {
                 if (row.containsKey(f)) row.put(f, null);
             }
         }
-        if (plan.conditional().isEmpty()) return;
+        if (plan.perRow().isEmpty()) return;
         List<Serializable> ids = new ArrayList<>();
         for (Map<String, Object> row : rows) {
-            if (row.get(ModelConstant.ID) instanceof Serializable id && showsAny(row, plan.conditional())) {
+            if (row.get(ModelConstant.ID) instanceof Serializable id && showsAny(row, plan.perRow())) {
                 ids.add(id);
             }
         }
-        // For each distinct set of conditional fields some readers grant, the rows those readers reach.
+        // For each distinct set of per-row fields some readers grant, the rows those readers reach.
         Map<Set<String>, Set<Object>> reachedBy = new java.util.HashMap<>();
         if (!ids.isEmpty()) {
             plan.readersByFields().forEach((fields, readers) ->
@@ -714,7 +714,7 @@ public class PermissionServiceImpl implements PermissionService {
             reachedBy.forEach((fields, reached) -> {
                 if (id != null && reached.contains(normalizeId(id))) visible.addAll(fields);
             });
-            for (String f : plan.conditional()) {
+            for (String f : plan.perRow()) {
                 if (!visible.contains(f) && row.containsKey(f)) row.put(f, null);
             }
         }
@@ -748,10 +748,10 @@ public class PermissionServiceImpl implements PermissionService {
      *
      * <ul>
      *   <li><b>blocked</b> — no role holding the action grants the field: hidden on every row;</li>
-     *   <li><b>conditional</b> — some do, some do not: shown on the rows of the roles that do;</li>
+     *   <li><b>perRow</b> — some do, some do not: shown on the rows of the roles that do;</li>
      *   <li>the rest — every holder grants it: shown wherever the row itself is.</li>
      * </ul>
-     * A single role, or roles granting the same sets, leaves nothing conditional, and the mask is the
+     * A single role, or roles granting the same sets, leaves nothing per-row, and the mask is the
      * model-wide one it always was — no per-row query.
      */
     private FieldPlan fieldPlan(PermissionInfo pi, String model, AccessType access) {
@@ -773,40 +773,40 @@ public class PermissionServiceImpl implements PermissionService {
         }
         Set<String> blocked = new java.util.HashSet<>(sensitive);
         blocked.removeAll(anyGrants);
-        Set<String> conditional = new java.util.HashSet<>(anyGrants);
-        if (allGrant != null) conditional.removeAll(allGrant);
-        conditional.retainAll(sensitive);
+        Set<String> perRow = new java.util.HashSet<>(anyGrants);
+        if (allGrant != null) perRow.removeAll(allGrant);
+        perRow.retainAll(sensitive);
         Map<Set<String>, List<Grant>> readersByFields = new java.util.HashMap<>();
-        if (!conditional.isEmpty()) {
+        if (!perRow.isEmpty()) {
             grantedBy.forEach((g, granted) -> {
                 Set<String> fields = new java.util.HashSet<>(granted);
-                fields.retainAll(conditional);
+                fields.retainAll(perRow);
                 if (!fields.isEmpty()) {
                     readersByFields.computeIfAbsent(fields, k -> new ArrayList<>()).add(g);
                 }
             });
         }
-        return new FieldPlan(blocked, conditional, readersByFields);
+        return new FieldPlan(blocked, perRow, readersByFields);
     }
 
     /**
      * @param blocked fields hidden on every row
-     * @param conditional fields shown only on the rows of the roles granting them
-     * @param readersByFields for each distinct set of conditional fields, the roles granting exactly it
+     * @param perRow fields shown only on the rows of the roles granting them
+     * @param readersByFields for each distinct set of per-row fields, the roles granting exactly it
      */
-    private record FieldPlan(Set<String> blocked, Set<String> conditional,
+    private record FieldPlan(Set<String> blocked, Set<String> perRow,
                              Map<Set<String>, List<Grant>> readersByFields) {
         static final FieldPlan NONE = new FieldPlan(Set.of(), Set.of(), Map.of());
 
         boolean isEmpty() {
-            return blocked.isEmpty() && conditional.isEmpty();
+            return blocked.isEmpty() && perRow.isEmpty();
         }
     }
 
     /**
      * {@inheritDoc}
      *
-     * <p>"Can't see on every row" is the field plan's blocked plus conditional: masked values sorted
+     * <p>"Can't see on every row" is the field plan's blocked plus per-row: masked values sorted
      * among visible ones would place each hidden figure between its neighbours. The sort is dropped
      * rather than refused, as a list a user merely clicked a header on should still load; a grouping
      * or aggregate is refused, since dropping it would change what the result means.
@@ -819,7 +819,7 @@ public class PermissionServiceImpl implements PermissionService {
         FieldPlan plan = fieldPlan(pi, model, readAccess(AccessType.READ));
         if (plan.isEmpty()) return;
         Set<String> masked = new java.util.HashSet<>(plan.blocked());
-        masked.addAll(plan.conditional());
+        masked.addAll(plan.perRow());
         Orders orders = flexQuery.getOrders();
         if (orders != null && orders.getFields().stream().anyMatch(masked::contains)) {
             Orders kept = new Orders();

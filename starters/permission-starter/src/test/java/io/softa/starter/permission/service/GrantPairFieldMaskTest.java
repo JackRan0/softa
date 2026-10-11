@@ -189,7 +189,7 @@ class GrantPairFieldMaskTest {
 
     @Test
     @DisplayName("a field some reading role grants stays in the SELECT; it is masked per row afterwards")
-    void aConditionalFieldIsStillSelected() {
+    void aPerRowFieldIsStillSelected() {
         holdTheExampleRoles();
 
         assertThat(as(() -> service.filterReadableFields("Employee", List.of("id", "ipaBasic"), AccessType.READ)))
