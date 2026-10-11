@@ -197,51 +197,69 @@ public class PermissionServiceImpl implements PermissionService {
      *
      * <p>Such a condition is AND-ed with the rows of the roles granting the field, and one on a field
      * no role grants matches nothing. Rows outside are read as if the value were unknown, so they never
-     * match — {@code IS NULL} included, which is the conservative reading of "unknown". Only the
-     * model's own fields are guarded; a path into another model's sensitive field is not.
+     * match — {@code IS NULL} included, which is the conservative reading of "unknown".
+     *
+     * <p>A path through to-one relations into another model's sensitive field — {@code
+     * employeeId.salary} on a leave request — is judged by that model's plan, for the same action: no
+     * granting role there and it matches nothing; granted on some of its rows and it becomes "the
+     * relation points at a row where the condition holds and the caller may see the field", the ids
+     * read up front with the caller's own range switched off (see {@link #guardPathLeaf}).
      */
     private Filters guardSensitiveConditions(PermissionInfo pi, String model, AccessType access, Filters filters) {
-        if (filters == null || Filters.isEmpty(filters)) return filters;
-        if (sfsCache == null || !sfsCache.hasSensitiveFieldsOn(model)) return filters;
-        FieldPlan plan = fieldPlan(pi, model, readAccess(access));
-        if (plan.isEmpty() || !mentionsAny(filters, plan)) return filters;
-        return guardNode(model, filters, plan);
+        if (filters == null || Filters.isEmpty(filters) || sfsCache == null) return filters;
+        AccessType read = readAccess(access);
+        Map<String, FieldPlan> plans = new java.util.HashMap<>();
+        if (!mentionsMasked(pi, model, read, filters, plans)) return filters;
+        return guardNode(pi, model, read, filters, plans);
     }
 
-    private static boolean mentionsAny(Filters node, FieldPlan plan) {
+    private boolean mentionsMasked(PermissionInfo pi, String model, AccessType read, Filters node,
+                                   Map<String, FieldPlan> plans) {
         if (node == null) return false;
         if (node.getType() == FilterType.LEAF) {
             FilterUnit unit = node.getFilterUnit();
-            String field = unit == null ? null : unit.getField();
-            return field != null && (plan.blocked().contains(field) || plan.perRow().contains(field));
+            if (unit == null) return false;
+            for (String field : unit.getEffectiveFields()) {
+                if (maskedTarget(pi, model, field, read, plans) != null) return true;
+            }
+            return false;
         }
         if (node.getType() == FilterType.TREE && node.getChildren() != null) {
             for (Filters child : node.getChildren()) {
-                if (mentionsAny(child, plan)) return true;
+                if (mentionsMasked(pi, model, read, child, plans)) return true;
             }
         }
         return false;
     }
 
     /** Rebuilt rather than mutated: the caller's filters may be shared. */
-    private Filters guardNode(String model, Filters node, FieldPlan plan) {
+    private Filters guardNode(PermissionInfo pi, String model, AccessType read, Filters node,
+                              Map<String, FieldPlan> plans) {
         if (node.getType() == FilterType.LEAF) {
             FilterUnit unit = node.getFilterUnit();
-            String field = unit == null ? null : unit.getField();
-            if (field == null) return node;
-            if (plan.blocked().contains(field)) return ScopeRuleCompiler.matchNone();
-            if (!plan.perRow().contains(field)) return node;
-            List<Grant> granting = new ArrayList<>();
-            plan.readersByFields().forEach((fields, readers) -> {
-                if (fields.contains(field)) granting.addAll(readers);
-            });
-            Filters where = anyOf(granting.stream().map(g -> grantScope(g, model)).toList());
-            return where == null ? node : Filters.and(node, where);
+            if (unit == null) return node;
+            if (unit.isTuple()) {
+                // A tuple compares several fields at once and cannot be narrowed field by field: one
+                // masked field in it, and it matches nothing.
+                for (String field : unit.getEffectiveFields()) {
+                    if (maskedTarget(pi, model, field, read, plans) != null) return ScopeRuleCompiler.matchNone();
+                }
+                return node;
+            }
+            PathTarget target = maskedTarget(pi, model, unit.getField(), read, plans);
+            if (target == null) return node;
+            FieldPlan plan = plans.get(target.model());
+            if (plan.blocked().contains(target.leaf())) return ScopeRuleCompiler.matchNone();
+            Filters where = grantingScope(plan, target.model(), target.leaf());
+            if (where == null) return node;
+            return target.relationPath() == null
+                    ? Filters.and(node, where)
+                    : guardPathLeaf(unit, target, where);
         }
         if (node.getType() != FilterType.TREE || node.getChildren() == null) return node;
         List<Filters> guarded = new ArrayList<>(node.getChildren().size());
         for (Filters child : node.getChildren()) {
-            guarded.add(guardNode(model, child, plan));
+            guarded.add(guardNode(pi, model, read, child, plans));
         }
         Filters copy = new Filters();
         copy.setType(FilterType.TREE);
@@ -249,6 +267,79 @@ public class PermissionServiceImpl implements PermissionService {
         copy.setChildren(guarded);
         return copy;
     }
+
+    /**
+     * A condition on {@code relationPath.leaf}, rewritten as {@code relationPath IN} the target rows
+     * where the condition holds and the granting roles reach.
+     *
+     * <p>Read up front as ids rather than AND-ed on as a cascaded condition: the granting roles' scope
+     * is a filter on the target model, and prefixing every field in it with the path would both add
+     * join depth past what the query builder accepts and misread any part of it that is not a plain
+     * column of the target. The ids are at most the rows the caller may see the field on.
+     */
+    private Filters guardPathLeaf(FilterUnit unit, PathTarget target, Filters where) {
+        Filters onTarget = Filters.and(Filters.of(target.leaf(), unit.getOperator(), unit.getValue()), where);
+        List<?> ids = unscoped(() -> modelService.getIds(target.model(), onTarget));
+        return ids.isEmpty()
+                ? ScopeRuleCompiler.matchNone()
+                : Filters.of(target.relationPath(), Operator.IN, ids);
+    }
+
+    /** The rows of the roles granting {@code field} on {@code model}; {@code null} when one of them reaches all. */
+    private Filters grantingScope(FieldPlan plan, String model, String field) {
+        List<Grant> granting = new ArrayList<>();
+        plan.readersByFields().forEach((fields, readers) -> {
+            if (fields.contains(field)) granting.addAll(readers);
+        });
+        return anyOf(granting.stream().map(g -> grantScope(g, model)).toList());
+    }
+
+    /**
+     * Where {@code field} — the model's own, or a path through to-one relations — lands, when what it
+     * lands on is a sensitive field the caller cannot see on every row (blocked or per-row for
+     * {@code read}); {@code null} for anything else. The plan of the model it lands on is left in
+     * {@code plans}.
+     */
+    private PathTarget maskedTarget(PermissionInfo pi, String model, String field, AccessType read,
+                                    Map<String, FieldPlan> plans) {
+        PathTarget target = resolvePath(model, field);
+        if (target == null || !sfsCache.hasSensitiveFieldsOn(target.model())
+                || !sfsCache.allSensitiveFieldsOn(target.model()).contains(target.leaf())) {
+            return null;
+        }
+        FieldPlan plan = plans.computeIfAbsent(target.model(), m -> fieldPlan(pi, m, read));
+        return plan.blocked().contains(target.leaf()) || plan.perRow().contains(target.leaf()) ? target : null;
+    }
+
+    /**
+     * {@code field} resolved against {@code model}: a plain name is the model's own field; a dotted path
+     * walks many-to-one / one-to-one relations to the model its last segment belongs to. {@code null}
+     * when a segment is not such a relation — a path this guard cannot follow is left as it was.
+     */
+    private static PathTarget resolvePath(String model, String field) {
+        if (field == null || model == null) return null;
+        int dot = field.lastIndexOf('.');
+        if (dot < 0) return new PathTarget(model, field, null);
+        String current = model;
+        for (String segment : field.substring(0, dot).split("\\.")) {
+            if (!ModelManager.existField(current, segment)) return null;
+            MetaField relation = ModelManager.getModelField(current, segment);
+            if (relation == null || relation.getRelatedModel() == null
+                    || (relation.getFieldType() != FieldType.MANY_TO_ONE
+                        && relation.getFieldType() != FieldType.ONE_TO_ONE)) {
+                return null;
+            }
+            current = relation.getRelatedModel();
+        }
+        return new PathTarget(current, field.substring(dot + 1), field.substring(0, dot));
+    }
+
+    /**
+     * @param model        the model the leaf field belongs to
+     * @param leaf         the field's own name on that model
+     * @param relationPath the to-one path leading there; {@code null} for the queried model's own field
+     */
+    private record PathTarget(String model, String leaf, String relationPath) {}
 
     // ─────────────────────── grant pairs ───────────────────────
 
@@ -806,25 +897,27 @@ public class PermissionServiceImpl implements PermissionService {
     /**
      * {@inheritDoc}
      *
-     * <p>"Can't see on every row" is the field plan's blocked plus per-row: masked values sorted
-     * among visible ones would place each hidden figure between its neighbours. The sort is dropped
-     * rather than refused, as a list a user merely clicked a header on should still load; a grouping
-     * or aggregate is refused, since dropping it would change what the result means.
+     * <p>"Can't see on every row" is the field plan's blocked plus per-row — for the model's own fields,
+     * and for another model's reached through a to-one path such as {@code employeeId.salary}, by that
+     * model's plan. Masked values sorted among visible ones would place each hidden figure between its
+     * neighbours. The sort is dropped rather than refused, as a list a user merely clicked a header on
+     * should still load; a grouping or aggregate is refused, since dropping it would change what the
+     * result means.
      */
     @Override
     public void guardQuery(String model, FlexQuery flexQuery) {
-        if (flexQuery == null || shouldBypass()) return;
+        if (flexQuery == null || shouldBypass() || sfsCache == null) return;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return;
-        FieldPlan plan = fieldPlan(pi, model, readAccess(AccessType.READ));
-        if (plan.isEmpty()) return;
-        Set<String> masked = new java.util.HashSet<>(plan.blocked());
-        masked.addAll(plan.perRow());
+        AccessType read = readAccess(AccessType.READ);
+        Map<String, FieldPlan> plans = new java.util.HashMap<>();
+        java.util.function.Predicate<String> masked =
+                field -> field != null && maskedTarget(pi, model, field, read, plans) != null;
         Orders orders = flexQuery.getOrders();
-        if (orders != null && orders.getFields().stream().anyMatch(masked::contains)) {
+        if (orders != null && orders.getFields().stream().anyMatch(masked)) {
             Orders kept = new Orders();
             for (List<String> unit : orders.getOrderList()) {
-                if (unit.isEmpty() || masked.contains(unit.getFirst())) continue;
+                if (unit.isEmpty() || masked.test(unit.getFirst())) continue;
                 if (unit.size() > 1 && Orders.DESC.equalsIgnoreCase(unit.get(1))) {
                     kept.addDesc(unit.getFirst());
                 } else {
@@ -840,7 +933,7 @@ public class PermissionServiceImpl implements PermissionService {
             flexQuery.getAggFunctions().getFunctionList().forEach(f -> grouped.add(f.getField()));
         }
         for (String field : grouped) {
-            if (field != null && masked.contains(field)) {
+            if (masked.test(field)) {
                 throw new PermissionException("Records can't be grouped or summarised by "
                         + fieldLabel(model, field) + ": it is hidden on some of them.");
             }

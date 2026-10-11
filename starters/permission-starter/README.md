@@ -407,7 +407,12 @@ granting the same sets, mask model-wide as before. Consequences:
 
 - `maskRows(model, rows)` masks rows read outside the standard path (change logs);
 - a filter on a per-row field matches only rows where it is visible; a sort on it is dropped; a
-  grouping or aggregate on it is refused (`guardQuery`);
+  grouping or aggregate on it is refused (`guardQuery`); a filter on a blocked field matches nothing.
+  This holds on reads that ignore the row scope too (`searchName`);
+- a path through many-to-one / one-to-one relations into another model's sensitive field
+  (`employeeId.salary`) is judged by that model's plan: blocked matches nothing; per-row becomes
+  `employeeId IN` the target ids where the condition holds and the field is visible, read up front;
+  sorts and groupings on such a path follow the same rules. To-many paths are not followed;
 - a refused write names the set by its `shortName` (falling back to its `name`), worded `update` inside an import (`ImportScope`)
   and `edit` elsewhere.
 

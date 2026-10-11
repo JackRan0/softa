@@ -491,4 +491,146 @@ class GrantPairFieldMaskTest {
         assertThat(access.get(0).hiddenSets()).doesNotContain("employee-bank");
         assertThat(access.get(1).hiddenSets()).contains("employee-bank");
     }
+
+    // ─── paths into another model's sensitive field ───
+
+    /** EmpLeave.employeeId → Employee, and EmpLeaveDay.leaveId → EmpLeave: one and two to-one hops. */
+    private void relationsLeadToEmployee() {
+        relation("EmpLeave", "employeeId", io.softa.framework.orm.enums.FieldType.MANY_TO_ONE, "Employee");
+        relation("EmpLeaveDay", "leaveId", io.softa.framework.orm.enums.FieldType.MANY_TO_ONE, "EmpLeave");
+        relation("EmpLeave", "approverIds", io.softa.framework.orm.enums.FieldType.ONE_TO_MANY, "Employee");
+    }
+
+    private void relation(String model, String field, io.softa.framework.orm.enums.FieldType type, String related) {
+        io.softa.framework.orm.meta.MetaField f = new io.softa.framework.orm.meta.MetaField();
+        org.springframework.test.util.ReflectionTestUtils.setField(f, "fieldName", field);
+        org.springframework.test.util.ReflectionTestUtils.setField(f, "fieldType", type);
+        org.springframework.test.util.ReflectionTestUtils.setField(f, "relatedModel", related);
+        models.when(() -> ModelManager.existField(model, field)).thenReturn(true);
+        models.when(() -> ModelManager.getModelField(model, field)).thenReturn(f);
+    }
+
+    private Filters guardedOn(String model, Filters filters) {
+        return as(() -> service.appendScopeAccessFiltersIgnoringRowScope(model, filters));
+    }
+
+    @Test
+    @DisplayName("a condition reaching IPA through a relation matches nothing when no role grants IPA")
+    void aPathIntoAnUngrantedFieldMatchesNothing() {
+        relationsLeadToEmployee();
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
+
+        assertThat(guardedOn("EmpLeave", Filters.of("employeeId.ipaBasic", Operator.GREATER_THAN, 5000)))
+                .isEqualTo(ScopeRuleCompiler.matchNone());
+        assertThat(guardedOn("EmpLeaveDay", Filters.of("leaveId.employeeId.ipaBasic", Operator.GREATER_THAN, 5000)))
+                .isEqualTo(ScopeRuleCompiler.matchNone());
+    }
+
+    @Test
+    @DisplayName("a condition reaching IPA through a relation matches only employees whose IPA the caller sees")
+    void aPathIntoAPerRowFieldIsBoundToTheGrantingRolesRows() {
+        relationsLeadToEmployee();
+        holdTheExampleRoles();
+        when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of(1L));
+
+        Filters oneHop = guardedOn("EmpLeave", Filters.of("employeeId.ipaBasic", Operator.GREATER_THAN, 5000));
+        Filters twoHops = guardedOn("EmpLeaveDay",
+                Filters.of("leaveId.employeeId.ipaBasic", Operator.GREATER_THAN, 5000));
+
+        assertThat(oneHop).isEqualTo(Filters.of("employeeId", Operator.IN, List.of(1L)));
+        assertThat(twoHops).isEqualTo(Filters.of("leaveId.employeeId", Operator.IN, List.of(1L)));
+        // The employees asked for: the condition, on Employee, AND the rows of R2 — the role granting IPA.
+        ArgumentCaptor<Filters> asked = ArgumentCaptor.forClass(Filters.class);
+        verify(modelService, Mockito.times(2)).getIds(eq("Employee"), asked.capture());
+        assertThat(asked.getValue().toString()).contains("ipaBasic", "5000", "residenceStatus");
+        assertThat(asked.getValue().toString()).doesNotContain("employeeId.ipaBasic");
+    }
+
+    @Test
+    @DisplayName("a path reaching no granted employee matches nothing")
+    void aPathReachingNoVisibleRowMatchesNothing() {
+        relationsLeadToEmployee();
+        holdTheExampleRoles();
+        when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of());
+
+        assertThat(guardedOn("EmpLeave", Filters.of("employeeId.ipaBasic", Operator.GREATER_THAN, 5000)))
+                .isEqualTo(ScopeRuleCompiler.matchNone());
+    }
+
+    @Test
+    @DisplayName("a path into IPA is left alone for a caller who sees IPA on every employee")
+    void aPathIntoAUniformlyVisibleFieldIsUntouched() {
+        relationsLeadToEmployee();
+        pi.setRoleGrants(List.of(role(4, Set.of(VIEW), ScopeType.ALL, null, true)));
+        Filters condition = Filters.of("employeeId.ipaBasic", Operator.GREATER_THAN, 5000);
+
+        assertThat(guardedOn("EmpLeave", condition)).isSameAs(condition);
+    }
+
+    @Test
+    @DisplayName("a path into an ordinary field, or one the guard cannot follow, is left alone")
+    void ordinaryAndUnfollowablePathsAreUntouched() {
+        relationsLeadToEmployee();
+        holdTheExampleRoles();
+        Filters ordinary = Filters.of("employeeId.name", Operator.EQUAL, "E1");
+        Filters unknownSegment = Filters.of("ghostId.ipaBasic", Operator.GREATER_THAN, 5000);
+        // To-many paths are not followed: only many-to-one / one-to-one hops are resolved.
+        Filters toMany = Filters.of("approverIds.ipaBasic", Operator.GREATER_THAN, 5000);
+
+        assertThat(guardedOn("EmpLeave", ordinary)).isSameAs(ordinary);
+        assertThat(guardedOn("EmpLeave", unknownSegment)).isSameAs(unknownSegment);
+        assertThat(guardedOn("EmpLeave", toMany)).isSameAs(toMany);
+        verify(modelService, never()).getIds(anyString(), any(Filters.class));
+    }
+
+    @Test
+    @DisplayName("only the masked branch of a tree is rewritten")
+    void aTreeKeepsItsOtherBranches() {
+        relationsLeadToEmployee();
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
+        Filters name = Filters.of("name", Operator.EQUAL, "Annual");
+        Filters tree = Filters.or(name, Filters.of("employeeId.ipaBasic", Operator.GREATER_THAN, 5000));
+
+        Filters guarded = guardedOn("EmpLeave", tree);
+
+        assertThat(guarded.getChildren()).containsExactly(name, ScopeRuleCompiler.matchNone());
+    }
+
+    @Test
+    @DisplayName("a sort through a relation onto IPA is dropped and a grouping by it refused")
+    void aSortOrGroupingThroughARelationFollowsTheTargetsPlan() {
+        relationsLeadToEmployee();
+        holdTheExampleRoles();
+        io.softa.framework.orm.domain.FlexQuery sorted = new io.softa.framework.orm.domain.FlexQuery();
+        sorted.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("employeeId.ipaBasic").addAsc("employeeId.name"));
+        io.softa.framework.orm.domain.FlexQuery grouped = new io.softa.framework.orm.domain.FlexQuery();
+        grouped.setGroupBy(List.of("leaveId.employeeId.ipaBasic"));
+
+        as(() -> {
+            service.guardQuery("EmpLeave", sorted);
+            return null;
+        });
+
+        assertThat(sorted.getOrders().getFields()).containsExactly("employeeId.name");
+        assertThatThrownBy(() -> as(() -> {
+            service.guardQuery("EmpLeaveDay", grouped);
+            return null;
+        })).isInstanceOf(PermissionException.class);
+    }
+
+    @Test
+    @DisplayName("a sort through a relation onto IPA stays for a caller who sees IPA on every employee")
+    void aSortThroughARelationOntoAUniformlyVisibleFieldStays() {
+        relationsLeadToEmployee();
+        pi.setRoleGrants(List.of(role(4, Set.of(VIEW), ScopeType.ALL, null, true)));
+        io.softa.framework.orm.domain.FlexQuery sorted = new io.softa.framework.orm.domain.FlexQuery();
+        sorted.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("employeeId.ipaBasic"));
+
+        as(() -> {
+            service.guardQuery("EmpLeave", sorted);
+            return null;
+        });
+
+        assertThat(sorted.getOrders().getFields()).containsExactly("employeeId.ipaBasic");
+    }
 }
