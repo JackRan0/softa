@@ -416,6 +416,18 @@ Consequences:
   (`employeeId.salary`) is judged by that model's plan: blocked matches nothing; per-row becomes
   `employeeId IN` the target ids where the condition holds and the field is visible, read up front;
   sorts and groupings on such a path follow the same rules. To-many paths are not followed;
+- a *selected* path into another model's sensitive field (`managerId.salary` in a list's fields, or a
+  `dynamic` cascaded field declared over one) is masked by that model's plan with no extra step: the
+  read pipeline fills it from the target rows it re-reads by id through `searchListIgnoringRowScope`,
+  which waives the row range only — the target's blocked fields are dropped from that read and its
+  per-row fields masked by the target rows' ids, so the value lands null unless a role granting the
+  field there reaches the related row. The same holds for to-many expansions (sub-queries): the child
+  rows are re-read and masked by the child model's plan;
+- known limits: a condition, sort or grouping through a to-many path, or on a `dynamic` cascaded field
+  (named by its own field name, rewritten to the cascade path only when the SQL is built), is not
+  guarded by the target model's plan; and a *stored* cascaded field is a copy written onto the model
+  that declares it, so only that model's own sensitive sets cover it — register the copy in a set of
+  its own model if it must be masked;
 - a write is judged by what it changes, not by the keys it carries: a sensitive field given as null
   on a create writes nothing and is not refused; on an update a null that clears a stored value needs
   the set, while a null over a stored null is not counted (`getWriteGuardedFields` tells `updateList`
