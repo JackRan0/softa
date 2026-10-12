@@ -26,7 +26,7 @@ import org.apache.commons.lang3.StringUtils;
  * actually has companies in. Two companies in the same country share their value domains, so the set
  * is by country, not by company — and there is deliberately no per-company narrowing any more: which
  * companies' <i>records</i> a caller sees is the permission grant's job
- * ({@code PermissionServiceImpl.appendCompanyGrant}), not a view.
+ * ({@code PermissionServiceImpl.companyScope}), not a view.
  *
  * <p><b>Why this is applied around the permission filter rather than inside it.</b> Per-country
  * partitioning is data correctness, not authorization: a row belonging to another country is not

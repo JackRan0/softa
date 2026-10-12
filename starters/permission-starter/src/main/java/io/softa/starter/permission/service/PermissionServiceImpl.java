@@ -471,7 +471,9 @@ public class PermissionServiceImpl implements PermissionService {
 
     /**
      * One role's grant, as the data plane reads it — or the snapshot's unions read as one role, for a
-     * snapshot that predates per-role grants. Never null-valued: a missing part is an empty one.
+     * snapshot that predates per-role grants. A missing permission set, rule map, condition map or
+     * sensitive-set map is read as an empty one. {@code companies} keeps the snapshot's tri-state:
+     * {@code null} is no company restriction, empty reaches no company, otherwise exactly those.
      */
     record Grant(Set<String> permissions, Map<String, List<ScopeRule>> scopes,
                  Map<String, JsonNode> conditions, Map<String, Set<String>> sensitiveSets,
@@ -504,7 +506,6 @@ public class PermissionServiceImpl implements PermissionService {
         }
     }
 
-    /** No-op when the rewriter is absent (older constructors, unit tests) or nothing matches. */
     /**
      * {@inheritDoc}
      *
@@ -533,6 +534,7 @@ public class PermissionServiceImpl implements PermissionService {
         return guardSensitiveConditions(pi, model, AccessScope.current(), originalFilters);
     }
 
+    /** No-op when the rewriter is absent (older constructors, unit tests) or nothing matches. */
     private Filters rewriteSubtrees(String model, Filters filters) {
         SubtreeFilterRewriter rewriter = subtreeRewriterSupplier.get();
         return rewriter == null ? filters : rewriter.rewrite(model, filters);
@@ -610,6 +612,17 @@ public class PermissionServiceImpl implements PermissionService {
         return registry == null ? null : registry.scopeFor(model);
     }
 
+    /**
+     * Scope types that apply to <b>every</b> model, so their presence says nothing about
+     * whether a model carries a scope anchor of its own: {@code ALL} / {@code CUSTOM} are
+     * declared {@code appliesToAll} in the DataScopeType registry, and {@code CREATED_BY_SELF}
+     * keys on {@code createdId} — a column {@code AuditableModel} puts on every table.
+     *
+     * <p>Counting them made {@link #hasForwardAnchor} true for every model, which made the
+     * anchorless follow-the-owner fallback unreachable: every by-id read of a model with
+     * no explicit grant fail-closed to zero rows / 403, even for a child row the caller reaches
+     * through a parent it can see.
+     */
     private static final Set<ScopeType> UNIVERSAL_SCOPE_TYPES =
             EnumSet.of(ScopeType.ALL, ScopeType.CUSTOM, ScopeType.CREATED_BY_SELF);
 
@@ -651,16 +664,14 @@ public class PermissionServiceImpl implements PermissionService {
      * of the row that owns it.
      */
     private Filters followOwner(Referencer ref, Grant g) {
-        if (ref.kind() == Kind.SHARED) {
-            // Filtered out by the caller — an ownership edge is what reaches this method.
-            return null;
-        }
         // The owner's rows under the SAME grant: a child is visible through the role that can see its
         // owner, not through whichever of the caller's roles happens to.
         Filters ownerScope = grantScope(g, ref.parentModel());
         Filters owners = ownerScope == null ? new Filters() : ownerScope;
         return switch (ref.kind()) {
-            case SHARED -> null;
+            // Both callers hand over ownership edges only; a shared reference bounds nothing.
+            case SHARED -> throw new IllegalArgumentException(
+                    "A shared reference is not an ownership edge: " + ref);
             // ONE_TO_ONE owned child → the FK sits on the OWNER and holds the child's id,
             // so the visible child ids are the FK values of in-scope owner rows.
             case OWNED_ONE_TO_ONE -> {
@@ -1373,39 +1384,27 @@ public class PermissionServiceImpl implements PermissionService {
     // ───────── metadata-derived scope for anchorless related models ─────────
 
     /**
-     * AND the role's legal-entity grant onto a multi-company model's read.
+     * The role's company grant on {@code model} as a filter, {@code null} when it does not narrow.
+     * {@link #grantScope} ANDs it onto that role's rows.
      *
      * <p>Reads the anchor from the model's metadata rather than assuming a field name, so a model that
-     * reaches its company through another one — a per-department statistic, whose companyField is
-     * {@code deptId.legalEntityId} — is bounded by the same grant as a model that owns the column.
+     * reaches its company through another one — a per-department statistic declaring {@code companyId}
+     * as a dynamic cascaded field — is bounded by the same grant as a model that owns the column.
      *
-     * <p>An empty grant means unrestricted. That is the opt-in convention, not an oversight: the
-     * alternative empties every screen for every role that predates this table.
+     * <p>A {@code null} grant means unrestricted. That is the opt-in convention, not an oversight: the
+     * alternative empties every screen for every role that predates company grants.
      *
-     * <p>No read that names rows by {@code id} is exempt. Display expansion — the one legitimate
-     * by-id read of rows outside the grant, so that a referenced row's label is not blanked — never
-     * reaches this method: {@code DataPipelineProxy.processReadData} carries
-     * {@code @SkipPermissionCheck}, so {@code shouldBypass()} returns before the grant is consulted.
-     * Everything else that happens to name an id must stay bounded. A caller could otherwise add
+     * <p>No read that names rows by {@code id} is exempt — the scope does not look at the caller's
+     * filters at all. Display expansion — the one legitimate by-id read of rows outside the grant, so
+     * that a referenced row's label is not blanked — never reaches here: {@code
+     * DataPipelineProxy.processReadData} carries {@code @SkipPermissionCheck}, so {@code shouldBypass()}
+     * returns first. Everything else that names an id stays bounded: otherwise a caller could add
      * {@code ["id", "&gt;", 0]} to a {@code searchList} body and read an ungranted company whole, and
-     * {@code checkIdsAccess} — the gate between a caller and {@code deleteByIds} / {@code updateList}
-     * — verifies its targets by counting them back with a filter that names {@code id}, so any holder
-     * of the model's delete permission could remove a row of a company they were never granted.
-     *
-     * <p>So the grant applies to every read, id-named or not. The cost is that a by-id read of a row
-     * outside the grant comes back empty instead of returning the row. That is what a grant means.
+     * {@link #checkIdsAccess} — which counts its targets back with a filter naming {@code id} — would
+     * let any holder of the delete permission remove a row of a company they were never granted.
      */
     // Package-private for test: the empty-grant default and the path-anchored case both fail silently.
-    Filters appendCompanyGrant(String model, Filters filters, PermissionInfo pi) {
-        Filters scope = companyScope(model, pi == null ? null : pi.getGrantedCompanyIds());
-        return scope == null ? filters : combineAnd(filters, scope);
-    }
-
-    /**
-     * The company grant on {@code model} as a filter of its own, {@code null} when it does not narrow —
-     * see {@link #appendCompanyGrant}, which is this AND-ed onto a caller's filters.
-     */
-    private Filters companyScope(String model, Set<Long> granted) {
+    Filters companyScope(String model, Set<Long> granted) {
         if (granted == null) {
             return null;   // no company axis configured → unrestricted
         }
@@ -1450,19 +1449,6 @@ public class PermissionServiceImpl implements PermissionService {
         List<ScopeRule> r = g.rules(model);
         return r != null && !r.isEmpty();
     }
-
-    /**
-     * Scope types that apply to <b>every</b> model, so their presence says nothing about
-     * whether a model carries a scope anchor of its own: {@code ALL} / {@code CUSTOM} are
-     * declared {@code appliesToAll} in the DataScopeType registry, and {@code CREATED_BY_SELF}
-     * keys on {@code createdId} — a column {@code AuditableModel} puts on every table.
-     *
-     * <p>Counting them made {@link #hasForwardAnchor} true for every model, which made the
-     * anchorless follow-the-owner fallback below unreachable: every by-id read of a model with
-     * no explicit grant fail-closed to zero rows / 403, even for a child row the caller reaches
-     * through a parent it can see.
-     */
-
 
     /**
      * A country value domain — a table whose rows are one country's allowed values for some field — is

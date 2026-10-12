@@ -297,7 +297,7 @@ an HR in company A saw all of A's records and the same role in B saw B's. Which 
 reach is a property of the role. It is configured as the role's ordinary data scope **on the company
 model itself** (`role_data_scope` where `model = ModelConstant.COMPANY_MODEL`), which
 `DefaultPermissionSnapshotProvider.readGrantedCompanyIds` compiles through this same engine and
-materialises into `PermissionInfo.grantedCompanyIds`; `appendCompanyGrant` then bounds every
+materialises into `PermissionInfo.grantedCompanyIds`; `PermissionServiceImpl.companyScope` then bounds every
 `@Model(multiCompany)` read by it — the grant is the only company narrowing there is; the header-driven
 selection that used to narrow within it went with the header switcher. The same build reads the **countries** behind the grant into `PermissionInfo.grantedCountries`
 ("my countries") — a concrete set even for an unrestricted grant (every company of the tenant),

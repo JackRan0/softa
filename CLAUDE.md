@@ -267,7 +267,7 @@ public enum CustomerTier {
 
   **Grant, countries, affiliation — three different things, never merged.** The *grant*
   (`PermissionInfo.grantedCompanyIds` → `Context.grantedCompanyIds`, applied by
-  `PermissionServiceImpl.appendCompanyGrant`) decides which companies' records a caller sees, keyed on the
+  `PermissionServiceImpl.companyScope`) decides which companies' records a caller sees, keyed on the
   **field name** `companyId`, not on the `multiCompany` flag; there is **no per-company read narrowing**
   any more (`MultiCompanyScope` is retired — the grant is the whole answer). It is the role's data scope
   on the company model (`role_data_scope` where `model = 'Company'`), resolved by

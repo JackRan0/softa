@@ -494,7 +494,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * afterwards — the narrowing works within what the role allows.
      *
      * <p>There is no per-company narrowing here any more. Which companies' records a caller sees is the
-     * grant ({@code appendCompanyGrant}) and nothing else; the header selection that used to narrow
+     * grant ({@code PermissionServiceImpl.companyScope}) and nothing else; the header selection that used to narrow
      * within it went with the header switcher.
      */
     private Filters scopedAccess(String modelName, Filters filters) {

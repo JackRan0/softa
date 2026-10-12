@@ -4,17 +4,14 @@ import java.util.Set;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import io.softa.framework.base.enums.Operator;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
-import io.softa.starter.permission.spi.PermissionInfo;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -50,9 +47,9 @@ class CompanyGrantTest {
         modelManager.close();
     }
 
-    /** Only {@code appendCompanyGrant} is exercised; it touches none of the collaborators. */
-    private static PermissionServiceImpl service() {
-        return new PermissionServiceImpl(null, null, null, null, null);
+    /** Only {@code companyScope} is exercised; it touches none of the collaborators. */
+    private static Filters scope(String model, Set<Long> granted) {
+        return new PermissionServiceImpl(null, null, null, null, null).companyScope(model, granted);
     }
 
     private void model(String name, boolean multiCompany) {
@@ -60,12 +57,6 @@ class CompanyGrantTest {
         when(meta.isMultiCompany()).thenReturn(multiCompany);
         modelManager.when(() -> ModelManager.existModel(name)).thenReturn(true);
         modelManager.when(() -> ModelManager.getModel(name)).thenReturn(meta);
-    }
-
-    private static PermissionInfo grant(Set<Long> ids) {
-        PermissionInfo pi = new PermissionInfo();
-        pi.setGrantedCompanyIds(ids);
-        return pi;
     }
 
     // ---- the three states ------------------------------------------------
@@ -76,11 +67,9 @@ class CompanyGrantTest {
         // — a role written to reach no company, such as a self-service employee role — and it has to
         // fail closed, or "configured to reach nothing" would be inexpressible.
         model("Department", true);
-        Filters original = Filters.of("active", Operator.EQUAL, true);
 
-        Filters result = service().appendCompanyGrant("Department", original, grant(Set.of()));
+        Filters result = scope("Department", Set.of());
 
-        assertThat(result).isNotSameAs(original);
         // matchNone() is an IN over an empty list; the dialect renders it as 1 = 0 at SQL-build time.
         assertThat(result.toString()).contains("\"IN\",[]");
     }
@@ -90,10 +79,8 @@ class CompanyGrantTest {
         // null is what an unconfigured role resolves to (DefaultPermissionSnapshotProvider returns it
         // for zero grant rows), so shipping the axis blanks nobody's screen.
         model("Department", true);
-        Filters original = Filters.of("active", Operator.EQUAL, true);
 
-        assertThat(service().appendCompanyGrant("Department", original, grant(null))).isSameAs(original);
-        assertThat(service().appendCompanyGrant("Department", original, null)).isSameAs(original);
+        assertThat(scope("Department", null)).isNull();
     }
 
     // ---- what it bounds --------------------------------------------------
@@ -102,7 +89,7 @@ class CompanyGrantTest {
     void boundsAModelThatOwnsItsCompanyColumn() {
         model("Department", true);
 
-        Filters result = service().appendCompanyGrant("Department", new Filters(), grant(GRANTED));
+        Filters result = scope("Department", GRANTED);
 
         assertThat(Filters.containsField(result, "companyId")).isTrue();
         assertThat(result.toString()).contains("8712", "9001");
@@ -117,72 +104,22 @@ class CompanyGrantTest {
         // company's aggregates visible with nothing on screen saying so.
         model("DeptHeadcountStats", true);
 
-        Filters result = service().appendCompanyGrant("DeptHeadcountStats", new Filters(), grant(GRANTED));
+        Filters result = scope("DeptHeadcountStats", GRANTED);
 
         assertThat(Filters.containsField(result, ModelConstant.COMPANY_FIELD)).isTrue();
     }
 
     @Test
-    void narrowsWithinTheGrantRatherThanReplacingTheCallersFilter() {
-        // A caller's own company condition is kept and the grant is ANDed on top: asked ∧ granted.
-        model("Department", true);
-        Filters asked = Filters.of("companyId", Operator.EQUAL, 8712L);
-
-        Filters result = service().appendCompanyGrant("Department", asked, grant(GRANTED));
-
-        assertThat(result.toString()).contains("8712", "9001");
-    }
-
-    @Test
     void boundsTheCompanyListItself() {
-        // The company list itself. LegalEntity is deliberately not multiCompany — self-scoping is
+        // The company list itself. The company model is deliberately not multiCompany — self-scoping is
         // rejected at boot — so it is bounded by its id instead. Without this every company picker
         // would offer legal entities the role cannot reach.
         modelManager.when(() -> ModelManager.existModel(ModelConstant.COMPANY_MODEL)).thenReturn(true);
 
-        Filters result = service().appendCompanyGrant(ModelConstant.COMPANY_MODEL, new Filters(),
-                grant(GRANTED));
+        Filters result = scope(ModelConstant.COMPANY_MODEL, GRANTED);
 
         assertThat(Filters.containsField(result, ModelConstant.ID)).isTrue();
         assertThat(result.toString()).contains("8712", "9001");
-    }
-
-    @Test
-    void boundsACompanyReadEvenWhenItNamesRowsById() {
-        // The inverse of what this asserted before. Naming rows by id used to waive the grant here,
-        // on the argument that a by-id read is a display expansion — but display expansion never
-        // reaches this method (DataPipelineProxy.processReadData is @SkipPermissionCheck), so the
-        // exemption only ever applied to callers who put an id in their own filters, and to the
-        // write gate's own count. The GRANT must still say no.
-        modelManager.when(() -> ModelManager.existModel(ModelConstant.COMPANY_MODEL)).thenReturn(true);
-        Filters byId = Filters.of(ModelConstant.ID, Operator.IN, java.util.List.of(9999L));
-
-        Filters result = service().appendCompanyGrant(
-                ModelConstant.COMPANY_MODEL, byId, grant(GRANTED));
-
-        assertThat(result).isNotSameAs(byId);
-        assertThat(result.toString()).contains("8712", "9001");
-    }
-
-    @Test
-    void theWriteGateItsOwnFilterIsBoundedByTheGrant() {
-        // checkIdsAccess is what stands between a caller and `deleteByIds` / `updateList` on a row it
-        // may not touch. It verifies the ids by counting them back — count(model, id IN (…)) — and
-        // that filter names `id`, so the exemption above drops the grant from it. The count then says
-        // "all present", and a row belonging to a company the role was never granted is deleted by
-        // anyone who knows its id and holds the model's delete permission.
-        //
-        // The exemption is not needed for what its comment describes. Display expansion runs inside
-        // DataPipelineProxy.processReadData, which is @SkipPermissionCheck: shouldBypass() is true and
-        // appendScopeAccessFilters returns before ever reaching appendCompanyGrant.
-        //
-        // Dropping it here makes this pass and costs one thing: a by-id read of a row outside the
-        // grant returns empty rather than the row. That is what a grant means.
-        model("Department", true);
-        Filters writeGate = Filters.of(ModelConstant.ID, Operator.IN, java.util.List.of(4242L));
-
-        assertThat(service().appendCompanyGrant("Department", writeGate, grant(GRANTED)).toString())
-                .contains("8712", "9001");
     }
 
     @Test
@@ -191,8 +128,8 @@ class CompanyGrantTest {
         // caching, for a filter that is on every read of every multi-company model.
         model("Department", true);
 
-        String first = service().appendCompanyGrant("Department", new Filters(), grant(new java.util.HashSet<>(java.util.List.of(9001L, 8712L, 9002L)))).toString();
-        String second = service().appendCompanyGrant("Department", new Filters(), grant(new java.util.HashSet<>(java.util.List.of(9002L, 8712L, 9001L)))).toString();
+        String first = scope("Department", new java.util.HashSet<>(java.util.List.of(9001L, 8712L, 9002L))).toString();
+        String second = scope("Department", new java.util.HashSet<>(java.util.List.of(9002L, 8712L, 9001L))).toString();
 
         assertThat(first).isEqualTo(second);
     }
@@ -204,10 +141,8 @@ class CompanyGrantTest {
         // Carrying a company reference is not the same as belonging to one company. Bounding such a
         // model would filter rows that legitimately relate to another company.
         model("OptionSetLike", false);
-        Filters original = Filters.of("active", Operator.EQUAL, true);
 
-        assertThat(service().appendCompanyGrant("OptionSetLike", original, grant(GRANTED)))
-                .isSameAs(original);
+        assertThat(scope("OptionSetLike", GRANTED)).isNull();
     }
 
     @Test
@@ -215,11 +150,9 @@ class CompanyGrantTest {
         // Sits on the generic read path: an unknown model must reach the query that reports it
         // properly, not fail here with a metadata error.
         modelManager.when(() -> ModelManager.existModel("NoSuchModel")).thenReturn(false);
-        Filters original = Filters.of("active", Operator.EQUAL, true);
 
-        assertThat(service().appendCompanyGrant("NoSuchModel", original, grant(GRANTED)))
-                .isSameAs(original);
-        assertThat(service().appendCompanyGrant(null, original, grant(GRANTED))).isSameAs(original);
+        assertThat(scope("NoSuchModel", GRANTED)).isNull();
+        assertThat(scope(null, GRANTED)).isNull();
     }
 
     @Test
@@ -227,7 +160,7 @@ class CompanyGrantTest {
         // Two roles granting the same entity must not produce a duplicated IN list.
         model("Department", true);
 
-        Filters result = service().appendCompanyGrant("Department", new Filters(), grant(Set.of(8712L)));
+        Filters result = scope("Department", Set.of(8712L));
 
         assertThat(result.toString().split("8712", -1).length - 1).isEqualTo(1);
     }
