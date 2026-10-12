@@ -2,6 +2,7 @@ package io.softa.framework.orm.service.impl;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -148,5 +149,66 @@ class NullSensitiveWriteTest {
 
         assertThat(checkedFields(AccessType.UPDATE)).contains("name", "salary");
         verify(jdbcService, never()).selectByIds(anyString(), anyList(), anyList(), any(ConvertType.class));
+    }
+
+    // ─── a batch is judged row by row ───
+
+    private static Map<String, Object> renaming(Long id) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("id", id);
+        row.put("name", "E" + id);
+        return row;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<List<Object>> checks() {
+        ArgumentCaptor<Collection<Serializable>> ids = ArgumentCaptor.forClass(Collection.class);
+        ArgumentCaptor<Set<String>> fields = ArgumentCaptor.forClass(Set.class);
+        verify(permissionService, Mockito.atLeastOnce())
+                .checkIdsFieldsAccess(eq(MODEL), ids.capture(), fields.capture(), eq(AccessType.UPDATE));
+        List<List<Object>> out = new ArrayList<>();
+        for (int i = 0; i < ids.getAllValues().size(); i++) {
+            out.add(List.of(new ArrayList<>(ids.getAllValues().get(i)), fields.getAllValues().get(i)));
+        }
+        return out;
+    }
+
+    private void updateBatch(List<Map<String, Object>> rows, List<Serializable> targetIds,
+                             List<Map<String, Object>> stored) {
+        when(strategy.resolveTargetIds(eq(MODEL), anyList())).thenReturn(targetIds);
+        when(strategy.update(eq(MODEL), anyList(), anySet())).thenReturn(rows.size());
+        when(jdbcService.selectByIds(eq(MODEL), anyList(), anyList(), eq(ConvertType.ORIGINAL))).thenReturn(stored);
+        ContextHolder.runWith(new Context(), () -> service.updateList(MODEL, new ArrayList<>(rows)));
+    }
+
+    @Test
+    void aGuardedFieldIsCheckedOnlyOnTheRowsThatWriteIt() {
+        // Row 1 changes the salary, row 2 only the name: the salary is judged on row 1 alone, so an
+        // editor who may rename row 2 but not set its salary is not refused the whole batch.
+        updateBatch(List.of(row(1L, 9000), renaming(2L)), List.of(1L, 2L), List.of());
+
+        assertThat(checks()).containsExactlyInAnyOrder(
+                List.of(List.of(1L, 2L), Set.of("name")),
+                List.of(List.of(1L), Set.of("salary")));
+    }
+
+    @Test
+    void aNullEchoedOverANullDoesNotPutTheRowInTheGuardedGroup() {
+        Map<String, Object> stored2 = new HashMap<>();
+        stored2.put("id", 2L);
+        stored2.put("salary", null);
+
+        updateBatch(List.of(row(1L, 9000), row(2L, null)), List.of(1L, 2L), List.of(stored2));
+
+        assertThat(checks()).containsExactlyInAnyOrder(
+                List.of(List.of(1L, 2L), Set.of("name")),
+                List.of(List.of(1L), Set.of("salary")));
+    }
+
+    @Test
+    void rowsWritingTheSameGuardedFieldsStayOneCheck() {
+        updateBatch(List.of(row(1L, 9000), row(2L, 7000)), List.of(1L, 2L), List.of());
+
+        assertThat(checks()).containsExactly(List.of(List.of(1L, 2L), Set.of("name", "salary")));
     }
 }
