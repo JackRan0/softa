@@ -423,7 +423,10 @@ granting the same sets, mask model-wide as before. Consequences:
 **Record access.** `POST /{model}/getRecordAccess` answers, per record, which sets are hidden or
 read-only and which of `UPDATE` / `DELETE` the caller may perform — including the sets of owned children
 shown on the record's form (`attachedTo`). `GET /{model}/getCreateAccess` answers which sets a new
-record's form must not show. They describe only the caller's own access.
+record's form must not show. They describe only the caller's own access, and judge by fields as the mask
+does: a set is hidden only when none of its fields is granted by a reading role that reaches the record
+(through any set covering the field), and read-only when some are but none by an editing role — so a
+section whose values the read returns is never reported hidden because another set also covers them.
 
 **Approvals.** An approver rarely holds update on what they approve, so per-action scope would refuse
 the approval's own writes. Approval endpoints check once, at the entry, that the approver can see the

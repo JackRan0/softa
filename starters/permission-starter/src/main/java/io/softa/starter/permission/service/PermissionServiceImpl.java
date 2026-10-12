@@ -960,11 +960,13 @@ public class PermissionServiceImpl implements PermissionService {
     /**
      * {@inheritDoc}
      *
-     * <p>Judged by the same grant pairs the reads and writes are. A sensitive set is <b>hidden</b> on a
-     * record no reading role that reaches it grants; <b>read-only</b> where some reading role grants it
-     * but no editing role that reaches the record does. An action is available where the caller holds it
-     * at all and a role holding it reaches the record. One query per role involved, whatever the number
-     * of records.
+     * <p>Judged by the same grant pairs the reads and writes are, and by fields, as the mask is. A
+     * sensitive set is <b>hidden</b> on a record when none of its fields is granted by a reading role that
+     * reaches the record; <b>read-only</b> when some are, but none by an editing role that reaches it. A
+     * field shared by two sets therefore keeps both sets visible when a role grants either — the form
+     * never hides a section whose values the read returns. An action is available where the caller holds
+     * it at all and a role holding it reaches the record. One query per role involved, whatever the
+     * number of records.
      */
     @Override
     public List<RecordAccess> getRecordAccess(String model, Collection<? extends Serializable> ids) {
@@ -1009,9 +1011,9 @@ public class PermissionServiceImpl implements PermissionService {
             Set<String> hidden = new java.util.TreeSet<>();
             Set<String> readonly = new java.util.TreeSet<>();
             for (String set : owned) {
-                if (reading.stream().noneMatch(g -> grantsSet(g, model, set))) {
+                if (!grantsAnyFieldOf(reading, model, set)) {
                     hidden.add(set);
-                } else if (editing.stream().noneMatch(g -> grantsSet(g, model, set))) {
+                } else if (!grantsAnyFieldOf(editing, model, set)) {
                     readonly.add(set);
                 }
             }
@@ -1025,7 +1027,8 @@ public class PermissionServiceImpl implements PermissionService {
         return out;
     }
 
-    /** {@inheritDoc} — a set is shown on a create form when some role that may create the model grants it. */
+    /** {@inheritDoc} — a set is shown on a create form when some role that may create the model grants
+     *  one of its fields. */
     @Override
     public CreateAccess getCreateAccess(String model) {
         if (shouldBypass() || sfsCache == null) return new CreateAccess(Set.of());
@@ -1034,7 +1037,7 @@ public class PermissionServiceImpl implements PermissionService {
         Set<String> hidden = new java.util.TreeSet<>(sfsCache.setIdsOwnedBy(model));
         hidden.addAll(sfsCache.setIdsAttachedTo(model));
         List<Grant> creators = holders(pi, model, AccessType.CREATE);
-        hidden.removeIf(set -> creators.stream().anyMatch(g -> grantsSet(g, model, set)));
+        hidden.removeIf(set -> grantsAnyFieldOf(creators, model, set));
         return new CreateAccess(hidden);
     }
 
@@ -1057,10 +1060,26 @@ public class PermissionServiceImpl implements PermissionService {
         return hidden;
     }
 
-    /** Whether the grant holds {@code set}, wherever the set's own model is — {@code model} when unknown. */
-    private boolean grantsSet(Grant g, String model, String set) {
-        String setModel = sfsCache == null ? null : sfsCache.modelOf(set);
-        return g.sensitiveSets().getOrDefault(setModel != null ? setModel : model, Set.of()).contains(set);
+    /**
+     * Whether one of {@code grants} grants a field of {@code set}, on the set's own model — {@code model}
+     * when unknown. A field is granted through any set covering it, so a set sharing a field with a
+     * granted one counts as granted for that field. A set whose fields are unknown falls back to being
+     * granted itself.
+     */
+    private boolean grantsAnyFieldOf(List<Grant> grants, String model, String set) {
+        if (grants.isEmpty()) return false;
+        String known = sfsCache == null ? null : sfsCache.modelOf(set);
+        String setModel = known != null ? known : model;
+        Set<String> fields = sfsCache == null ? Set.of() : sfsCache.grantedFieldsFor(setModel, Set.of(set));
+        for (Grant g : grants) {
+            Set<String> held = g.sensitiveSets().getOrDefault(setModel, Set.of());
+            if (held.contains(set)) return true;
+            if (fields.isEmpty() || held.isEmpty()) continue;
+            for (String field : sfsCache.grantedFieldsFor(setModel, held)) {
+                if (fields.contains(field)) return true;
+            }
+        }
+        return false;
     }
 
     // ─────────────────────── write guard ───────────────────────

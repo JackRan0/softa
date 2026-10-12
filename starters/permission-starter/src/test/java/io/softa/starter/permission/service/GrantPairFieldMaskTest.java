@@ -401,6 +401,36 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
+    @DisplayName("record access: a set sharing a field with a granted set is not hidden, as the field shows")
+    void aSetSharingAVisibleFieldIsNotHidden() {
+        // "grade-info" covers payGrade only, which "pay-details" covers too. A role granting pay-details
+        // sees payGrade in the read, so the form must not hide the grade section around it.
+        SensitiveFieldSetCache sets = (SensitiveFieldSetCache) org.springframework.test.util.ReflectionTestUtils
+                .getField(service, "sfsCache");
+        when(sets.setIdsOwnedBy("Employee")).thenReturn(Set.of("pay-details", "grade-info", "bank-info"));
+        when(sets.grantedFieldsFor(eq("Employee"), anySet())).thenAnswer(inv -> {
+            Set<String> granted = inv.getArgument(1);
+            Set<String> fields = new HashSet<>();
+            if (granted.contains("pay-details")) fields.addAll(PAY);
+            if (granted.contains("grade-info")) fields.add("payGrade");
+            if (granted.contains("bank-info")) fields.add("bankAccount");
+            return fields;
+        });
+        pi.setRoleGrants(List.of(
+                role(1, Set.of(VIEW, UPDATE), ScopeType.ALL, null, false),
+                role(4, Set.of(VIEW, CREATE), ScopeType.ALL, null, true)));
+        unionOf(VIEW, UPDATE);
+
+        List<io.softa.framework.orm.domain.RecordAccess> access =
+                as(() -> service.getRecordAccess("Employee", List.of(1L)));
+
+        assertThat(access.getFirst().hiddenSets()).containsExactly("bank-info");
+        // Visible through the viewing role, editable through none.
+        assertThat(access.getFirst().readonlySets()).containsExactly("grade-info", "pay-details");
+        assertThat(as(() -> service.getCreateAccess("Employee")).hiddenSets()).containsExactly("bank-info");
+    }
+
+    @Test
     @DisplayName("create access: the set shows on the create form only if a creating role grants it")
     void theCreateFormShowsWhatACreatingRoleGrants() {
         pi.setRoleGrants(List.of(
