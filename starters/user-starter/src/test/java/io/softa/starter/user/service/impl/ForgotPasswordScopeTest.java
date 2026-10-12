@@ -18,6 +18,7 @@ import io.softa.starter.user.service.UserAccountService;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.starter.user.service.UserIdentityService;
 
+import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -61,7 +62,7 @@ class ForgotPasswordScopeTest {
     private final VerificationCodeGuard codeGuard = mock(VerificationCodeGuard.class);
     private final UserInvitationServiceImpl service = spy(new UserInvitationServiceImpl(
             accountService, identityService, eventPublisher, null, mock(JoinProofGuard.class),
-            codeGuard, "https://app.example.test"));
+            codeGuard, siteAt("https://app.example.test")));
 
     ForgotPasswordScopeTest() {
         // The inherited ORM surface: this test is about whether a token is issued, not how it is stored.

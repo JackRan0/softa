@@ -17,6 +17,7 @@ import io.softa.starter.user.enums.InvitationStatus;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 
+import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -51,7 +52,7 @@ class AcceptTokenTest {
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserInvitationServiceImpl invitationService = spy(new UserInvitationServiceImpl(
             accountService, identityService, mock(ApplicationEventPublisher.class), null,
-            mock(JoinProofGuard.class), mock(VerificationCodeGuard.class), "http://localhost:3000"));
+            mock(JoinProofGuard.class), mock(VerificationCodeGuard.class), siteAt("http://localhost:3000")));
 
     private UserAccount tokenFor(AccountStatus status, String password) {
         return tokenFor(status, password, LOGIN_EMAIL);

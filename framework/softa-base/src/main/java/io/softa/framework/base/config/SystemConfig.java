@@ -51,14 +51,25 @@ public class SystemConfig {
     private List<String> allowedOrigins;
 
     /**
-     * Publicly-reachable base URL (scheme + host + port) of this application, as
-     * seen by other systems. Does NOT include the servlet context path — use
-     * {@link #getApiRootUrl()} when you need the full API root.
+     * Public origin of the site as the browser sees it — scheme + host [+ port], no path —
+     * i.e. where the frontend pages live. Every user-facing deep link (invitation / join,
+     * set-password, document signing, …) is built on it, so it is REQUIRED wherever such links
+     * are produced; {@link #resolveSiteUrl()} fails fast when it is missing.
      * <p>
-     * Not inferred from the servlet container because the app may sit behind a
-     * reverse proxy, public ingress, or a different hostname than it uses locally.
+     * Not inferred from the servlet container: the app normally sits behind a gateway, under a
+     * different hostname and scheme than it uses locally, and link-building code does not always
+     * run inside an HTTP request.
      */
-    private String publicAccessUrl;
+    private String siteUrl;
+
+    /**
+     * Public origin of this application's API — only for a split deployment where the API is
+     * served from a different origin than the site (e.g. {@code https://api.example.com}).
+     * Optional: blank means same-origin, and {@link #resolveApiUrl()} falls back to
+     * {@link #siteUrl}. Never includes the servlet context path; {@link #getApiRootUrl()}
+     * appends that from {@code server.servlet.context-path}.
+     */
+    private String apiUrl;
 
     /**
      * Pulled from {@code server.servlet.context-path} so {@link #getApiRootUrl()}
@@ -80,26 +91,48 @@ public class SystemConfig {
     }
 
     /**
-     * Externally-visible API root — {@link #getPublicAccessUrl()} concatenated
-     * with the servlet context path. Use this (not {@code publicAccessUrl}) when
-     * advertising callback / webhook URLs that point back at one of this app's
-     * REST endpoints. Returns {@code null} when {@code publicAccessUrl} is unset.
+     * {@link #siteUrl} without a trailing slash. Fails fast when unset: a link built on a missing
+     * origin would be silently wrong, which is worse than a clear error at the point of use.
+     */
+    public String resolveSiteUrl() {
+        if (!StringUtils.hasText(siteUrl)) {
+            throw new IllegalStateException(
+                    "system.site-url is not configured; every user-facing link is built on it");
+        }
+        return stripTrailingSlash(siteUrl);
+    }
+
+    /**
+     * The API's public origin without a trailing slash: {@link #apiUrl} when set, otherwise
+     * {@link #siteUrl} (same-origin deployment). Fails fast when neither is configured.
+     */
+    public String resolveApiUrl() {
+        if (StringUtils.hasText(apiUrl)) {
+            return stripTrailingSlash(apiUrl);
+        }
+        if (!StringUtils.hasText(siteUrl)) {
+            throw new IllegalStateException(
+                    "neither system.api-url nor system.site-url is configured; the API's public origin is unknown");
+        }
+        return stripTrailingSlash(siteUrl);
+    }
+
+    /**
+     * Externally-visible API root — {@link #resolveApiUrl()} concatenated with the servlet
+     * context path. Use this (not the raw origin) when advertising callback / webhook URLs
+     * that point back at one of this app's REST endpoints.
      */
     public String getApiRootUrl() {
-        if (publicAccessUrl == null || publicAccessUrl.isBlank()) {
-            return null;
-        }
-        String host = publicAccessUrl.endsWith("/")
-                ? publicAccessUrl.substring(0, publicAccessUrl.length() - 1)
-                : publicAccessUrl;
+        String origin = resolveApiUrl();
         if (contextPath == null || contextPath.isBlank() || "/".equals(contextPath)) {
-            return host;
+            return origin;
         }
         String path = contextPath.startsWith("/") ? contextPath : "/" + contextPath;
-        if (path.endsWith("/")) {
-            path = path.substring(0, path.length() - 1);
-        }
-        return host + path;
+        return origin + stripTrailingSlash(path);
+    }
+
+    private static String stripTrailingSlash(String value) {
+        return value.replaceAll("/+$", "");
     }
 
     @AssertTrue(message = "system.app-code must match [a-z][a-z0-9-]{0,63}, e.g. demo-app")
@@ -110,13 +143,23 @@ public class SystemConfig {
         return appCode.matches("[a-z][a-z0-9-]{0,63}");
     }
 
-    @AssertTrue(message = "system.public-access-url must be an absolute http(s) base URL without context path, e.g. http://localhost:8080")
-    public boolean isPublicAccessUrlValid() {
-        if (!StringUtils.hasText(publicAccessUrl)) {
-            return true; // 在 base 模块里先保持可选
+    @AssertTrue(message = "system.site-url must be an absolute http(s) origin without path, e.g. https://hcm.example.com")
+    public boolean isSiteUrlValid() {
+        return isBlankOrOrigin(siteUrl);
+    }
+
+    @AssertTrue(message = "system.api-url must be an absolute http(s) origin without path, e.g. https://api.example.com")
+    public boolean isApiUrlValid() {
+        return isBlankOrOrigin(apiUrl);
+    }
+
+    /** Blank passes (both origins are optional at the base layer); a value must be scheme + host [+ port] only. */
+    private static boolean isBlankOrOrigin(String value) {
+        if (!StringUtils.hasText(value)) {
+            return true;
         }
         try {
-            URI uri = URI.create(publicAccessUrl);
+            URI uri = URI.create(value);
             String scheme = uri.getScheme();
             String path = uri.getPath();
             return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))

@@ -17,6 +17,7 @@ import io.softa.starter.user.enums.InvitationStatus;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 
+import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -51,7 +52,7 @@ class ConfirmJoinAuthorizationTest {
     /** The proof is JoinProofTest's subject; here it is waved through so the profileId tie is what decides. */
     private final UserInvitationServiceImpl service = spy(new UserInvitationServiceImpl(
             accountService, identityService, eventPublisher, null, mock(JoinProofGuard.class),
-            mock(VerificationCodeGuard.class), "http://localhost:3000"));
+            mock(VerificationCodeGuard.class), siteAt("http://localhost:3000")));
 
     private UserInvitation givenPendingInvitationTo(String email, String mobile) {
         UserInvitation invitation = new UserInvitation();

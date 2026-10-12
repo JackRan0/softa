@@ -22,6 +22,7 @@ import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
 
+import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -65,7 +66,7 @@ class ConfirmJoinSignInRequiredTest {
     /** The real invitation service, so the row is bound and activated the way production does it. */
     private final UserInvitationServiceImpl invitationService = spy(new UserInvitationServiceImpl(
             accountService, identityService, mock(ApplicationEventPublisher.class), null, proofGuard,
-            mock(VerificationCodeGuard.class), "http://localhost"));
+            mock(VerificationCodeGuard.class), siteAt("http://localhost")));
     private final LoginServiceImpl loginService = new LoginServiceImpl();
 
     ConfirmJoinSignInRequiredTest() {
