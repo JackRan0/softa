@@ -1139,10 +1139,27 @@ public class PermissionServiceImpl implements PermissionService {
                 .findFirst()
                 .orElse(field);
         String label = ModelManager.existModel(model) && StringUtils.isNotBlank(ModelManager.getModel(model).getLabel())
-                ? ModelManager.getModel(model).getLabel().toLowerCase()
+                ? inSentence(ModelManager.getModel(model).getLabel())
                 : model;
         String verb = ImportScope.isActive() ? "update" : "edit";
         return new PermissionException("You don't have permission to " + verb + " " + set + " fields for this " + label + ".");
+    }
+
+    /**
+     * A label as it reads mid-sentence: each word's first letter lowered, unless the word is an acronym
+     * — its second letter a capital too — which keeps its case. "Leave Request" reads "leave request",
+     * "HR Case" reads "HR case".
+     */
+    static String inSentence(String label) {
+        StringBuilder out = new StringBuilder(label.length());
+        for (String word : label.split(" ", -1)) {
+            if (!out.isEmpty()) out.append(' ');
+            boolean acronym = word.length() > 1 && Character.isUpperCase(word.charAt(1));
+            out.append(acronym || word.isEmpty()
+                    ? word
+                    : Character.toLowerCase(word.charAt(0)) + word.substring(1));
+        }
+        return out.toString();
     }
 
     /**

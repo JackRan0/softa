@@ -427,6 +427,31 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
+    @DisplayName("the refusal names the model mid-sentence and keeps an acronym's capitals")
+    void theRefusalKeepsAnAcronymInTheModelLabel() {
+        holdTheExampleRoles();
+        MetaModel meta = mock(MetaModel.class);
+        when(meta.getLabel()).thenReturn("HR Employee Record");
+        models.when(() -> ModelManager.getModel("Employee")).thenReturn(meta);
+        when(modelService.count(eq("Employee"), any(Filters.class))).thenReturn(1L, 0L);
+
+        assertThatThrownBy(() -> as(() -> {
+            service.checkIdsFieldsAccess("Employee", List.of(2L), Set.of("basePay"), AccessType.UPDATE);
+            return null;
+        })).isInstanceOf(PermissionException.class)
+                .hasMessage("You don't have permission to edit Pay fields for this HR employee record.");
+    }
+
+    @Test
+    @DisplayName("a label reads mid-sentence: words lowered, acronyms kept")
+    void aLabelReadsMidSentence() {
+        assertThat(PermissionServiceImpl.inSentence("Employee")).isEqualTo("employee");
+        assertThat(PermissionServiceImpl.inSentence("Leave Request")).isEqualTo("leave request");
+        assertThat(PermissionServiceImpl.inSentence("HR Case")).isEqualTo("HR case");
+        assertThat(PermissionServiceImpl.inSentence("A")).isEqualTo("a");
+    }
+
+    @Test
     @DisplayName("a sort on pay is dropped when pay is hidden on some rows; other sorts stay")
     void aSortOnAPartlyHiddenFieldIsDropped() {
         holdTheExampleRoles();
