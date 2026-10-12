@@ -278,6 +278,13 @@ the record they approve, and with row scope granted per action (permission-start
 the approval itself. Host endpoints that apply an approval outside the engine do the same, after an
 entry check that the approver can see the request (`@RequirePermission`).
 
+Set aside means **every** permission check, not only row scope — sensitive-field write checks included.
+The node's form configuration (its field permissions, `formPermissions`) is the only authorization for the
+fields the approver edits: an approver whose roles hold no sensitive field set covering a field can still
+write it if the node's form exposes it as editable. Flow designers must therefore not make a sensitive
+field (pay, bank details, identity numbers, …) editable on an approval form unless every approver that
+node can resolve to is meant to edit it; show it read-only, or leave it off the form.
+
 ### Additional Approval Actions
 
 - transfer

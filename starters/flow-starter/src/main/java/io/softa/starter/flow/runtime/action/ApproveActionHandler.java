@@ -116,6 +116,16 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
         return state;
     }
 
+    /**
+     * Run the validated approval with the actor's own permission checks switched off.
+     *
+     * <p>Every check, not only row scope: the form edits and the writes of every node the approval
+     * resumes skip sensitive-field write checks as well. The node's form configuration is therefore the
+     * only authorization for the fields the approver edits — an approver whose roles hold no sensitive
+     * field set covering a field can still write it when the node's form exposes it as editable. Flow
+     * designers must not make a sensitive field editable on an approval form unless every approver of
+     * that node is meant to edit it.
+     */
     private static FlowExecutionState asApprover(java.util.function.Supplier<FlowExecutionState> work) {
         Context ctx = ContextHolder.cloneContext();
         ctx.setSkipPermissionCheck(true);
