@@ -767,4 +767,118 @@ class GrantPairFieldMaskTest {
         pi.setRoleCodes(Set.of(io.softa.framework.base.enums.BuiltinRole.TENANT_ADMIN.getCode()));
         assertThat(as(() -> service.getWriteGuardedFields("Employee"))).isEmpty();
     }
+
+    // ─── one request works each answer out once ───
+
+    private void inRequest(Runnable work) {
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(
+                        new org.springframework.mock.web.MockHttpServletRequest()));
+        try {
+            work.run();
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
+    private ScopeRuleCompiler compiler() {
+        return (ScopeRuleCompiler) org.springframework.test.util.ReflectionTestUtils.getField(service, "scopeCompiler");
+    }
+
+    private SensitiveFieldSetCache sets() {
+        return (SensitiveFieldSetCache) org.springframework.test.util.ReflectionTestUtils.getField(service, "sfsCache");
+    }
+
+    private int compiles() {
+        return Mockito.mockingDetails(compiler()).getInvocations().size();
+    }
+
+    private int planReads() {
+        return (int) Mockito.mockingDetails(sets()).getInvocations().stream()
+                .filter(i -> i.getMethod().getName().equals("grantedFieldsFor")).count();
+    }
+
+    /** A list read the way the pipeline reads one: the guard, the field filter, the scope, the mask. */
+    private void readAList() {
+        io.softa.framework.orm.domain.FlexQuery query = new io.softa.framework.orm.domain.FlexQuery();
+        query.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("basePay"));
+        as(() -> {
+            service.guardQuery("Employee", query);
+            service.filterReadableFields("Employee", List.of("id", "basePay"), AccessType.READ);
+            service.appendScopeAccessFilters("Employee", Filters.of("basePay", Operator.GREATER_THAN, 5000));
+            service.maskResponseValue("Employee", new ArrayList<>(List.of(row(1, 1800), row(2, 6000))),
+                    AccessType.READ);
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("within one request the field plan and each grant's rows are worked out once")
+    void oneRequestWorksTheFieldPlanAndTheGrantRowsOutOnce() {
+        holdTheExampleRoles();
+        when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of(1L));
+
+        inRequest(() -> {
+            readAList();
+            int compiles = compiles();
+            int planReads = planReads();
+            readAList();
+            assertThat(compiles()).isEqualTo(compiles);
+            assertThat(planReads()).isEqualTo(planReads);
+        });
+    }
+
+    @Test
+    @DisplayName("off a request nothing is remembered, and a new request starts afresh")
+    void nothingIsRememberedOffARequestOrAcrossRequests() {
+        holdTheExampleRoles();
+        when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of(1L));
+
+        readAList();
+        int afterOne = compiles();
+        readAList();
+        assertThat(compiles()).isEqualTo(2 * afterOne);
+
+        int before = compiles();
+        inRequest(this::readAList);
+        int firstRequest = compiles() - before;
+        assertThat(firstRequest).isLessThan(afterOne);
+        inRequest(this::readAList);
+        assertThat(compiles() - before).isEqualTo(2 * firstRequest);
+    }
+
+    @Test
+    @DisplayName("a write check forgets the grant rows, which depend on data, but keeps the field plan")
+    void aWriteCheckForgetsTheGrantRows() {
+        holdTheExampleRoles();
+
+        inRequest(() -> {
+            as(() -> service.appendScopeAccessFilters("Employee", new Filters()));
+            int compiles = compiles();
+            int planReads = planReads();
+            as(() -> {
+                service.checkWritePayload("Employee", Map.of("name", "E1"));
+                return null;
+            });
+            as(() -> service.appendScopeAccessFilters("Employee", new Filters()));
+            assertThat(compiles()).isGreaterThan(compiles);
+            as(() -> service.filterReadableFields("Employee", List.of("basePay"), AccessType.READ));
+            assertThat(planReads()).isGreaterThan(planReads);
+            int afterPlan = planReads();
+            as(() -> service.filterReadableFields("Employee", List.of("basePay"), AccessType.READ));
+            assertThat(planReads()).isEqualTo(afterPlan);
+        });
+    }
+
+    @Test
+    @DisplayName("a remembered scope is handed out as a copy, so a query rewriting it cannot change the next")
+    void aRememberedScopeIsACopy() {
+        holdTheExampleRoles();
+
+        inRequest(() -> {
+            Filters first = as(() -> service.appendScopeAccessFilters("Employee", new Filters()));
+            Filters second = as(() -> service.appendScopeAccessFilters("Employee", new Filters()));
+            assertThat(second).isEqualTo(first).isNotSameAs(first);
+        });
+    }
 }

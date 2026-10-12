@@ -403,7 +403,10 @@ caller's roles reaches no row (and shows no sensitive field).
 row also holds the field's set; editable only when one role holds the write action, the set and the
 row together. `fieldPlan` splits a model's sensitive fields into blocked (no reading role grants them),
 perRow (some do) and open; only the per-row ones cost a query, so a single role, or roles
-granting the same sets, mask model-wide as before. Consequences:
+granting the same sets, mask model-wide as before. Within one request each field plan and each role's
+rows are worked out once and remembered on the request (`PermissionServiceImpl.RequestMemo`); a role's
+rows depend on data, so every write check forgets them, and off a request thread nothing is remembered.
+Consequences:
 
 - `maskRows(model, rows)` masks rows read outside the standard path (change logs);
 - a filter on a per-row field matches only rows where it is visible; a sort on it is dropped; a

@@ -373,11 +373,10 @@ public class PermissionServiceImpl implements PermissionService {
      * readable row of any other. A model with no export permission registered at all keeps the fallback.
      */
     List<Grant> holders(PermissionInfo pi, String model, AccessType access) {
-        List<RoleGrant> roles = pi == null ? null : pi.getRoleGrants();
-        if (roles == null) {
-            return List.of(Grant.union(pi));
+        List<Grant> all = grantsOf(pi);
+        if (pi == null || pi.getRoleGrants() == null) {
+            return all;
         }
-        List<Grant> all = roles.stream().map(Grant::of).toList();
         Set<String> candidates = actionPermissions(model, access);
         if (candidates.isEmpty()) {
             return all;
@@ -421,6 +420,21 @@ public class PermissionServiceImpl implements PermissionService {
      * in its tenant.
      */
     private Filters grantScope(Grant g, String model) {
+        RequestMemo memo = RequestMemo.current();
+        if (memo == null) {
+            return computeGrantScope(g, model);
+        }
+        Optional<Filters> known = memo.scope(g, model);
+        if (known == null) {
+            Filters computed = computeGrantScope(g, model);
+            memo.putScope(g, model, computed);
+            return computed;
+        }
+        // A copy every time: the query builder rewrites the leaves of the filters it is handed in place.
+        return known.map(Filters::deepCopy).orElse(null);
+    }
+
+    private Filters computeGrantScope(Grant g, String model) {
         Filters company = companyScope(model, g.companies());
         Filters rows;
         if (hasExplicitRules(g, model)) {
@@ -532,6 +546,100 @@ public class PermissionServiceImpl implements PermissionService {
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return originalFilters;
         return guardSensitiveConditions(pi, model, AccessScope.current(), originalFilters);
+    }
+
+    /**
+     * The caller's grants, one per role — or the unions read as one role. The same instances for the
+     * whole request, so what is remembered per grant ({@link RequestMemo}) is found again.
+     */
+    private static List<Grant> grantsOf(PermissionInfo pi) {
+        RequestMemo memo = RequestMemo.current();
+        if (memo == null || pi == null) {
+            return buildGrants(pi);
+        }
+        return memo.grants(pi);
+    }
+
+    private static List<Grant> buildGrants(PermissionInfo pi) {
+        List<RoleGrant> roles = pi == null ? null : pi.getRoleGrants();
+        return roles == null ? List.of(Grant.union(pi)) : roles.stream().map(Grant::of).toList();
+    }
+
+    /**
+     * What one request has already worked out: each caller's grants, field plans and each grant's rows.
+     *
+     * <p>One read asks the same questions many times — the query guard, the field filter, the condition
+     * guard, the mask and each of its groups — and one write asks them again for the rows and for each
+     * sensitive field. A grant's rows can cost queries of their own: a child model reached through its
+     * owner reads the owner's ids. Answered once per request, they are not read again.
+     *
+     * <p>Held as a request attribute, so it is the request's and nothing else's: dropped with it, never
+     * seen by another request, and absent off the request thread (an async task, a scheduled job), where
+     * everything is simply computed. Plans are keyed by the {@link PermissionInfo} instance, which the
+     * snapshot provider hands out once per tenant and user per request, so a switch of tenant or user
+     * within a request finds its own entries. Grant rows depend on data, not only on the snapshot, so
+     * every write check forgets them ({@link #forgetScopes}): the rows a write is judged by are read
+     * after the writes before it.
+     */
+    static final class RequestMemo {
+
+        private static final String ATTRIBUTE = PermissionServiceImpl.class.getName() + ".requestMemo";
+
+        private final Map<PermissionInfo, List<Grant>> grants = new java.util.IdentityHashMap<>();
+        private final Map<PermissionInfo, Map<String, FieldPlan>> plans = new java.util.IdentityHashMap<>();
+        private final Map<Grant, Map<String, Optional<Filters>>> scopes = new java.util.IdentityHashMap<>();
+
+        /** The current request's memo; {@code null} off a request. */
+        static RequestMemo current() {
+            org.springframework.web.context.request.RequestAttributes ra =
+                    org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+            if (ra == null) {
+                return null;
+            }
+            int scope = org.springframework.web.context.request.RequestAttributes.SCOPE_REQUEST;
+            if (ra.getAttribute(ATTRIBUTE, scope) instanceof RequestMemo memo) {
+                return memo;
+            }
+            RequestMemo memo = new RequestMemo();
+            ra.setAttribute(ATTRIBUTE, memo, scope);
+            return memo;
+        }
+
+        synchronized List<Grant> grants(PermissionInfo pi) {
+            return grants.computeIfAbsent(pi, PermissionServiceImpl::buildGrants);
+        }
+
+        synchronized FieldPlan plan(PermissionInfo pi, String model, AccessType access) {
+            Map<String, FieldPlan> byKey = plans.get(pi);
+            return byKey == null ? null : byKey.get(model + '|' + access);
+        }
+
+        synchronized void putPlan(PermissionInfo pi, String model, AccessType access, FieldPlan plan) {
+            plans.computeIfAbsent(pi, k -> new java.util.HashMap<>()).put(model + '|' + access, plan);
+        }
+
+        /** {@code null} when not yet known; an empty optional for "unrestricted". */
+        synchronized Optional<Filters> scope(Grant g, String model) {
+            Map<String, Optional<Filters>> byModel = scopes.get(g);
+            return byModel == null ? null : byModel.get(model);
+        }
+
+        synchronized void putScope(Grant g, String model, Filters scope) {
+            scopes.computeIfAbsent(g, k -> new java.util.HashMap<>())
+                    .put(model, Optional.ofNullable(scope == null ? null : scope.deepCopy()));
+        }
+
+        synchronized void forgetScopes() {
+            scopes.clear();
+        }
+    }
+
+    /** Called by every write check before it reads anything — see {@link RequestMemo}. */
+    private static void forgetScopes() {
+        RequestMemo memo = RequestMemo.current();
+        if (memo != null) {
+            memo.forgetScopes();
+        }
     }
 
     /** No-op when the rewriter is absent (older constructors, unit tests) or nothing matches. */
@@ -858,6 +966,19 @@ public class PermissionServiceImpl implements PermissionService {
      */
     private FieldPlan fieldPlan(PermissionInfo pi, String model, AccessType access) {
         if (sfsCache == null || !sfsCache.hasSensitiveFieldsOn(model)) return FieldPlan.NONE;
+        RequestMemo memo = RequestMemo.current();
+        if (memo == null) {
+            return computeFieldPlan(pi, model, access);
+        }
+        FieldPlan plan = memo.plan(pi, model, access);
+        if (plan == null) {
+            plan = computeFieldPlan(pi, model, access);
+            memo.putPlan(pi, model, access, plan);
+        }
+        return plan;
+    }
+
+    private FieldPlan computeFieldPlan(PermissionInfo pi, String model, AccessType access) {
         Set<String> sensitive = sfsCache.allSensitiveFieldsOn(model);
         List<Grant> holders = holders(pi, model, access);
         Set<String> anyGrants = new java.util.HashSet<>();
@@ -888,7 +1009,8 @@ public class PermissionServiceImpl implements PermissionService {
                 }
             });
         }
-        return new FieldPlan(blocked, perRow, readersByFields);
+        return new FieldPlan(java.util.Collections.unmodifiableSet(blocked),
+                java.util.Collections.unmodifiableSet(perRow), java.util.Collections.unmodifiableMap(readersByFields));
     }
 
     /**
@@ -1111,6 +1233,7 @@ public class PermissionServiceImpl implements PermissionService {
                                      Collection<? extends Serializable> ids,
                                      Set<String> fields,
                                      AccessType accessType) {
+        forgetScopes();
         if (AccessType.CREATE.equals(accessType) || AccessType.UPDATE.equals(accessType)) {
             // The rows first: an id the action cannot reach at all is refused for that, not for
             // whichever sensitive field the payload happens to carry.
@@ -1202,6 +1325,7 @@ public class PermissionServiceImpl implements PermissionService {
      */
     @Override
     public void checkWritePayload(String model, Map<String, Object> payload) {
+        forgetScopes();
         if (payload == null || payload.isEmpty() || shouldBypass()) return;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return;
@@ -1228,9 +1352,7 @@ public class PermissionServiceImpl implements PermissionService {
     private Set<String> blockedForAnyRole(PermissionInfo pi, String model) {
         if (sfsCache == null || !sfsCache.hasSensitiveFieldsOn(model)) return Set.of();
         Set<String> granted = new java.util.HashSet<>();
-        List<RoleGrant> roles = pi == null ? null : pi.getRoleGrants();
-        List<Grant> grants = roles == null ? List.of(Grant.union(pi)) : roles.stream().map(Grant::of).toList();
-        for (Grant g : grants) {
+        for (Grant g : grantsOf(pi)) {
             granted.addAll(g.sensitiveSets().getOrDefault(model, Set.of()));
         }
         return sfsCache.computeForbiddenFields(model, granted);
@@ -1279,6 +1401,9 @@ public class PermissionServiceImpl implements PermissionService {
     public void checkIdsAccess(String model,
                                Collection<? extends Serializable> ids,
                                AccessType accessType) {
+        if (accessType != AccessType.READ) {
+            forgetScopes();
+        }
         if (ids == null || ids.isEmpty() || shouldBypass()) return;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return;
@@ -1379,7 +1504,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (shouldBypass()) return Set.of();
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return Set.of();
-        return fieldPlan(pi, model, readAccess(accessType)).blocked();
+        return new java.util.HashSet<>(fieldPlan(pi, model, readAccess(accessType)).blocked());
     }
 
     // ─────────────────────── helpers ───────────────────────
