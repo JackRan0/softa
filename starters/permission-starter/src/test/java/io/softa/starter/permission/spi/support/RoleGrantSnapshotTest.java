@@ -78,14 +78,14 @@ class RoleGrantSnapshotTest {
                                 "roleId", 2, "model", "Employee",
                                 "dataScopes", List.of(Map.of("scopeType", "MANAGED_DEPARTMENTS")),
                                 "scopeCondition", List.of(List.of(
-                                        "employeeProfileId.residenceStatus", "!=", "SG_EmploymentPass"))))));
+                                        "employmentType", "!=", "Contractor"))))));
         when(modelService.searchList(eq("RoleSensitiveFieldSet"), any(FlexQuery.class), any(Class.class)))
                 .thenReturn(List.of(view(DefaultPermissionSnapshotProvider.RoleSfsView.class,
-                        Map.of("roleId", 2, "sensitiveFieldSetId", "ipa-details"))));
+                        Map.of("roleId", 2, "sensitiveFieldSetId", "pay-details"))));
         when(modelService.searchList(eq("Navigation"), any(FlexQuery.class), any(Class.class)))
                 .thenReturn(List.of());
         SensitiveFieldSetCache sets = mock(SensitiveFieldSetCache.class);
-        when(sets.modelOf("ipa-details")).thenReturn("Employee");
+        when(sets.modelOf("pay-details")).thenReturn("Employee");
         return new DefaultPermissionSnapshotProvider(null, modelService, sets, () -> null, List.of(), List.of())
                 .doLoadFromDb(TENANT, USER);
     }
@@ -107,7 +107,7 @@ class RoleGrantSnapshotTest {
         assertThat(departmentHr.getPermissions()).containsExactlyInAnyOrder("employee.view", "employee.update");
         assertThat(departmentHr.getModelScopeMap().get("Employee"))
                 .extracting(r -> r.getScopeType()).containsExactly(ScopeType.MANAGED_DEPARTMENTS);
-        assertThat(departmentHr.getModelSensitiveFieldSetsMap().get("Employee")).containsExactly("ipa-details");
+        assertThat(departmentHr.getModelSensitiveFieldSetsMap().get("Employee")).containsExactly("pay-details");
     }
 
     @Test
@@ -116,7 +116,7 @@ class RoleGrantSnapshotTest {
 
         assertThat(info.getRoleGrants().get(0).getModelScopeConditions()).isEmpty();
         assertThat(info.getRoleGrants().get(1).getModelScopeConditions().get("Employee"))
-                .isEqualTo(json("[[\"employeeProfileId.residenceStatus\",\"!=\",\"SG_EmploymentPass\"]]"));
+                .isEqualTo(json("[[\"employmentType\",\"!=\",\"Contractor\"]]"));
     }
 
     @Test
@@ -127,7 +127,7 @@ class RoleGrantSnapshotTest {
         assertThat(info.getModelScopeMap().get("Employee"))
                 .extracting(r -> r.getScopeType())
                 .containsExactlyInAnyOrder(ScopeType.ALL, ScopeType.MANAGED_DEPARTMENTS);
-        assertThat(info.getModelSensitiveFieldSetsMap().get("Employee")).containsExactly("ipa-details");
+        assertThat(info.getModelSensitiveFieldSetsMap().get("Employee")).containsExactly("pay-details");
     }
 
     // ---- "my companies" across roles ------------------------------------

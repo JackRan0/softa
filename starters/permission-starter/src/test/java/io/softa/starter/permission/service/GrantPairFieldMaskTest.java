@@ -53,18 +53,18 @@ import static org.mockito.Mockito.when;
  * A sensitive field shows on a row when a role that reads the row grants it, and may be written on a
  * row only by a role that both edits the row and grants it.
  *
- * <p>R1 edits a department without IPA, R2 edits the department's non-Employment-Pass holders with
- * IPA, R3 is the all-staff directory. Employee 1 is a Work Permit holder in the department, employee 2
- * an Employment Pass holder in it.
+ * <p>R1 edits a department without pay, R2 edits the department's permanent staff with
+ * pay, R3 is the all-staff directory. Employee 1 is a permanent employee in the department, employee 2
+ * a contractor in it.
  */
 class GrantPairFieldMaskTest {
 
     private static final String VIEW = "permission.employee.view";
     private static final String UPDATE = "permission.employee.update";
     private static final String CREATE = "permission.employee.create";
-    private static final Set<String> IPA = Set.of("ipaPosition", "ipaBasic");
-    private static final String NOT_EP =
-            "[[\"employeeProfileId.residenceStatus\",\"!=\",\"SG_EmploymentPass\"]]";
+    private static final Set<String> PAY = Set.of("payGrade", "basePay");
+    private static final String NOT_CONTRACTOR =
+            "[[\"employmentType\",\"!=\",\"Contractor\"]]";
 
     private PermissionInfo pi;
     private ModelService<Long> modelService;
@@ -88,19 +88,19 @@ class GrantPairFieldMaskTest {
 
         SensitiveFieldSetCache sets = mock(SensitiveFieldSetCache.class);
         when(sets.hasSensitiveFieldsOn("Employee")).thenReturn(true);
-        when(sets.allSensitiveFieldsOn("Employee")).thenReturn(IPA);
+        when(sets.allSensitiveFieldsOn("Employee")).thenReturn(PAY);
         when(sets.grantedFieldsFor(eq("Employee"), anySet())).thenAnswer(inv -> {
             Set<String> granted = inv.getArgument(1);
-            return granted.contains("ipa-details") ? IPA : Set.of();
+            return granted.contains("pay-details") ? PAY : Set.of();
         });
         when(sets.computeForbiddenFields(eq("Employee"), anySet())).thenAnswer(inv -> {
             Set<String> granted = inv.getArgument(1);
-            return granted.contains("ipa-details") ? Set.of() : IPA;
+            return granted.contains("pay-details") ? Set.of() : PAY;
         });
-        when(sets.setIdsContaining(eq("Employee"), anyString())).thenReturn(Set.of("ipa-details"));
-        when(sets.nameOf("ipa-details")).thenReturn("IPA Details");
-        when(sets.shortNameOf("ipa-details")).thenReturn("IPA");
-        when(sets.setIdsOwnedBy("Employee")).thenReturn(Set.of("ipa-details"));
+        when(sets.setIdsContaining(eq("Employee"), anyString())).thenReturn(Set.of("pay-details"));
+        when(sets.nameOf("pay-details")).thenReturn("Pay Details");
+        when(sets.shortNameOf("pay-details")).thenReturn("Pay");
+        when(sets.setIdsOwnedBy("Employee")).thenReturn(Set.of("pay-details"));
 
         models = Mockito.mockStatic(ModelManager.class);
         MetaModel meta = mock(MetaModel.class);
@@ -136,7 +136,7 @@ class GrantPairFieldMaskTest {
         return compiler;
     }
 
-    private static RoleGrant role(long id, Set<String> permissions, ScopeType scope, String condition, boolean ipa) {
+    private static RoleGrant role(long id, Set<String> permissions, ScopeType scope, String condition, boolean pay) {
         ScopeRule rule = new ScopeRule();
         rule.setScopeType(scope);
         RoleGrant g = new RoleGrant();
@@ -146,22 +146,22 @@ class GrantPairFieldMaskTest {
         Map<String, JsonNode> conditions = new HashMap<>();
         if (condition != null) conditions.put("Employee", JsonUtils.stringToObject(condition, JsonNode.class));
         g.setModelScopeConditions(conditions);
-        g.setModelSensitiveFieldSetsMap(ipa ? Map.of("Employee", Set.of("ipa-details")) : Map.of());
+        g.setModelSensitiveFieldSetsMap(pay ? Map.of("Employee", Set.of("pay-details")) : Map.of());
         return g;
     }
 
     private void holdTheExampleRoles() {
         pi.setRoleGrants(List.of(
                 role(1, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, null, false),
-                role(2, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, NOT_EP, true),
+                role(2, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, NOT_CONTRACTOR, true),
                 role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
     }
 
-    private static Map<String, Object> row(long id, Object ipaBasic) {
+    private static Map<String, Object> row(long id, Object basePay) {
         Map<String, Object> row = new HashMap<>();
         row.put("id", id);
         row.put("name", "E" + id);
-        row.put("ipaBasic", ipaBasic);
+        row.put("basePay", basePay);
         return row;
     }
 
@@ -173,17 +173,17 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
-    @DisplayName("in one list, the Work Permit holder shows IPA and the Employment Pass holder does not")
-    void theSameListShowsIpaOnlyOnTheRowsOfTheRoleGrantingIt() {
+    @DisplayName("in one list, the permanent employee shows pay and the contractor does not")
+    void theSameListShowsPayOnlyOnTheRowsOfTheRoleGrantingIt() {
         holdTheExampleRoles();
-        // R2's rows (department AND not EP) hold employee 1 only.
+        // R2's rows (department AND not contractor) hold employee 1 only.
         when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of(1L));
         List<Map<String, Object>> rows = new ArrayList<>(List.of(row(1, 1800), row(2, 6000)));
 
         as(() -> service.maskResponseValue("Employee", rows, AccessType.READ));
 
-        assertThat(rows.get(0).get("ipaBasic")).isEqualTo(1800);
-        assertThat(rows.get(1).get("ipaBasic")).isNull();
+        assertThat(rows.get(0).get("basePay")).isEqualTo(1800);
+        assertThat(rows.get(1).get("basePay")).isNull();
         assertThat(rows.get(1).get("name")).isEqualTo("E2");
     }
 
@@ -192,21 +192,21 @@ class GrantPairFieldMaskTest {
     void aPerRowFieldIsStillSelected() {
         holdTheExampleRoles();
 
-        assertThat(as(() -> service.filterReadableFields("Employee", List.of("id", "ipaBasic"), AccessType.READ)))
-                .containsExactly("id", "ipaBasic");
+        assertThat(as(() -> service.filterReadableFields("Employee", List.of("id", "basePay"), AccessType.READ)))
+                .containsExactly("id", "basePay");
     }
 
     @Test
-    @DisplayName("a user with no IPA role has the field dropped and masked without any per-row query")
+    @DisplayName("a user with no pay role has the field dropped and masked without any per-row query")
     void withoutAnyGrantingRoleTheFieldIsHiddenEverywhere() {
         pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
         List<Map<String, Object>> rows = new ArrayList<>(List.of(row(1, 1800)));
 
-        assertThat(as(() -> service.filterReadableFields("Employee", List.of("id", "ipaBasic"), AccessType.READ)))
+        assertThat(as(() -> service.filterReadableFields("Employee", List.of("id", "basePay"), AccessType.READ)))
                 .containsExactly("id");
         as(() -> service.maskResponseValue("Employee", rows, AccessType.READ));
 
-        assertThat(rows.getFirst().get("ipaBasic")).isNull();
+        assertThat(rows.getFirst().get("basePay")).isNull();
         verify(modelService, never()).getIds(anyString(), any(Filters.class));
     }
 
@@ -215,66 +215,66 @@ class GrantPairFieldMaskTest {
     void aRowWithoutAnIdIsMaskedConservatively() {
         holdTheExampleRoles();
         Map<String, Object> row = new HashMap<>();
-        row.put("ipaBasic", 1800);
+        row.put("basePay", 1800);
 
         as(() -> service.maskResponseValue("Employee", List.of(row), AccessType.READ));
 
-        assertThat(row.get("ipaBasic")).isNull();
+        assertThat(row.get("basePay")).isNull();
     }
 
     @Test
-    @DisplayName("writing IPA on the Employment Pass holder is refused with the user's sentence")
+    @DisplayName("writing pay on the contractor is refused with the user's sentence")
     void writingAFieldOutsideTheGrantingEditorsRowsIsRefused() {
         holdTheExampleRoles();
-        // R1 may edit employee 2 (the row check passes); R2, the one granting IPA, does not reach it.
+        // R1 may edit employee 2 (the row check passes); R2, the one granting pay, does not reach it.
         when(modelService.count(eq("Employee"), any(Filters.class))).thenReturn(1L, 0L);
 
         assertThatThrownBy(() -> as(() -> {
-            service.checkIdsFieldsAccess("Employee", List.of(2L), Set.of("ipaBasic"), AccessType.UPDATE);
+            service.checkIdsFieldsAccess("Employee", List.of(2L), Set.of("basePay"), AccessType.UPDATE);
             return null;
         })).isInstanceOf(PermissionException.class)
-                .hasMessage("You don't have permission to edit IPA fields for this employee.");
+                .hasMessage("You don't have permission to edit Pay fields for this employee.");
     }
 
     @Test
-    @DisplayName("writing IPA is checked against the rows of the roles that both edit and grant it")
+    @DisplayName("writing pay is checked against the rows of the roles that both edit and grant it")
     void theWriteCheckCountsTheGrantingEditorsRows() {
         holdTheExampleRoles();
         when(modelService.count(eq("Employee"), any(Filters.class))).thenReturn(1L);
 
         as(() -> {
-            service.checkIdsFieldsAccess("Employee", List.of(1L), Set.of("ipaBasic"), AccessType.UPDATE);
+            service.checkIdsFieldsAccess("Employee", List.of(1L), Set.of("basePay"), AccessType.UPDATE);
             return null;
         });
 
         ArgumentCaptor<Filters> counted = ArgumentCaptor.forClass(Filters.class);
         verify(modelService, Mockito.times(2)).count(eq("Employee"), counted.capture());
         // The second count is the field's: R2 only — the condition is what tells it apart from R1.
-        assertThat(counted.getAllValues().get(1).toString()).contains("residenceStatus");
+        assertThat(counted.getAllValues().get(1).toString()).contains("employmentType");
     }
 
     @Test
-    @DisplayName("a role that views with IPA but cannot edit does not lend IPA to an editing role")
-    void viewingWithIpaPlusEditingWithoutItCannotWriteIpa() {
+    @DisplayName("a role that views with pay but cannot edit does not lend pay to an editing role")
+    void viewingWithPayPlusEditingWithoutItCannotWritePay() {
         pi.setRoleGrants(List.of(
                 role(1, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, null, false),
                 role(4, Set.of(VIEW), ScopeType.ALL, null, true)));
 
         assertThatThrownBy(() -> as(() -> {
-            service.checkIdsFieldsAccess("Employee", List.of(1L), Set.of("ipaBasic"), AccessType.UPDATE);
+            service.checkIdsFieldsAccess("Employee", List.of(1L), Set.of("basePay"), AccessType.UPDATE);
             return null;
         })).isInstanceOf(PermissionException.class);
     }
 
     @Test
-    @DisplayName("a condition on IPA matches only on the rows where the caller may see IPA")
+    @DisplayName("a condition on pay matches only on the rows where the caller may see pay")
     void aConditionOnASensitiveFieldIsBoundToTheGrantingRolesRows() {
         holdTheExampleRoles();
 
         Filters scoped = as(() -> service.appendScopeAccessFilters("Employee",
-                Filters.of("ipaBasic", Operator.GREATER_THAN, 5000)));
+                Filters.of("basePay", Operator.GREATER_THAN, 5000)));
 
-        assertThat(scoped.toString()).contains("ipaBasic", "residenceStatus");
+        assertThat(scoped.toString()).contains("basePay", "employmentType");
     }
 
     @Test
@@ -283,7 +283,7 @@ class GrantPairFieldMaskTest {
         pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
 
         Filters scoped = as(() -> service.appendScopeAccessFilters("Employee",
-                Filters.of("ipaBasic", Operator.GREATER_THAN, 5000)));
+                Filters.of("basePay", Operator.GREATER_THAN, 5000)));
 
         assertThat(scoped).isEqualTo(ScopeRuleCompiler.matchNone());
     }
@@ -294,23 +294,23 @@ class GrantPairFieldMaskTest {
         pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
 
         Filters guarded = as(() -> service.appendScopeAccessFiltersIgnoringRowScope("Employee",
-                Filters.of("ipaBasic", Operator.GREATER_THAN, 5000)));
+                Filters.of("basePay", Operator.GREATER_THAN, 5000)));
 
         assertThat(guarded).isEqualTo(ScopeRuleCompiler.matchNone());
     }
 
     @Test
-    @DisplayName("a label lookup ignoring the row range binds a condition on IPA to the granting role's rows only")
+    @DisplayName("a label lookup ignoring the row range binds a condition on pay to the granting role's rows only")
     void ignoringTheRowRangeAConditionOnAPerRowFieldIsBoundToTheGrantingRole() {
         pi.setRoleGrants(List.of(
                 role(1, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, null, false),
-                role(2, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, NOT_EP, true)));
-        Filters condition = Filters.of("ipaBasic", Operator.GREATER_THAN, 5000);
+                role(2, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, NOT_CONTRACTOR, true)));
+        Filters condition = Filters.of("basePay", Operator.GREATER_THAN, 5000);
 
         Filters guarded = as(() -> service.appendScopeAccessFiltersIgnoringRowScope("Employee", condition));
 
         // The condition AND R2's rows — and nothing of the caller's row range, which would add R1's too.
-        assertThat(guarded.toString()).contains("ipaBasic", "residenceStatus");
+        assertThat(guarded.toString()).contains("basePay", "employmentType");
         assertThat(guarded.toString().split("departmentId", -1)).hasSize(2);
         Filters scoped = as(() -> service.appendScopeAccessFilters("Employee", condition));
         assertThat(scoped.toString().split("departmentId", -1)).hasSizeGreaterThan(2);
@@ -338,15 +338,15 @@ class GrantPairFieldMaskTest {
             return null;
         });
 
-        assertThat(rows.get(0).get("ipaBasic")).isEqualTo(1800);
-        assertThat(rows.get(1).get("ipaBasic")).isNull();
+        assertThat(rows.get(0).get("basePay")).isEqualTo(1800);
+        assertThat(rows.get(1).get("basePay")).isNull();
     }
 
-    /** R1's department holds both employees; R2's non-EP part of it only employee 1. */
-    private void departmentHoldsBothAndNonEpHoldsOne() {
+    /** R1's department holds both employees; R2's non-contractor part of it only employee 1. */
+    private void departmentHoldsBothAndNonContractorsHoldOne() {
         when(modelService.getIds(eq("Employee"), any(Filters.class))).thenAnswer(inv -> {
             Filters f = inv.getArgument(1);
-            return f.toString().contains("residenceStatus") ? List.of(1L) : List.of(1L, 2L);
+            return f.toString().contains("employmentType") ? List.of(1L) : List.of(1L, 2L);
         });
     }
 
@@ -355,11 +355,11 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
-    @DisplayName("record access: the Work Permit holder's IPA is editable, the Employment Pass holder's hidden")
+    @DisplayName("record access: the permanent employee's pay is editable, the contractor's hidden")
     void recordAccessFollowsTheRolesReachingEachRecord() {
         holdTheExampleRoles();
         unionOf(VIEW, UPDATE);
-        departmentHoldsBothAndNonEpHoldsOne();
+        departmentHoldsBothAndNonContractorsHoldOne();
 
         List<io.softa.framework.orm.domain.RecordAccess> access =
                 as(() -> service.getRecordAccess("Employee", List.of(1L, 2L)));
@@ -367,7 +367,7 @@ class GrantPairFieldMaskTest {
         assertThat(access.get(0).hiddenSets()).isEmpty();
         assertThat(access.get(0).readonlySets()).isEmpty();
         assertThat(access.get(0).actions()).contains(AccessType.UPDATE);
-        assertThat(access.get(1).hiddenSets()).containsExactly("ipa-details");
+        assertThat(access.get(1).hiddenSets()).containsExactly("pay-details");
         assertThat(access.get(1).actions()).contains(AccessType.UPDATE);
     }
 
@@ -378,13 +378,13 @@ class GrantPairFieldMaskTest {
                 role(1, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, null, false),
                 role(4, Set.of(VIEW), ScopeType.ALL, null, true)));
         unionOf(VIEW, UPDATE);
-        departmentHoldsBothAndNonEpHoldsOne();
+        departmentHoldsBothAndNonContractorsHoldOne();
 
         List<io.softa.framework.orm.domain.RecordAccess> access =
                 as(() -> service.getRecordAccess("Employee", List.of(1L)));
 
         assertThat(access.getFirst().hiddenSets()).isEmpty();
-        assertThat(access.getFirst().readonlySets()).containsExactly("ipa-details");
+        assertThat(access.getFirst().readonlySets()).containsExactly("pay-details");
     }
 
     @Test
@@ -396,7 +396,7 @@ class GrantPairFieldMaskTest {
         List<io.softa.framework.orm.domain.RecordAccess> access =
                 as(() -> service.getRecordAccess("Employee", List.of(1L)));
 
-        assertThat(access.getFirst().readonlySets()).containsExactly("ipa-details");
+        assertThat(access.getFirst().readonlySets()).containsExactly("pay-details");
         assertThat(access.getFirst().actions()).doesNotContain(AccessType.UPDATE);
     }
 
@@ -406,9 +406,9 @@ class GrantPairFieldMaskTest {
         pi.setRoleGrants(List.of(
                 role(1, Set.of(VIEW, CREATE), ScopeType.MANAGED_DEPARTMENTS, null, false),
                 role(4, Set.of(VIEW), ScopeType.ALL, null, true)));
-        assertThat(as(() -> service.getCreateAccess("Employee")).hiddenSets()).containsExactly("ipa-details");
+        assertThat(as(() -> service.getCreateAccess("Employee")).hiddenSets()).containsExactly("pay-details");
 
-        pi.setRoleGrants(List.of(role(2, Set.of(VIEW, CREATE), ScopeType.MANAGED_DEPARTMENTS, NOT_EP, true)));
+        pi.setRoleGrants(List.of(role(2, Set.of(VIEW, CREATE), ScopeType.MANAGED_DEPARTMENTS, NOT_CONTRACTOR, true)));
         assertThat(as(() -> service.getCreateAccess("Employee")).hiddenSets()).isEmpty();
     }
 
@@ -420,18 +420,18 @@ class GrantPairFieldMaskTest {
 
         assertThatThrownBy(() -> as(() -> {
             io.softa.framework.orm.service.ImportScope.run(() -> service.checkIdsFieldsAccess(
-                    "Employee", List.of(2L), Set.of("ipaBasic"), AccessType.UPDATE));
+                    "Employee", List.of(2L), Set.of("basePay"), AccessType.UPDATE));
             return null;
         })).isInstanceOf(PermissionException.class)
-                .hasMessage("You don't have permission to update IPA fields for this employee.");
+                .hasMessage("You don't have permission to update Pay fields for this employee.");
     }
 
     @Test
-    @DisplayName("a sort on IPA is dropped when IPA is hidden on some rows; other sorts stay")
+    @DisplayName("a sort on pay is dropped when pay is hidden on some rows; other sorts stay")
     void aSortOnAPartlyHiddenFieldIsDropped() {
         holdTheExampleRoles();
         io.softa.framework.orm.domain.FlexQuery query = new io.softa.framework.orm.domain.FlexQuery();
-        query.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("ipaBasic").addAsc("name"));
+        query.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("basePay").addAsc("name"));
 
         as(() -> {
             service.guardQuery("Employee", query);
@@ -442,11 +442,11 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
-    @DisplayName("grouping by IPA is refused when IPA is hidden on some rows")
+    @DisplayName("grouping by pay is refused when pay is hidden on some rows")
     void groupingByAPartlyHiddenFieldIsRefused() {
         holdTheExampleRoles();
         io.softa.framework.orm.domain.FlexQuery query = new io.softa.framework.orm.domain.FlexQuery();
-        query.setGroupBy(List.of("ipaBasic"));
+        query.setGroupBy(List.of("basePay"));
 
         assertThatThrownBy(() -> as(() -> {
             service.guardQuery("Employee", query);
@@ -455,18 +455,18 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
-    @DisplayName("a user who sees IPA on every row keeps the sort")
+    @DisplayName("a user who sees pay on every row keeps the sort")
     void aUniformlyVisibleFieldKeepsItsSort() {
         pi.setRoleGrants(List.of(role(4, Set.of(VIEW), ScopeType.ALL, null, true)));
         io.softa.framework.orm.domain.FlexQuery query = new io.softa.framework.orm.domain.FlexQuery();
-        query.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("ipaBasic"));
+        query.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("basePay"));
 
         as(() -> {
             service.guardQuery("Employee", query);
             return null;
         });
 
-        assertThat(query.getOrders().getFields()).containsExactly("ipaBasic");
+        assertThat(query.getOrders().getFields()).containsExactly("basePay");
     }
 
     @Test
@@ -477,7 +477,7 @@ class GrantPairFieldMaskTest {
         banking.setModelSensitiveFieldSetsMap(Map.of("EmpBankAccount", Set.of("employee-bank")));
         pi.setRoleGrants(List.of(banking, role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
         unionOf(VIEW, UPDATE);
-        departmentHoldsBothAndNonEpHoldsOne();
+        departmentHoldsBothAndNonContractorsHoldOne();
         SensitiveFieldSetCache sets = (SensitiveFieldSetCache) org.springframework.test.util.ReflectionTestUtils
                 .getField(service, "sfsCache");
         when(sets.setIdsAttachedTo("Employee")).thenReturn(Set.of("employee-bank"));
@@ -515,35 +515,35 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
-    @DisplayName("a condition reaching IPA through a relation matches nothing when no role grants IPA")
+    @DisplayName("a condition reaching pay through a relation matches nothing when no role grants pay")
     void aPathIntoAnUngrantedFieldMatchesNothing() {
         relationsLeadToEmployee();
         pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
 
-        assertThat(guardedOn("EmpLeave", Filters.of("employeeId.ipaBasic", Operator.GREATER_THAN, 5000)))
+        assertThat(guardedOn("EmpLeave", Filters.of("employeeId.basePay", Operator.GREATER_THAN, 5000)))
                 .isEqualTo(ScopeRuleCompiler.matchNone());
-        assertThat(guardedOn("EmpLeaveDay", Filters.of("leaveId.employeeId.ipaBasic", Operator.GREATER_THAN, 5000)))
+        assertThat(guardedOn("EmpLeaveDay", Filters.of("leaveId.employeeId.basePay", Operator.GREATER_THAN, 5000)))
                 .isEqualTo(ScopeRuleCompiler.matchNone());
     }
 
     @Test
-    @DisplayName("a condition reaching IPA through a relation matches only employees whose IPA the caller sees")
+    @DisplayName("a condition reaching pay through a relation matches only employees whose pay the caller sees")
     void aPathIntoAPerRowFieldIsBoundToTheGrantingRolesRows() {
         relationsLeadToEmployee();
         holdTheExampleRoles();
         when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of(1L));
 
-        Filters oneHop = guardedOn("EmpLeave", Filters.of("employeeId.ipaBasic", Operator.GREATER_THAN, 5000));
+        Filters oneHop = guardedOn("EmpLeave", Filters.of("employeeId.basePay", Operator.GREATER_THAN, 5000));
         Filters twoHops = guardedOn("EmpLeaveDay",
-                Filters.of("leaveId.employeeId.ipaBasic", Operator.GREATER_THAN, 5000));
+                Filters.of("leaveId.employeeId.basePay", Operator.GREATER_THAN, 5000));
 
         assertThat(oneHop).isEqualTo(Filters.of("employeeId", Operator.IN, List.of(1L)));
         assertThat(twoHops).isEqualTo(Filters.of("leaveId.employeeId", Operator.IN, List.of(1L)));
-        // The employees asked for: the condition, on Employee, AND the rows of R2 — the role granting IPA.
+        // The employees asked for: the condition, on Employee, AND the rows of R2 — the role granting pay.
         ArgumentCaptor<Filters> asked = ArgumentCaptor.forClass(Filters.class);
         verify(modelService, Mockito.times(2)).getIds(eq("Employee"), asked.capture());
-        assertThat(asked.getValue().toString()).contains("ipaBasic", "5000", "residenceStatus");
-        assertThat(asked.getValue().toString()).doesNotContain("employeeId.ipaBasic");
+        assertThat(asked.getValue().toString()).contains("basePay", "5000", "employmentType");
+        assertThat(asked.getValue().toString()).doesNotContain("employeeId.basePay");
     }
 
     @Test
@@ -553,16 +553,16 @@ class GrantPairFieldMaskTest {
         holdTheExampleRoles();
         when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of());
 
-        assertThat(guardedOn("EmpLeave", Filters.of("employeeId.ipaBasic", Operator.GREATER_THAN, 5000)))
+        assertThat(guardedOn("EmpLeave", Filters.of("employeeId.basePay", Operator.GREATER_THAN, 5000)))
                 .isEqualTo(ScopeRuleCompiler.matchNone());
     }
 
     @Test
-    @DisplayName("a path into IPA is left alone for a caller who sees IPA on every employee")
+    @DisplayName("a path into pay is left alone for a caller who sees pay on every employee")
     void aPathIntoAUniformlyVisibleFieldIsUntouched() {
         relationsLeadToEmployee();
         pi.setRoleGrants(List.of(role(4, Set.of(VIEW), ScopeType.ALL, null, true)));
-        Filters condition = Filters.of("employeeId.ipaBasic", Operator.GREATER_THAN, 5000);
+        Filters condition = Filters.of("employeeId.basePay", Operator.GREATER_THAN, 5000);
 
         assertThat(guardedOn("EmpLeave", condition)).isSameAs(condition);
     }
@@ -573,9 +573,9 @@ class GrantPairFieldMaskTest {
         relationsLeadToEmployee();
         holdTheExampleRoles();
         Filters ordinary = Filters.of("employeeId.name", Operator.EQUAL, "E1");
-        Filters unknownSegment = Filters.of("ghostId.ipaBasic", Operator.GREATER_THAN, 5000);
+        Filters unknownSegment = Filters.of("ghostId.basePay", Operator.GREATER_THAN, 5000);
         // To-many paths are not followed: only many-to-one / one-to-one hops are resolved.
-        Filters toMany = Filters.of("approverIds.ipaBasic", Operator.GREATER_THAN, 5000);
+        Filters toMany = Filters.of("approverIds.basePay", Operator.GREATER_THAN, 5000);
 
         assertThat(guardedOn("EmpLeave", ordinary)).isSameAs(ordinary);
         assertThat(guardedOn("EmpLeave", unknownSegment)).isSameAs(unknownSegment);
@@ -589,7 +589,7 @@ class GrantPairFieldMaskTest {
         relationsLeadToEmployee();
         pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
         Filters name = Filters.of("name", Operator.EQUAL, "Annual");
-        Filters tree = Filters.or(name, Filters.of("employeeId.ipaBasic", Operator.GREATER_THAN, 5000));
+        Filters tree = Filters.or(name, Filters.of("employeeId.basePay", Operator.GREATER_THAN, 5000));
 
         Filters guarded = guardedOn("EmpLeave", tree);
 
@@ -597,14 +597,14 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
-    @DisplayName("a sort through a relation onto IPA is dropped and a grouping by it refused")
+    @DisplayName("a sort through a relation onto pay is dropped and a grouping by it refused")
     void aSortOrGroupingThroughARelationFollowsTheTargetsPlan() {
         relationsLeadToEmployee();
         holdTheExampleRoles();
         io.softa.framework.orm.domain.FlexQuery sorted = new io.softa.framework.orm.domain.FlexQuery();
-        sorted.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("employeeId.ipaBasic").addAsc("employeeId.name"));
+        sorted.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("employeeId.basePay").addAsc("employeeId.name"));
         io.softa.framework.orm.domain.FlexQuery grouped = new io.softa.framework.orm.domain.FlexQuery();
-        grouped.setGroupBy(List.of("leaveId.employeeId.ipaBasic"));
+        grouped.setGroupBy(List.of("leaveId.employeeId.basePay"));
 
         as(() -> {
             service.guardQuery("EmpLeave", sorted);
@@ -619,19 +619,19 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
-    @DisplayName("a sort through a relation onto IPA stays for a caller who sees IPA on every employee")
+    @DisplayName("a sort through a relation onto pay stays for a caller who sees pay on every employee")
     void aSortThroughARelationOntoAUniformlyVisibleFieldStays() {
         relationsLeadToEmployee();
         pi.setRoleGrants(List.of(role(4, Set.of(VIEW), ScopeType.ALL, null, true)));
         io.softa.framework.orm.domain.FlexQuery sorted = new io.softa.framework.orm.domain.FlexQuery();
-        sorted.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("employeeId.ipaBasic"));
+        sorted.setOrders(io.softa.framework.orm.domain.Orders.ofDesc("employeeId.basePay"));
 
         as(() -> {
             service.guardQuery("EmpLeave", sorted);
             return null;
         });
 
-        assertThat(sorted.getOrders().getFields()).containsExactly("employeeId.ipaBasic");
+        assertThat(sorted.getOrders().getFields()).containsExactly("employeeId.basePay");
     }
 
     // ─── fields never visible ───
@@ -645,7 +645,7 @@ class GrantPairFieldMaskTest {
         pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
 
         assertThat(as(service::getHiddenSensitiveFields)).containsOnlyKeys("Employee");
-        assertThat(as(service::getHiddenSensitiveFields).get("Employee")).containsExactlyInAnyOrderElementsOf(IPA);
+        assertThat(as(service::getHiddenSensitiveFields).get("Employee")).containsExactlyInAnyOrderElementsOf(PAY);
     }
 
     @Test
@@ -673,41 +673,41 @@ class GrantPairFieldMaskTest {
     // ─── nulls in a write payload ───
 
     @Test
-    @DisplayName("a payload giving IPA as null is not refused up front; a value is")
+    @DisplayName("a payload giving pay as null is not refused up front; a value is")
     void aNullForAnUngrantedFieldIsNotRefusedBeforeTheRowsAreKnown() {
         pi.setRoleGrants(List.of(role(3, Set.of(VIEW, CREATE), ScopeType.ALL, null, false)));
         Map<String, Object> withNull = new HashMap<>();
         withNull.put("name", "E1");
-        withNull.put("ipaBasic", null);
+        withNull.put("basePay", null);
 
         as(() -> {
             service.checkWritePayload("Employee", withNull);
             return null;
         });
         assertThatThrownBy(() -> as(() -> {
-            service.checkWritePayload("Employee", Map.of("ipaBasic", 1800));
+            service.checkWritePayload("Employee", Map.of("basePay", 1800));
             return null;
         })).isInstanceOf(PermissionException.class);
     }
 
     @Test
-    @DisplayName("an update clearing IPA without the set is still refused once the field is handed over as written")
+    @DisplayName("an update clearing pay without the set is still refused once the field is handed over as written")
     void clearingAnUngrantedFieldIsRefused() {
         pi.setRoleGrants(List.of(role(1, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, null, false)));
         when(modelService.count(eq("Employee"), any(Filters.class))).thenReturn(1L);
 
         assertThatThrownBy(() -> as(() -> {
-            service.checkIdsFieldsAccess("Employee", List.of(1L), Set.of("ipaBasic"), AccessType.UPDATE);
+            service.checkIdsFieldsAccess("Employee", List.of(1L), Set.of("basePay"), AccessType.UPDATE);
             return null;
         })).isInstanceOf(PermissionException.class)
-                .hasMessage("You don't have permission to edit IPA fields for this employee.");
+                .hasMessage("You don't have permission to edit Pay fields for this employee.");
     }
 
     @Test
     @DisplayName("the guarded fields are the model's sensitive ones, and none for an admin")
     void theWriteGuardedFieldsAreTheSensitiveOnes() {
         pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
-        assertThat(as(() -> service.getWriteGuardedFields("Employee"))).isEqualTo(IPA);
+        assertThat(as(() -> service.getWriteGuardedFields("Employee"))).isEqualTo(PAY);
 
         pi.setRoleCodes(Set.of(io.softa.framework.base.enums.BuiltinRole.TENANT_ADMIN.getCode()));
         assertThat(as(() -> service.getWriteGuardedFields("Employee"))).isEmpty();

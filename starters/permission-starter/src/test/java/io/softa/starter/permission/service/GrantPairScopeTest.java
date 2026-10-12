@@ -53,7 +53,7 @@ import static org.mockito.Mockito.when;
  * rows of every role the user has.
  *
  * <p>Three roles a department HR might hold — R1 views and edits their departments, R2 views and edits
- * the non-Employment-Pass holders of their departments, R3 is an all-staff directory that only views.
+ * the permanent staff of their departments, R3 is an all-staff directory that only views.
  */
 class GrantPairScopeTest {
 
@@ -66,8 +66,8 @@ class GrantPairScopeTest {
 
     /** What the compiler stub renders a department rule as. */
     private static final Filters MY_DEPARTMENTS = Filters.of("departmentId", Operator.IN, List.of(10L));
-    private static final String NOT_EP =
-            "[[\"employeeProfileId.residenceStatus\",\"!=\",\"SG_EmploymentPass\"]]";
+    private static final String NOT_CONTRACTOR =
+            "[[\"employmentType\",\"!=\",\"Contractor\"]]";
 
     private PermissionInfo pi;
     private ModelService<Long> modelService;
@@ -142,11 +142,11 @@ class GrantPairScopeTest {
         return g;
     }
 
-    /** R1 department HR, R2 department HR for non-EP holders, R3 the all-staff directory. */
+    /** R1 department HR, R2 department HR for permanent staff, R3 the all-staff directory. */
     private void holdTheExampleRoles() {
         pi.setRoleGrants(List.of(
                 role(1, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, null, null),
-                role(2, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, NOT_EP, null),
+                role(2, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, NOT_CONTRACTOR, null),
                 role(3, Set.of(VIEW), ScopeType.ALL, null, null)));
     }
 
@@ -180,7 +180,7 @@ class GrantPairScopeTest {
 
         String update = scope(AccessType.UPDATE).toString();
 
-        assertThat(update).contains("departmentId", "10", "residenceStatus");
+        assertThat(update).contains("departmentId", "10", "employmentType");
     }
 
     @Test
@@ -206,11 +206,11 @@ class GrantPairScopeTest {
     @Test
     @DisplayName("the condition is AND-ed onto its own role's rules only")
     void theConditionNarrowsOnlyItsOwnRole() {
-        pi.setRoleGrants(List.of(role(2, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, NOT_EP, null)));
+        pi.setRoleGrants(List.of(role(2, Set.of(VIEW, UPDATE), ScopeType.MANAGED_DEPARTMENTS, NOT_CONTRACTOR, null)));
 
         Filters update = scope(AccessType.UPDATE);
 
-        assertThat(update.toString()).contains("departmentId", "residenceStatus", "SG_EmploymentPass");
+        assertThat(update.toString()).contains("departmentId", "employmentType", "Contractor");
     }
 
     @Test
