@@ -304,9 +304,10 @@ public class UiContextBuilder {
                 view.getModelScopeConditions().put(rds.getModel(), condition);
             }
         }
-        for (Long roleId : roleIds) {
-            byRole.get(roleId).getModelSensitiveFieldSetsMap().putAll(buildModelSfsMap(List.of(roleId)));
-        }
+        buildModelSfsMapByRole(roleIds).forEach((roleId, sets) -> {
+            RoleGrantView view = byRole.get(roleId);
+            if (view != null) view.getModelSensitiveFieldSetsMap().putAll(sets);
+        });
         return new ArrayList<>(byRole.values());
     }
 
@@ -556,6 +557,34 @@ public class UiContextBuilder {
             byModel.computeIfAbsent(model.toString(), k -> new HashSet<>()).add(id.toString());
         }
         return byModel;
+    }
+
+    /** Each role's granted sensitive-field-set ids grouped by their canonical model — every role's
+     *  grant rows read in one query and the sets' models in one more, whatever the number of roles. */
+    private Map<Long, Map<String, Set<String>>> buildModelSfsMapByRole(List<Long> roleIds) {
+        List<RoleSensitiveFieldSet> sfsGrants = roleSensitiveFieldSetService.searchList(new FlexQuery(
+                List.of("roleId", "sensitiveFieldSetId"),
+                new Filters().in(RoleSensitiveFieldSet::getRoleId, roleIds)));
+        Set<String> sfsIds = new HashSet<>();
+        for (RoleSensitiveFieldSet g : sfsGrants) {
+            if (g.getSensitiveFieldSetId() != null) sfsIds.add(g.getSensitiveFieldSetId());
+        }
+        if (sfsIds.isEmpty()) return Map.of();
+        Map<String, String> modelBySet = new HashMap<>();
+        for (Map<String, Object> m : modelService.searchList("SensitiveFieldSet",
+                new FlexQuery(List.of("id", "model"), new Filters().in("id", new ArrayList<>(sfsIds))))) {
+            Object id = m.get("id");
+            Object model = m.get("model");
+            if (id != null && model != null) modelBySet.put(id.toString(), model.toString());
+        }
+        Map<Long, Map<String, Set<String>>> byRole = new HashMap<>();
+        for (RoleSensitiveFieldSet g : sfsGrants) {
+            String model = g.getSensitiveFieldSetId() == null ? null : modelBySet.get(g.getSensitiveFieldSetId());
+            if (g.getRoleId() == null || model == null) continue;
+            byRole.computeIfAbsent(g.getRoleId(), k -> new HashMap<>())
+                    .computeIfAbsent(model, k -> new HashSet<>()).add(g.getSensitiveFieldSetId());
+        }
+        return byRole;
     }
 
     /** A granted child nav implies its container ancestors are visible. */

@@ -434,8 +434,17 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
 
         // 3b-2. The company axis, derived from the scope just read for the company model, and the
         // countries behind it. Each role keeps its own for its pair; "my companies" is their union.
+        // Roles holding the same company rules — the common case of several roles written for one set
+        // of legal entities — share one read of the company model.
+        Map<List<ScopeRule>, Set<Long>> companiesByRules = new HashMap<>();
         for (RoleGrant grant : grantsByRole.values()) {
-            grant.setGrantedCompanyIds(readGrantedCompanyIds(grant.getModelScopeMap()));
+            List<ScopeRule> companyRules = grant.getModelScopeMap().get(ModelConstant.COMPANY_MODEL);
+            List<ScopeRule> key = companyRules == null ? List.of() : companyRules;
+            if (!companiesByRules.containsKey(key)) {
+                companiesByRules.put(key, readGrantedCompanyIds(grant.getModelScopeMap()));
+            }
+            Set<Long> companies = companiesByRules.get(key);
+            grant.setGrantedCompanyIds(companies == null ? null : new HashSet<>(companies));
         }
         Set<Long> grantedCompanyIds = grantsByRole.isEmpty()
                 ? readGrantedCompanyIds(modelScopeMap)

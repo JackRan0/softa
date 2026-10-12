@@ -132,10 +132,14 @@ class RoleGrantSnapshotTest {
 
     // ---- "my companies" across roles ------------------------------------
 
+    /** The model service behind the last {@link #buildWithCompanies} call. */
+    private static ModelService<Long> lastModelService;
+
     /** Role 1 and role 2 with the given company rules (null = no rule on the company model). */
     @SuppressWarnings("unchecked")
     private static PermissionInfo buildWithCompanies(List<Integer> role1Companies, List<Integer> role2Companies) {
         ModelService<Long> modelService = mock(ModelService.class);
+        lastModelService = modelService;
         when(modelService.searchList(eq("UserAccount"), any(FlexQuery.class))).thenReturn(List.of());
         when(modelService.searchList(eq("UserRoleRel"), any(FlexQuery.class), any(Class.class)))
                 .thenReturn(List.of(
@@ -219,5 +223,16 @@ class RoleGrantSnapshotTest {
         assertThat(info.getRoleGrants().get(1).getGrantedCompanyIds()).isEmpty();
         assertThat(info.getGrantedCompanyIds()).containsExactly(101L);
         assertThat(info.getGrantedCountries()).containsExactly("SG");
+    }
+
+    @Test
+    void rolesWithTheSameCompanyRulesShareOneRead() {
+        PermissionInfo info = buildWithCompanies(List.of(101, 202), List.of(101, 202));
+
+        assertThat(info.getRoleGrants().get(0).getGrantedCompanyIds()).containsExactlyInAnyOrder(101L, 202L);
+        assertThat(info.getRoleGrants().get(1).getGrantedCompanyIds()).containsExactlyInAnyOrder(101L, 202L);
+        // One read for both roles' grant, one for the countries behind the union.
+        org.mockito.Mockito.verify(lastModelService, org.mockito.Mockito.times(2))
+                .searchList(eq(ModelConstant.COMPANY_MODEL), any(FlexQuery.class));
     }
 }

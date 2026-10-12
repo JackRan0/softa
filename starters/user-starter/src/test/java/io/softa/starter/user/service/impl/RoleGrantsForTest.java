@@ -102,5 +102,10 @@ class RoleGrantsForTest {
         assertThat(grants.get(1).getModelScopeConditions().get("Employee"))
                 .isEqualTo(json("[[\"type\",\"=\",\"Contractor\"]]"));
         assertThat(grants.get(1).getModelSensitiveFieldSetsMap().get("Employee")).containsExactly("salary");
+        assertThat(grants.get(0).getModelSensitiveFieldSetsMap()).isEmpty();
+        // Every role's sensitive sets in one read, and their models in one more — not one pair per role.
+        org.mockito.Mockito.verify(sfs, org.mockito.Mockito.times(1)).searchList(any(FlexQuery.class));
+        org.mockito.Mockito.verify(modelService, org.mockito.Mockito.times(1))
+                .searchList(eq("SensitiveFieldSet"), any(FlexQuery.class));
     }
 }
