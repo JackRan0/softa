@@ -417,6 +417,9 @@ granting the same sets, mask model-wide as before. Consequences:
   on a create writes nothing and is not refused; on an update a null that clears a stored value needs
   the set, while a null over a stored null is not counted (`getWriteGuardedFields` tells `updateList`
   which stored values to read back);
+- a batch update is judged row by row: rows are grouped by the sensitive fields each actually writes
+  and each group is checked on its own ids, so a row that only renames is not refused because another
+  row in the batch sets a field its editors may not;
 - a refused write names the set by its `shortName` (falling back to its `name`), worded `update` inside an import (`ImportScope`)
   and `edit` elsewhere.
 
