@@ -11,6 +11,7 @@ import tools.jackson.databind.JavaType;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import io.softa.framework.base.config.JacksonConfig;
 import io.softa.framework.base.exception.JSONException;
 
 /**
@@ -21,7 +22,7 @@ public class JsonUtils {
 
     /**
      * Get JsonMapper instance from the Spring Context.
-     * If the Spring Context is not available, create a new JsonMapper instance.
+     * If the Spring Context is not available, create a new JsonMapper instance under the same global policy.
      * @return JsonMapper instance
      */
     public static JsonMapper getMapper() {
@@ -30,7 +31,7 @@ public class JsonUtils {
         } else if (SpringContextUtils.existApplicationContext()) {
             mapper = SpringContextUtils.getBeanByClass(JsonMapper.class);
         } else {
-            return JsonMapper.builder().build();
+            return JacksonConfig.applyGlobalPolicy(JsonMapper.builder()).build();
         }
         return mapper;
     }

@@ -1,5 +1,6 @@
 package io.softa.framework.orm.jdbc.pipeline.processor;
 
+import java.math.BigDecimal;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
@@ -76,6 +77,10 @@ public class NumericProcessor extends BaseProcessor {
                 number = intValue.doubleValue();
             } else if (number instanceof Long longValue) {
                 number = longValue.doubleValue();
+            } else if (number instanceof BigDecimal decimalValue) {
+                // JSON floats arrive as BigDecimal (see JacksonConfig);
+                // converting keeps an unchanged value equal to the Double read back, so the update diff does not count it as a change.
+                number = decimalValue.doubleValue();
             }
         }
         return number;
