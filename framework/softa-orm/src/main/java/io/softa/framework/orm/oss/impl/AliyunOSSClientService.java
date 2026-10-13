@@ -8,6 +8,7 @@ import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSException;
 import com.aliyun.oss.model.GeneratePresignedUrlRequest;
 import com.aliyun.oss.model.OSSObject;
+import com.aliyun.oss.model.ObjectMetadata;
 import com.aliyun.oss.model.PutObjectResult;
 import com.aliyun.oss.model.ResponseHeaderOverrides;
 import lombok.AllArgsConstructor;
@@ -16,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import io.softa.framework.base.exception.ExternalException;
 import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.orm.constant.FileConstant;
+import io.softa.framework.orm.enums.FileType;
 import io.softa.framework.orm.oss.OSSProperties;
 import io.softa.framework.orm.oss.OssClientService;
 
@@ -51,7 +53,9 @@ public class AliyunOSSClientService implements OssClientService {
     @Override
     public String uploadStreamToOSS(String ossKey, InputStream inputStream, String fileName) {
         try {
-            PutObjectResult objectResult = ossClient.putObject(getBucketName(), ossKey, inputStream);
+            ObjectMetadata metadata = new ObjectMetadata();
+            metadata.setContentType(FileType.contentTypeOf(ossKey));
+            PutObjectResult objectResult = ossClient.putObject(getBucketName(), ossKey, inputStream, metadata);
             return objectResult.getETag();
         } catch (OSSException ossException) {
             throw new ExternalException("OSSException occurred while uploading the file {0}.\n{1}",
