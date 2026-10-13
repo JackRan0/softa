@@ -468,6 +468,11 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
                 // CREATE only has data after change
                 fields.addAll(changeLog.getDataAfterChange().keySet());
                 changeLogDataList.add(changeLog.getDataAfterChange());
+            } else if (DELETE.equals(changeLog.getAccessType()) && changeLog.getDataBeforeChange() != null) {
+                // DELETE only has data before change. Left out, a deleted row came back with raw values —
+                // a file as its bare id, a reference as a number — where its creation showed names.
+                fields.addAll(changeLog.getDataBeforeChange().keySet());
+                changeLogDataList.add(changeLog.getDataBeforeChange());
             }
         });
         // Enhance the field values in before and after data, only retain the fields existing in the metadata.
