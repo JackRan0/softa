@@ -25,6 +25,7 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.starter.metadata.checksum.AggregateChecksumIndex;
+import io.softa.starter.metadata.controller.dto.MetaFieldDTO;
 import io.softa.starter.metadata.controller.dto.MetaModelDTO;
 import io.softa.starter.metadata.controller.dto.PathResolution;
 import io.softa.starter.metadata.controller.dto.ResolveCascadedPathsResponse;
@@ -56,14 +57,35 @@ public class MetadataServiceImpl implements MetadataService {
     }
 
     /**
-     * Get the MetaModelDTO object by modelName
+     * Get the MetaModelDTO object by modelName.
+     *
+     * <p>Without the fields withheld from the caller: the sensitive fields none of their roles grants
+     * on any row ({@link PermissionService#getHiddenSensitiveFields}). Their values never reach this
+     * caller, so neither does their definition — a screen offers no input, column or filter for them.
+     * Fields hidden on some records only stay; which records is a per-record answer.
      *
      * @param modelName model name
      * @return metaModelDTO object
      */
     @Override
     public MetaModelDTO getMetaModelDTO(String modelName) {
-        return MetadataDtoMapper.toModelDTO(modelName);
+        return withoutWithheldFields(MetadataDtoMapper.toModelDTO(modelName),
+                permissionService.getHiddenSensitiveFields());
+    }
+
+    /** A path segment naming a field withheld from the caller. */
+    private record WithheldSegment(int index, String model, String field) {}
+
+    /** {@code dto} with the caller's withheld fields of its model removed; the DTO is built per request. */
+    private static MetaModelDTO withoutWithheldFields(MetaModelDTO dto, Map<String, Set<String>> withheld) {
+        Set<String> fields = withheld.get(dto.getModelName());
+        if (fields == null || fields.isEmpty() || dto.getModelFields() == null) {
+            return dto;
+        }
+        Map<String, MetaFieldDTO> kept = new HashMap<>(dto.getModelFields());
+        kept.keySet().removeAll(fields);
+        dto.setModelFields(kept);
+        return dto;
     }
 
     /**
@@ -76,6 +98,10 @@ public class MetadataServiceImpl implements MetadataService {
      * <p>
      * Permission is enforced at request level: any forbidden model/field on the
      * union of successful paths raises a {@code PermissionException} (HTTP 403).
+     * <p>
+     * A path through a field withheld from the caller resolves as that field not found, the same
+     * answer {@link #getMetaModelDTO} gives by leaving it out, and the related models it returns
+     * leave such fields out too.
      */
     @Override
     public ResolveCascadedPathsResponse resolveCascadedPaths(String rootModel, List<String> paths) {
@@ -89,15 +115,22 @@ public class MetadataServiceImpl implements MetadataService {
         LinkedHashSet<String> closure = new LinkedHashSet<>();
         Map<String, Set<String>> accessFields = new HashMap<>();
         List<PathResolution> resolutions = new ArrayList<>(paths.size());
+        Map<String, Set<String>> withheld = permissionService.getHiddenSensitiveFields();
 
         for (String path : paths) {
             LinkedHashSet<String> localClosure = new LinkedHashSet<>();
             Map<String, Set<String>> localAccess = new HashMap<>();
+            // The first segment naming a field withheld from the caller.
+            WithheldSegment[] firstWithheld = new WithheldSegment[1];
             CascadeFieldWalker.Visitor collector = new CascadeFieldWalker.Visitor() {
                 @Override
                 public void onSegment(int index, String currentModel, MetaField field) {
                     localAccess.computeIfAbsent(currentModel, k -> new HashSet<>())
                             .add(field.getFieldName());
+                    if (firstWithheld[0] == null
+                            && withheld.getOrDefault(currentModel, Set.of()).contains(field.getFieldName())) {
+                        firstWithheld[0] = new WithheldSegment(index, currentModel, field.getFieldName());
+                    }
                 }
                 @Override
                 public void onAdvance(int index, MetaField field, String nextModel) {
@@ -106,6 +139,13 @@ public class MetadataServiceImpl implements MetadataService {
             };
 
             switch (CascadeFieldWalker.walk(rootModel, path, collector)) {
+                case CascadeFieldWalker.Result.Ok(MetaField ignored) when firstWithheld[0] != null -> {
+                    // Worded as the walker words a field that does not exist: the definition is
+                    // withheld, so its existence is not confirmed either.
+                    WithheldSegment w = firstWithheld[0];
+                    resolutions.add(PathResolution.failure(path, CascadeFieldWalker.ErrorKind.FIELD_NOT_FOUND,
+                            w.index(), "Field '" + w.field() + "' not found on model '" + w.model() + "'"));
+                }
                 case CascadeFieldWalker.Result.Ok(MetaField leaf) -> {
                     closure.addAll(localClosure);
                     localAccess.forEach((model, fields) ->
@@ -121,7 +161,7 @@ public class MetadataServiceImpl implements MetadataService {
         permissionService.checkModelCascadeFieldsAccess(rootModel, accessFields, AccessType.READ);
 
         List<MetaModelDTO> metaModels = closure.stream()
-                .map(MetadataDtoMapper::toModelDTO)
+                .map(model -> withoutWithheldFields(MetadataDtoMapper.toModelDTO(model), withheld))
                 .toList();
         return new ResolveCascadedPathsResponse(metaModels, resolutions);
     }

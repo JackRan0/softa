@@ -135,7 +135,8 @@ caller's roles grants — empty for a caller with full data access, models with 
 only field names, never the set catalogue), the caller's `empId`, and `entitledModules` when
 entitlement is installed. `modelHiddenFieldsMap` and `empId` are computed per request, not read from
 the cached snapshot. A field hidden only on some records is not in `modelHiddenFieldsMap`; ask
-`POST /{model}/getRecordAccess` for those.
+`POST /{model}/getRecordAccess` for those. The same fields are left out of what
+`GET /metadata/getMetaModel` serves this caller (metadata-starter README).
 
 ## Consultants
 
