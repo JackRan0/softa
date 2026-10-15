@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import io.softa.framework.base.exception.ExternalException;
 import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.orm.constant.FileConstant;
+import io.softa.framework.orm.enums.FileType;
 import io.softa.framework.orm.oss.OSSProperties;
 import io.softa.framework.orm.oss.OssClientService;
 
@@ -55,6 +56,7 @@ public class MinioClientService implements OssClientService {
                             .bucket(getBucketName())
                             .object(ossKey)
                             .stream(inputStream, -1L, 5L * 1024 * 1024) // 5MB part size
+                            .contentType(FileType.contentTypeOf(ossKey))
                             .build()
             );
             StatObjectResponse objectResult = ossClient.statObject(
