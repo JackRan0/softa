@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import io.softa.starter.user.dto.ListViewPreferenceDTO;
+import io.softa.starter.user.dto.UserListViewPreferenceDTO;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.enums.AccessType;
@@ -34,13 +34,13 @@ import static org.mockito.Mockito.when;
  * An arrangement holds field names, never authority: whatever the reader may not read now is dropped
  * when it is served and when it is saved — a withdrawn sensitive set takes its columns with it.
  */
-class ListViewPreferenceServiceImplTest {
+class UserListViewPreferenceServiceImplTest {
 
     private static final String EMPLOYEE = "Employee";
     private static final String CONTACT = "EmpEmergencyContact";
 
     private MockedStatic<ModelManager> modelManager;
-    private ListViewPreferenceServiceImpl service;
+    private UserListViewPreferenceServiceImpl service;
 
     @BeforeEach
     void setUp() {
@@ -58,7 +58,7 @@ class ListViewPreferenceServiceImplTest {
         when(permissions.filterReadableFields(eq(CONTACT), anyCollection(), eq(AccessType.READ)))
                 .thenAnswer(call -> without(call.getArgument(1), Set.of("phoneNumber")));
 
-        service = new ListViewPreferenceServiceImpl();
+        service = new UserListViewPreferenceServiceImpl();
         ReflectionTestUtils.setField(service, "permissionService", permissions);
     }
 
@@ -69,12 +69,12 @@ class ListViewPreferenceServiceImplTest {
 
     @Test
     void dropsTheFieldsTheReaderMayNotReadAndKeepsTheOrderOfTheRest() {
-        ListViewPreferenceDTO dto = arrangement();
+        UserListViewPreferenceDTO dto = arrangement();
         dto.setColumnOrder(List.of("fullName", "salary", "code"));
         dto.setHiddenColumns(List.of("salary"));
         dto.setExportFields(List.of("salary", "fullName", "code"));
 
-        ListViewPreferenceDTO out = service.readable(dto);
+        UserListViewPreferenceDTO out = service.readable(dto);
 
         assertThat(out.getColumnOrder()).containsExactly("fullName", "code");
         assertThat(out.getHiddenColumns()).isEmpty();
@@ -83,12 +83,12 @@ class ListViewPreferenceServiceImplTest {
 
     @Test
     void checksAnObjectsFieldsAgainstTheModelThatObjectIs() {
-        ListViewPreferenceDTO dto = arrangement();
+        UserListViewPreferenceDTO dto = arrangement();
         Map<String, List<String>> objects = new LinkedHashMap<>();
         objects.put("emergencyContacts", List.of("name", "phoneNumber"));
         dto.setExportObjectFields(objects);
 
-        ListViewPreferenceDTO out = service.readable(dto);
+        UserListViewPreferenceDTO out = service.readable(dto);
 
         assertThat(out.getExportObjectFields()).containsOnlyKeys("emergencyContacts");
         assertThat(out.getExportObjectFields().get("emergencyContacts")).containsExactly("name");
@@ -96,7 +96,7 @@ class ListViewPreferenceServiceImplTest {
 
     @Test
     void dropsAnObjectTheListsModelNoLongerHas() {
-        ListViewPreferenceDTO dto = arrangement();
+        UserListViewPreferenceDTO dto = arrangement();
         dto.setExportObjectFields(Map.of("retiredCollection", List.of("name")));
 
         assertThat(service.readable(dto).getExportObjectFields()).isEmpty();
@@ -105,7 +105,7 @@ class ListViewPreferenceServiceImplTest {
     @Test
     void leavesPartsThatWereNotSentAsNull() {
         // Null means "not part of this save", so the export dialog's save cannot wipe the columns.
-        ListViewPreferenceDTO out = service.readable(arrangement());
+        UserListViewPreferenceDTO out = service.readable(arrangement());
 
         assertThat(out.getColumnOrder()).isNull();
         assertThat(out.getExportFields()).isNull();
@@ -114,9 +114,9 @@ class ListViewPreferenceServiceImplTest {
 
     @Test
     void refusesAnArrangementNoListWouldProduce() {
-        ListViewPreferenceDTO dto = arrangement();
+        UserListViewPreferenceDTO dto = arrangement();
         List<String> tooMany = new ArrayList<>();
-        for (int i = 0; i <= ListViewPreferenceServiceImpl.MAX_NAMES; i++) tooMany.add("f" + i);
+        for (int i = 0; i <= UserListViewPreferenceServiceImpl.MAX_NAMES; i++) tooMany.add("f" + i);
         dto.setExportFields(tooMany);
 
         assertThatThrownBy(() -> service.saveMine(dto)).isInstanceOf(BusinessException.class);
@@ -128,25 +128,25 @@ class ListViewPreferenceServiceImplTest {
         String stored = "{\"sidePanelCollapsed\":false,\"other\":1}";
         Map<String, Object> incoming = new LinkedHashMap<>();
         incoming.put("sidePanelCollapsed", true);
-        assertThat(ListViewPreferenceServiceImpl.mergeSettings(stored, incoming))
+        assertThat(UserListViewPreferenceServiceImpl.mergeSettings(stored, incoming))
                 .isEqualTo("{\"sidePanelCollapsed\":true,\"other\":1}");
 
         Map<String, Object> removal = new LinkedHashMap<>();
         removal.put("sidePanelCollapsed", null);
         removal.put("other", null);
-        assertThat(ListViewPreferenceServiceImpl.mergeSettings(stored, removal)).isNull();
+        assertThat(UserListViewPreferenceServiceImpl.mergeSettings(stored, removal)).isNull();
     }
 
     @Test
     void refusesViewSettingsTooLargeToBeAFewFlags() {
-        Map<String, Object> incoming = Map.of("blob", "x".repeat(ListViewPreferenceServiceImpl.MAX_SETTINGS_LENGTH));
-        assertThatThrownBy(() -> ListViewPreferenceServiceImpl.mergeSettings(null, incoming))
+        Map<String, Object> incoming = Map.of("blob", "x".repeat(UserListViewPreferenceServiceImpl.MAX_SETTINGS_LENGTH));
+        assertThatThrownBy(() -> UserListViewPreferenceServiceImpl.mergeSettings(null, incoming))
                 .isInstanceOf(BusinessException.class);
     }
 
-    private static ListViewPreferenceDTO arrangement() {
-        ListViewPreferenceDTO dto = new ListViewPreferenceDTO();
-        dto.setViewKey("table|Employee|/corehr/employee/employee|");
+    private static UserListViewPreferenceDTO arrangement() {
+        UserListViewPreferenceDTO dto = new UserListViewPreferenceDTO();
+        dto.setViewStateKey("table|Employee|/corehr/employee/employee|");
         dto.setModelName(EMPLOYEE);
         return dto;
     }

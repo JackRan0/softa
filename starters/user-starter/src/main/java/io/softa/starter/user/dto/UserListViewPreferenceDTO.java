@@ -6,15 +6,15 @@ import java.util.Map;
 import lombok.Data;
 
 /**
- * A list arrangement as the frontend reads and writes it.
+ * A list view arrangement as the frontend reads and writes it.
  *
- * <p>On save each part is optional: a null part is left as stored, so the Columns dialog and the
- * export dialog can each save their own half without carrying the other's.
+ * <p>On save each part is optional: a null part is left as stored, so the Columns dialog, the export
+ * dialog and the side tree each save their own part without carrying the others'.
  */
 @Data
-public class ListViewPreferenceDTO {
+public class UserListViewPreferenceDTO {
 
-    private String viewKey;
+    private String viewStateKey;
 
     private String modelName;
 

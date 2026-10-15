@@ -11,31 +11,32 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.enums.OnDelete;
 
 /**
- * How one person last arranged one list: its columns, and the fields of its Dynamic Export.
+ * How one person last arranged one list view — a table, card or board: its columns, the fields of
+ * its Dynamic Export, and its other view state such as whether its side tree is collapsed.
  *
- * <p>One row per person, tenant and list. Held on the server rather than in the browser because it
- * belongs to the account: a person who signs in on another machine expects the list they arranged.
+ * <p>One row per account and list. Held on the server rather than in the browser because it belongs
+ * to the person, not the machine. The account is per tenant, so the row is too.
  *
- * <p>Read and written only through {@code ListViewPreferenceController}'s own endpoints, which bind
- * the row to the caller. The model has no employee or department anchor, so the generic CRUD
- * endpoints would answer an ordinary role with nothing; and they are not registered to any
- * permission, so they stay closed to everyone but the admins' bypass.
+ * <p>Read and written only through {@code UserListViewPreferenceController}, which binds every call to
+ * the caller. The model exposes no generic endpoints, and has no employee or department anchor a role
+ * could scope it by.
  *
  * <p>The field lists hold field names and are never authority: they are filtered against what the
- * reader may read every time they are served, so a field whose sensitive set is withdrawn drops out
- * of the arrangement rather than coming back as a column or an export column.
+ * reader may read every time they are served or saved, so a field whose sensitive set is withdrawn
+ * drops out of the arrangement rather than coming back as a column or an export column.
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Model(label = "List View Preference",
+@Model(label = "User List View Preference",
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         multiTenant = true,
-        description = "A person's own arrangement of a list: columns and Dynamic Export fields.")
-@Index(indexName = "uk_list_view_preference_user_view", fields = {"tenantId", "userId", "viewKey"},
+        description = "A person's own arrangement of a list view: columns, Dynamic Export fields, view state.")
+@Index(indexName = "uk_user_list_view_preference_user_view", fields = {"tenantId", "userId", "viewStateKey"},
         unique = true, message = "This list already has a saved arrangement.")
-public class ListViewPreference extends AuditableModel {
+public class UserListViewPreference extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;
@@ -46,13 +47,14 @@ public class ListViewPreference extends AuditableModel {
     @Field(label = "Tenant ID")
     private Long tenantId;
 
-    /** The account the arrangement belongs to; always the caller's own. */
-    @Field(label = "User ID", required = true)
+    /** The account the arrangement belongs to; always the caller's own. Goes with the account. */
+    @Field(label = "User", fieldType = FieldType.MANY_TO_ONE, relatedModel = UserAccount.class,
+            required = true, onDelete = OnDelete.CASCADE)
     private Long userId;
 
-    /** The list: view kind, model, route and tab, as the frontend keys its view state. */
-    @Field(label = "View Key", required = true, length = 255)
-    private String viewKey;
+    /** The list view, as the frontend keys its view state: view kind, model, route and tab. */
+    @Field(label = "View State Key", required = true, length = 255)
+    private String viewStateKey;
 
     /** The model the list shows — what the field names are checked against. */
     @Field(label = "Model", required = true, length = 64)

@@ -9,12 +9,7 @@ import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
-
-import io.softa.starter.user.dto.ListViewPreferenceDTO;
-import io.softa.starter.user.entity.ListViewPreference;
-import io.softa.starter.user.service.ListViewPreferenceService;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -26,10 +21,13 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.starter.user.dto.UserListViewPreferenceDTO;
+import io.softa.starter.user.entity.UserListViewPreference;
+import io.softa.starter.user.service.UserListViewPreferenceService;
 
 @Service
-public class ListViewPreferenceServiceImpl extends EntityServiceImpl<ListViewPreference, Long>
-        implements ListViewPreferenceService {
+public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserListViewPreference, Long>
+        implements UserListViewPreferenceService {
 
     static final String PART_COLUMNS = "columns";
     static final String PART_EXPORT = "export";
@@ -38,7 +36,7 @@ public class ListViewPreferenceServiceImpl extends EntityServiceImpl<ListViewPre
     /** Generous for any real list, small enough that a row cannot be used as storage. */
     static final int MAX_NAMES = 500;
     static final int MAX_NAME_LENGTH = 128;
-    static final int MAX_VIEW_KEY_LENGTH = 255;
+    static final int MAX_VIEW_STATE_KEY_LENGTH = 255;
     /** View settings are a handful of flags; this is ample, and keeps a row from becoming storage. */
     static final int MAX_SETTINGS_LENGTH = 4000;
 
@@ -50,72 +48,70 @@ public class ListViewPreferenceServiceImpl extends EntityServiceImpl<ListViewPre
     private PermissionService permissionService;
 
     @Override
-    public ListViewPreferenceDTO getMine(String viewKey) {
-        requireViewKey(viewKey);
-        ListViewPreference row = asSystem(() -> findMine(viewKey));
+    public UserListViewPreferenceDTO getMine(String viewStateKey) {
+        requireViewStateKey(viewStateKey);
+        UserListViewPreference row = asSystem(() -> findMine(viewStateKey));
         // Filtered in the caller's own context, not the system's: under a skipped permission check
         // every field reads as allowed, which is exactly the pass this filter exists to deny.
         return row == null ? null : readable(toDto(row));
     }
 
+    /**
+     * Not one transaction, on purpose. Two parts of a list can save their first arrangement at once —
+     * the side tree and the columns on the same page load — and both find no row and create one. The
+     * loser meets the unique index; in its own statement it can then find the winner's row and save
+     * over it, which inside a shared transaction the database would no longer allow.
+     */
     @Override
-    @Transactional
-    public ListViewPreferenceDTO saveMine(ListViewPreferenceDTO preference) {
+    public UserListViewPreferenceDTO saveMine(UserListViewPreferenceDTO preference) {
         if (preference == null) {
             throw new BusinessException("Nothing to save.");
         }
-        requireViewKey(preference.getViewKey());
+        requireViewStateKey(preference.getViewStateKey());
         String model = preference.getModelName();
         if (model == null || !ModelManager.existModel(model)) {
             throw new BusinessException("Unknown model: " + model);
         }
         // What the person may not read is not kept either: an arrangement is a list of what they
         // see, and storing a withdrawn field would only bring it back if the grant ever returned.
-        ListViewPreferenceDTO incoming = readable(bounded(preference));
+        UserListViewPreferenceDTO incoming = readable(bounded(preference));
         Long me = currentUserId();
         asSystem(() -> {
-            ListViewPreference row = findMine(incoming.getViewKey());
-            boolean create = row == null;
-            if (create) {
-                row = new ListViewPreference();
-                row.setUserId(me);
-                row.setViewKey(incoming.getViewKey());
+            UserListViewPreference existing = findMine(incoming.getViewStateKey());
+            if (existing != null) {
+                this.updateOne(applied(existing, incoming));
+                return null;
             }
-            row.setModelName(model);
-            if (incoming.getColumnOrder() != null) row.setColumnOrder(JsonUtils.objectToString(incoming.getColumnOrder()));
-            if (incoming.getHiddenColumns() != null) row.setHiddenColumns(JsonUtils.objectToString(incoming.getHiddenColumns()));
-            if (incoming.getFreezeColumnIndex() != null) row.setFreezeColumnIndex(Math.max(0, incoming.getFreezeColumnIndex()));
-            if (incoming.getExportFields() != null) row.setExportFields(JsonUtils.objectToString(incoming.getExportFields()));
-            if (incoming.getExportObjectFields() != null) {
-                row.setExportObjectFields(JsonUtils.objectToString(incoming.getExportObjectFields()));
-            }
-            if (incoming.getViewSettings() != null) {
-                row.setViewSettings(mergeSettings(row.getViewSettings(), incoming.getViewSettings()));
-            }
-            if (create) {
-                this.createOne(row);
-            } else {
-                this.updateOne(row);
+            UserListViewPreference created = new UserListViewPreference();
+            created.setUserId(me);
+            created.setViewStateKey(incoming.getViewStateKey());
+            try {
+                this.createOne(applied(created, incoming));
+            } catch (RuntimeException raced) {
+                UserListViewPreference winner = findMine(incoming.getViewStateKey());
+                if (winner == null) {
+                    throw raced;
+                }
+                this.updateOne(applied(winner, incoming));
             }
             return null;
         });
-        return getMine(incoming.getViewKey());
+        return getMine(incoming.getViewStateKey());
     }
 
     @Override
-    @Transactional
-    public void resetMine(String viewKey, String part) {
-        requireViewKey(viewKey);
+    public void resetMine(String viewStateKey, String part) {
+        requireViewStateKey(viewStateKey);
+        boolean columns = part == null || PART_COLUMNS.equals(part);
+        boolean export = part == null || PART_EXPORT.equals(part);
+        boolean settings = part == null || PART_SETTINGS.equals(part);
+        if (!columns && !export && !settings) {
+            throw new BusinessException("Unknown part: " + part);
+        }
         asSystem(() -> {
-            ListViewPreference row = findMine(viewKey);
+            UserListViewPreference row = findMine(viewStateKey);
             if (row == null) {
                 return null;
-            }
-            boolean columns = part == null || PART_COLUMNS.equals(part);
-            boolean export = part == null || PART_EXPORT.equals(part);
-            boolean settings = part == null || PART_SETTINGS.equals(part);
-            if (!columns && !export && !settings) {
-                throw new BusinessException("Unknown part: " + part);
             }
             if (columns) {
                 row.setColumnOrder(null);
@@ -129,9 +125,7 @@ public class ListViewPreferenceServiceImpl extends EntityServiceImpl<ListViewPre
             if (settings) {
                 row.setViewSettings(null);
             }
-            if (row.getColumnOrder() == null && row.getHiddenColumns() == null && row.getFreezeColumnIndex() == null
-                    && row.getExportFields() == null && row.getExportObjectFields() == null
-                    && row.getViewSettings() == null) {
+            if (isEmpty(row)) {
                 this.deleteById(row.getId());
             } else {
                 this.updateOne(row, false);
@@ -141,18 +135,40 @@ public class ListViewPreferenceServiceImpl extends EntityServiceImpl<ListViewPre
     }
 
     /** The caller's row for a list. Tenant is narrowed by the framework; the account by this filter. */
-    private ListViewPreference findMine(String viewKey) {
-        List<ListViewPreference> rows = this.searchList(new Filters()
-                .eq(ListViewPreference::getUserId, currentUserId())
-                .eq(ListViewPreference::getViewKey, viewKey));
+    private UserListViewPreference findMine(String viewStateKey) {
+        List<UserListViewPreference> rows = this.searchList(new Filters()
+                .eq(UserListViewPreference::getUserId, currentUserId())
+                .eq(UserListViewPreference::getViewStateKey, viewStateKey));
         return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    /** {@code row} with the parts {@code incoming} carries laid over it; the parts it omits kept. */
+    private static UserListViewPreference applied(UserListViewPreference row, UserListViewPreferenceDTO incoming) {
+        row.setModelName(incoming.getModelName());
+        if (incoming.getColumnOrder() != null) row.setColumnOrder(JsonUtils.objectToString(incoming.getColumnOrder()));
+        if (incoming.getHiddenColumns() != null) row.setHiddenColumns(JsonUtils.objectToString(incoming.getHiddenColumns()));
+        if (incoming.getFreezeColumnIndex() != null) row.setFreezeColumnIndex(Math.max(0, incoming.getFreezeColumnIndex()));
+        if (incoming.getExportFields() != null) row.setExportFields(JsonUtils.objectToString(incoming.getExportFields()));
+        if (incoming.getExportObjectFields() != null) {
+            row.setExportObjectFields(JsonUtils.objectToString(incoming.getExportObjectFields()));
+        }
+        if (incoming.getViewSettings() != null) {
+            row.setViewSettings(mergeSettings(row.getViewSettings(), incoming.getViewSettings()));
+        }
+        return row;
+    }
+
+    private static boolean isEmpty(UserListViewPreference row) {
+        return row.getColumnOrder() == null && row.getHiddenColumns() == null && row.getFreezeColumnIndex() == null
+                && row.getExportFields() == null && row.getExportObjectFields() == null
+                && row.getViewSettings() == null;
     }
 
     /**
      * Drop every field the caller may not read. The list's own fields are checked against its
      * model; each object's fields against the model that object is.
      */
-    ListViewPreferenceDTO readable(ListViewPreferenceDTO dto) {
+    UserListViewPreferenceDTO readable(UserListViewPreferenceDTO dto) {
         String model = dto.getModelName();
         if (model == null || !ModelManager.existModel(model)) {
             return dto;
@@ -163,8 +179,7 @@ public class ListViewPreferenceServiceImpl extends EntityServiceImpl<ListViewPre
         Map<String, List<String>> objects = dto.getExportObjectFields();
         if (objects != null) {
             Map<String, List<String>> kept = new LinkedHashMap<>();
-            List<String> readableCollections = readableOf(model, new ArrayList<>(objects.keySet()));
-            for (String collection : readableCollections) {
+            for (String collection : readableOf(model, new ArrayList<>(objects.keySet()))) {
                 String related = relatedModelOf(model, collection);
                 if (related != null) {
                     kept.put(collection, readableOf(related, objects.get(collection)));
@@ -216,12 +231,12 @@ public class ListViewPreferenceServiceImpl extends EntityServiceImpl<ListViewPre
     }
 
     /** Refuse what no real list produces, so a row cannot be used to store anything else. */
-    private static ListViewPreferenceDTO bounded(ListViewPreferenceDTO dto) {
+    private static UserListViewPreferenceDTO bounded(UserListViewPreferenceDTO dto) {
         checkNames(dto.getColumnOrder());
         checkNames(dto.getHiddenColumns());
         checkNames(dto.getExportFields());
         if (dto.getViewSettings() != null) {
-            dto.getViewSettings().keySet().forEach(ListViewPreferenceServiceImpl::checkName);
+            dto.getViewSettings().keySet().forEach(UserListViewPreferenceServiceImpl::checkName);
         }
         if (dto.getExportObjectFields() != null) {
             if (dto.getExportObjectFields().size() > MAX_NAMES) {
@@ -242,7 +257,7 @@ public class ListViewPreferenceServiceImpl extends EntityServiceImpl<ListViewPre
         if (names.size() > MAX_NAMES) {
             throw new BusinessException("Too many fields in the arrangement.");
         }
-        names.forEach(ListViewPreferenceServiceImpl::checkName);
+        names.forEach(UserListViewPreferenceServiceImpl::checkName);
     }
 
     private static void checkName(String name) {
@@ -251,9 +266,9 @@ public class ListViewPreferenceServiceImpl extends EntityServiceImpl<ListViewPre
         }
     }
 
-    private static ListViewPreferenceDTO toDto(ListViewPreference row) {
-        ListViewPreferenceDTO dto = new ListViewPreferenceDTO();
-        dto.setViewKey(row.getViewKey());
+    private static UserListViewPreferenceDTO toDto(UserListViewPreference row) {
+        UserListViewPreferenceDTO dto = new UserListViewPreferenceDTO();
+        dto.setViewStateKey(row.getViewStateKey());
         dto.setModelName(row.getModelName());
         dto.setColumnOrder(parseList(row.getColumnOrder()));
         dto.setHiddenColumns(parseList(row.getHiddenColumns()));
@@ -270,8 +285,8 @@ public class ListViewPreferenceServiceImpl extends EntityServiceImpl<ListViewPre
         return json == null ? null : JsonUtils.stringToObject(json, STRING_LIST, null);
     }
 
-    private static void requireViewKey(String viewKey) {
-        if (viewKey == null || viewKey.isBlank() || viewKey.length() > MAX_VIEW_KEY_LENGTH) {
+    private static void requireViewStateKey(String viewStateKey) {
+        if (viewStateKey == null || viewStateKey.isBlank() || viewStateKey.length() > MAX_VIEW_STATE_KEY_LENGTH) {
             throw new BusinessException("A list key is required.");
         }
     }
