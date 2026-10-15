@@ -162,6 +162,36 @@ public enum FileType {
     }
 
     /**
+     * The Content-Type an object stored under this name should carry: the first mime type of the type
+     * its extension names, or {@code application/octet-stream} when the extension is missing or not
+     * one of these types. Stored without it, an object is served as octet-stream and a browser
+     * downloads it even when asked only to display it.
+     *
+     * @param fileName a file name or object key ending in the extension
+     * @return the Content-Type to store the object with
+     */
+    public static String contentTypeOf(String fileName) {
+        if (fileName == null) {
+            return OCTET_STREAM;
+        }
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0 || dot == fileName.length() - 1) {
+            return OCTET_STREAM;
+        }
+        String extension = fileName.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+        if ("jpeg".equals(extension)) {
+            extension = JPG.getType();
+        }
+        return ofExtension(extension)
+                .map(FileType::getMimeTypeList)
+                .filter(list -> !list.isEmpty())
+                .map(List::getFirst)
+                .orElse(OCTET_STREAM);
+    }
+
+    private static final String OCTET_STREAM = "application/octet-stream";
+
+    /**
      * Get the file extension, `.` is included.
      *
      * @return the file extension

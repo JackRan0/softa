@@ -136,12 +136,12 @@ public class ImportServiceImpl implements ImportService {
         // The template's own country, not the request's: an administrator of a company in one country
         // may download another country's template, and inferring it from the request would fill that
         // template with the wrong country's values.
-        OptionDropdownResolver.Resolution dropdowns = optionDropdownResolver.resolveAll(
+        Map<Integer, List<String>> dropdowns = optionDropdownResolver.resolve(
                 importTemplate.getModelName(), importFields, importTemplate.getCountry());
         ExcelSheetData mainSheetData = new ExcelSheetData(importTemplate.getName(), headers, Collections.emptyList(),
                 new WriteHandler[]{
                         headStyleHandler,
-                        new OptionDropdownHandler(dropdowns.optionsByColumn(), dropdowns.cascadesByColumn()),
+                        new OptionDropdownHandler(dropdowns),
                         // Without this a date column is General, and the format a typed date takes is
                         // the reader's locale — contradicting the instruction sheet beside it.
                         TemporalColumnFormatHandler.forFields(importTemplate.getModelName(),
