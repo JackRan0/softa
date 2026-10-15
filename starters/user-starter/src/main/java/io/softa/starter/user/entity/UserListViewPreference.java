@@ -27,6 +27,20 @@ import io.softa.framework.orm.enums.OnDelete;
  * <p>The field lists hold field names and are never authority: they are filtered against what the
  * reader may read every time they are served or saved, so a field whose sensitive set is withdrawn
  * drops out of the arrangement rather than coming back as a column or an export column.
+ *
+ * <p>A row, for illustration:
+ * <pre>
+ * viewStateKey         table|Order|/sales/order|          (view kind | model | route | tab)
+ * modelName            Order
+ * columnOrder          ["orderNo","customer","orderDate","amount","status"]
+ * hiddenColumns        ["remark"]
+ * freezeColumnIndex    1
+ * exportFields         ["orderNo","customer","amount"]
+ * exportObjectFields   {"lines":["product","quantity","price"]}   (keyed by the collection field)
+ * viewSettings         {"sidePanelCollapsed":true}
+ * </pre>
+ * A part left null is not arranged, and the list uses its own default for it; a row whose parts are
+ * all null is deleted.
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
