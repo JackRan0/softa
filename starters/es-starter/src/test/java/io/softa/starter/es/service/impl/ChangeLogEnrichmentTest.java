@@ -64,6 +64,35 @@ class ChangeLogEnrichmentTest {
         assertThat(contact.getDataAfterChange()).containsOnlyKeys("personalPhone");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void aDeletedRowsValuesAreConvertedAsACreatedRowsAre() {
+        ChangeLogServiceImpl service = new ChangeLogServiceImpl();
+        DataPipelineProxy pipeline = mock(DataPipelineProxy.class);
+        ReflectionTestUtils.setField(service, "dataPipelineProxy", pipeline);
+        // What the read pipeline does to a file field: the stored id becomes the file it names.
+        doAnswer(invocation -> {
+            List<Map<String, Object>> rows = invocation.getArgument(2);
+            rows.forEach(row -> row.computeIfPresent("fileId", (k, v) -> Map.of("fileId", v, "fileName", "contract.pdf")));
+            return null;
+        }).when(pipeline).processReadData(eq("ContractFile"), any(FlexQuery.class), any(List.class));
+
+        ChangeLog removed = new ChangeLog();
+        removed.setModel("ContractFile");
+        removed.setAccessType(AccessType.DELETE);
+        removed.setDataBeforeChange(new HashMap<>(Map.of("fileId", 91L)));
+        Page<ChangeLog> page = Page.of(1, 50);
+        page.setRows(new ArrayList<>(List.of(removed)));
+
+        try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class)) {
+            models.when(() -> ModelManager.getModelStoredFields("ContractFile")).thenReturn(List.of("fileId"));
+            service.processChangeLogData("ContractFile", page, ConvertType.REFERENCE);
+        }
+
+        assertThat(removed.getDataBeforeChange().get("fileId"))
+                .isEqualTo(Map.of("fileId", 91L, "fileName", "contract.pdf"));
+    }
+
     private static ChangeLog log(Map<String, Object> before, Map<String, Object> after) {
         ChangeLog log = new ChangeLog();
         log.setModel("EmployeeProfile");
