@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.json.JsonMapper;
 
+import io.softa.framework.base.utils.JsonUtils;
+
 /**
  * Guards the global empty-string→null scalar coercions in {@link JacksonConfig}.
  * Without them, form clears of optional selects / numbers / toggles ({@code ""}) blow
@@ -55,6 +57,15 @@ class JacksonEmptyEnumCoercionTest {
         assertThat(scalars.count()).isEqualTo(12L);
         assertThat(scalars.amount()).isEqualByComparingTo("1.5");
         assertThat(scalars.ok()).isTrue();
+    }
+
+    /** Without an application context JsonUtils builds its own mapper, and that mapper applies the same coercions. */
+    @Test
+    void fallbackMapper_outsideSpring_followsThePolicy() {
+        ScalarHolder holder = JsonUtils.stringToObject("{\"count\":\"\",\"amount\":\"\",\"ok\":\"\"}", ScalarHolder.class);
+        assertThat(holder.count()).isNull();
+        assertThat(holder.amount()).isNull();
+        assertThat(holder.ok()).isNull();
     }
 
     @Test

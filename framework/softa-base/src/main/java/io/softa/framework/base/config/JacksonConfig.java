@@ -71,18 +71,13 @@ public class JacksonConfig {
      * the Spring-managed {@link JsonMapper} through {@link #globalJacksonPolicy()},
      * and the one {@code JsonUtils} builds for itself when no application context is up,
      * so JSON reads the same inside and outside the application.
-     * 
+     *
      * @param builder the mapper builder to configure
      * @return the same builder
      */
     public static JsonMapper.Builder applyGlobalPolicy(JsonMapper.Builder builder) {
         // Ignore unknown properties during deserialization
         builder.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        // Floats are read as BigDecimal, never double. JSON and DTO columns store amounts with their scale ("502.00");
-        // read as a double that came back as 502.0 — the scale gone, and the value the nearest binary fraction rather than the decimal that was written.
-        // BigDecimal keeps the digits exactly, the counterpart of the BigDecimal→String serializer above on the way out.
-        // Integral numbers are not affected.
-        builder.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
         // Form UIs often clear optional selects / numbers / toggles to "" instead of omitting
         // the field or sending null. Default Jackson fails scalar binding with
         // InvalidFormatException (HttpMessageNotReadableException → 500) before the
@@ -118,7 +113,6 @@ public class JacksonConfig {
         // Ignore unknown properties
         objectMapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         // Mirror applyGlobalPolicy for callers still on the Jackson 2 ObjectMapper bean.
-        objectMapper.enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
         for (com.fasterxml.jackson.databind.type.LogicalType type : new com.fasterxml.jackson.databind.type.LogicalType[] {
                 com.fasterxml.jackson.databind.type.LogicalType.Enum,
                 com.fasterxml.jackson.databind.type.LogicalType.Integer,

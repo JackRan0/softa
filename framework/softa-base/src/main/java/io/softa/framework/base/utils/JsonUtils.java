@@ -7,6 +7,7 @@ import java.util.Map;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -117,6 +118,23 @@ public class JsonUtils {
         }
         try {
             return getMapper().readValue(json, javaType);
+        } catch (JacksonException e) {
+            throw new JSONException("JSON deserialization failure: {0}", LogUtils.splitLog(json), e);
+        }
+    }
+
+    /**
+     * String to JsonNode with floating-point numbers read as BigDecimal,
+     * so an amount keeps the scale it was written with: {@code 502.00} stays {@code 502.00}, not {@code 502.0}.
+     * @param json JSON string
+     * @return JsonNode, null when the string is blank
+     */
+    public static JsonNode stringToJsonNodeWithBigDecimalFloats(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return getMapper().reader(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).readTree(json);
         } catch (JacksonException e) {
             throw new JSONException("JSON deserialization failure: {0}", LogUtils.splitLog(json), e);
         }
