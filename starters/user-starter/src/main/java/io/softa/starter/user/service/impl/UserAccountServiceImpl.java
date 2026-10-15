@@ -1,12 +1,14 @@
 package io.softa.starter.user.service.impl;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
@@ -853,6 +855,87 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      * spelling would leave an identifier this company issued in place when the contact moves or the
      * membership closes — a live login route into an address about to be handed to someone else.
      */
+    /** The account fields that are also login identifiers when they are the company's to issue. */
+    private static final String EMAIL_FIELD = "email";
+    private static final String MOBILE_FIELD = "mobile";
+
+    /** Contacts an account form may still edit: nobody has accepted the membership yet. */
+    private static final Set<AccountStatus> CONTACTS_EDITABLE = EnumSet.of(AccountStatus.PENDING, AccountStatus.INVITED);
+
+    static final String RESET_INSTEAD = "This account is already in use. Change its work email or "
+            + "mobile with Reset User, which also tells the old address.";
+
+    @Override
+    @Transactional
+    public <T> T updateCarryingLoginIdentifiers(List<Map<String, Object>> rows, Supplier<T> write) {
+        for (Map<String, Object> row : rows) {
+            if (row.containsKey(EMAIL_FIELD) || row.containsKey(MOBILE_FIELD)) {
+                this.carryLoginIdentifiers(row);
+            }
+        }
+        return write.get();
+    }
+
+    /** One row's share of {@link #updateCarryingLoginIdentifiers}: refuse, or move what changed. */
+    private void carryLoginIdentifiers(Map<String, Object> row) {
+        Long id = row.get("id") instanceof Number number ? number.longValue() : null;
+        if (id == null) {
+            return;     // the write itself rejects a row without an id
+        }
+        UserAccount account = this.getById(id).orElse(null);
+        if (account == null) {
+            return;
+        }
+        boolean emailChanged = row.containsKey(EMAIL_FIELD)
+                && !sameContact(account.getEmail(), (String) row.get(EMAIL_FIELD));
+        boolean mobileChanged = row.containsKey(MOBILE_FIELD)
+                && !sameContact(account.getMobile(), (String) row.get(MOBILE_FIELD));
+        if (!emailChanged && !mobileChanged) {
+            return;
+        }
+        if (!CONTACTS_EDITABLE.contains(account.getStatus())) {
+            throw new BusinessException(RESET_INSTEAD);
+        }
+        if (account.getProfileId() == null) {
+            return;     // no person yet, so no login identifier to keep in step
+        }
+        identityService.findByProfile(account.getProfileId()).ifPresent(identity -> {
+            boolean moved = false;
+            if (emailChanged && isSameLoginIdentifier(account.getEmail(), identity.getLoginEmail())) {
+                identity.setLoginEmail(this.claimableBy(identity, (String) row.get(EMAIL_FIELD), "email"));
+                moved = true;
+            }
+            if (mobileChanged && isSameLoginIdentifier(account.getMobile(), identity.getLoginMobile())) {
+                identity.setLoginMobile(this.claimableBy(identity, (String) row.get(MOBILE_FIELD), "mobile"));
+                moved = true;
+            }
+            if (moved) {
+                // updateOne(entity, false): clearing a channel writes a null, which the default drops.
+                identityService.updateOne(identity, false);
+            }
+        });
+    }
+
+    /**
+     * The canonical identifier for {@code contact}, refused when it already signs in someone else —
+     * one identifier naming two people would let a code sent there open either.
+     */
+    private String claimableBy(UserIdentity identity, String contact, String label) {
+        String identifier = LoginIdentifiers.normalize(contact);
+        if (identifier != null) {
+            identityService.findByLoginIdentifier(identifier)
+                    .filter(other -> !Objects.equals(other.getProfileId(), identity.getProfileId()))
+                    .ifPresent(other -> {
+                        throw new BusinessException("That " + label + " already signs in another person.");
+                    });
+        }
+        return identifier;
+    }
+
+    private static boolean sameContact(String stored, String incoming) {
+        return Objects.equals(LoginIdentifiers.normalize(stored), LoginIdentifiers.normalize(incoming));
+    }
+
     private static boolean isSameLoginIdentifier(String workContact, String loginIdentifier) {
         String contact = LoginIdentifiers.normalize(workContact);
         return contact != null && contact.equals(LoginIdentifiers.normalize(loginIdentifier));
