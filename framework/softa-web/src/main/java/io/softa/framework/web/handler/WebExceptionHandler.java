@@ -226,21 +226,23 @@ public class WebExceptionHandler {
     /**
      * Validation Errors of API Parameters
      * Handle MethodArgumentNotValidException
+     * Each message is written as {@code field: message}, the form a refused write uses too:
+     * a default message such as "must not be blank" does not say which field it is about.
      *
      * @param e Exception
      * @return All the validation error messages.
      */
     @ExceptionHandler(value = MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleException(MethodArgumentNotValidException e) {
-        StringBuilder errorMessage = new StringBuilder("Validation Error: {}");
+        StringBuilder errorMessage = new StringBuilder();
         List<FieldError> fieldErrors = e.getBindingResult().getFieldErrors();
         for (FieldError fieldError : fieldErrors) {
             if (!errorMessage.isEmpty()) {
-                errorMessage.append(" \n");
+                errorMessage.append("; ");
             }
-            errorMessage.append(fieldError.getDefaultMessage());
+            errorMessage.append(fieldError.getField()).append(": ").append(fieldError.getDefaultMessage());
         }
-        return handler(ResponseCode.BAD_REQUEST, e, errorMessage.toString());
+        return handler(ResponseCode.BAD_REQUEST, e, "Validation Error: " + errorMessage);
     }
 
     /**

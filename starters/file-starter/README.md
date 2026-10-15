@@ -115,6 +115,18 @@ Notes:
 - If `syncImport = true`, import is executed in-process.
 - If `syncImport = false`, an async import message is sent to MQ.
 
+Required columns — what a blank cell (with no `defaultValue`) does:
+
+| Column is | `ignoreEmpty = false` | `ignoreEmpty = true` |
+| --- | --- | --- |
+| `required` on the template | Refused by the importer | Refused by the importer |
+| Required on the model only | Refused by the importer (it would be written as null) | Dropped from the row; the ORM refuses a **create** without it, an **update** keeps the stored value |
+| Neither | Written as null | Dropped from the row |
+
+- A cell cannot tell a create from an update, so with `ignoreEmpty = true` the importer leaves the model's requiredness to the ORM, which can. That is what lets a file of corrections leave a mandatory column blank to mean "no change". The template's own `required` is a rule for every row and is never relaxed.
+- A create the ORM refuses for a missing value is reported with the importer's own message, naming the column (`The field \`Company Name\` is required`), not the model field.
+- The same rule applies to a relation lookup column (`deptId.code`) on a required relation. A OneToOne sub-field never inherits the sub-model's requiredness (see 1.1.1).
+
 ### 1.1 Relation Lookup Import (Cascaded Import)
 The `fieldName` in ImportTemplateField (or `importFieldDTOList` in dynamic import) supports **dotted-path relation lookup** via `RelationLookupResolver`. Instead of importing a raw FK id, you can import a human-readable business key of the related model, and the system will reverse-lookup the FK id automatically.
 
@@ -258,6 +270,11 @@ curl -X POST http://localhost:8080/import/dynamicImport \
 ### 3. Import Result and Failed Rows
 - Import returns `ImportHistory`.
 - If any row fails, a “failed data” Excel file is generated and saved, with a `Failed Reason` column.
+- The import writes its outcome back to its own `ImportHistory` row as the caller; that row belongs to
+  whoever started the import (`ModelDefaultScope` `CREATED_BY_SELF`), which is what lets a caller with no
+  grant on `ImportHistory` finish their own run instead of leaving it `PROCESSING`.
+- Writes made by an import run inside `ImportScope`, so a permission refusal reads "update" for the
+  uploader rather than "edit".
 - Import status can be `PROCESSING`, `SUCCESS`, `FAILURE`, `PARTIAL_FAILURE`; a validation run
   (§5) records `VALIDATION_SUCCESS` / `VALIDATION_FAILURE` instead and attaches a result Excel
   containing **all** rows, passed and failed.
@@ -371,6 +388,20 @@ Built-in export supports three scopes:
 - `All Filtered Data` reuses current `filters/orders/groupBy/aggFunctions/effectiveDate`
 
 Front-end export is limited to `100000` records for a single request; over-limit scopes are disabled instead of truncated.
+
+**An export reads under the export action's row scope**, which may reach fewer rows than the list (with
+permission-starter: only the roles holding export). `POST /export/countExportable?modelName=` with the
+scope's `ExportParams` returns how many rows the export would hold, so a dialog can show that number
+instead of the list's. It rides on the export permission, like the export endpoints themselves.
+
+`ExportRowProcessor` is a per-model hook every export passes (dynamic and template): it receives the
+fetched rows before they are written and may blank or change values — e.g. clearing columns that do not
+apply to a row.
+
+Templates are configuration, not the caller's data: an export or import reads its template and the
+template's columns past the caller's row scope (under it, these child rows come back empty and the run
+fails on a template with no columns). The exported or imported business rows are still read, scoped,
+masked and checked as the caller.
 
 ### ExportTemplate Configuration Table
 

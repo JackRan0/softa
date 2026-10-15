@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Covers the boot-time resolution of which field a {@code multiCompany} model reaches its company
- * through — the anchor the permission grant ({@code appendCompanyGrant}) bounds every such read by.
+ * through — the anchor the permission grant ({@code PermissionServiceImpl.companyScope}) bounds every such read by.
  *
  * <p>There is no per-company read narrowing any more (it went with the header switcher), but the
  * anchor contract stays load-bearing: a model marked {@code multiCompany} without a usable anchor
@@ -118,7 +118,7 @@ class MultiCompanyAnchorTest {
     @Test
     void theCompanyModelItselfCannotBeMultiCompany() throws Exception {
         // The company model has no company reference to anchor on; the grant bounds it by its own id
-        // instead (PermissionServiceImpl.appendCompanyGrant), and the company list must never be
+        // instead (PermissionServiceImpl.companyScope), and the company list must never be
         // narrowed by anything else.
         Object good = snapshotField().get(null);
         try {

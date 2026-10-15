@@ -89,7 +89,9 @@ public class EndpointIndex {
             "POST searchPage", "POST searchList", "POST searchName",
             "POST searchSimpleAgg", "POST searchPivot", "POST count",
             "POST getOne", "POST getById", "POST getByIds", "POST searchOne",
-            "GET getUnmaskedField", "GET getUnmaskedFields");
+            "GET getUnmaskedField", "GET getUnmaskedFields",
+            // What a detail form asks before rendering: which sections and buttons this record allows.
+            "POST getRecordAccess");
 
     /** Minimum endpoint set a Picker widget needs to render:
      *  {@code searchName} lists the candidates for the dropdown,
@@ -105,9 +107,10 @@ public class EndpointIndex {
             Map.entry("view",   VIEW_ENDPOINTS),
             // getDefaultValues backs the new-record form, so it rides on the create perm.
             // Timeline addVersion(AndFetch) inserts a new slice row, so it rides on the create perm.
+            // getCreateAccess tells the same form which sensitive sections it may show.
             Map.entry("create", List.of("POST createOne", "POST createOneAndFetch",
                                         "POST createList", "POST createListAndFetch",
-                                        "GET getDefaultValues",
+                                        "GET getDefaultValues", "GET getCreateAccess",
                                         "POST addVersion", "POST addVersionAndFetch")),
             // onChange/{fieldName} is framework-generated per model; field-level change
             // handlers run while editing a record, so they fall under the update perm.
@@ -126,6 +129,7 @@ public class EndpointIndex {
             // per-model /<Model>/<suffix> shape the CRUD actions use.
             Map.entry("export", List.of(
                     "POST /export/dynamicExport", "POST /export/exportByTemplate",
+                    "POST /export/countExportable",
                     "POST /ExportTemplate/listByModel", "POST /ExportHistory/myExportHistory")),
             Map.entry("import", List.of(
                     "POST /import/dynamicImport", "POST /import/importByTemplate",
@@ -137,6 +141,24 @@ public class EndpointIndex {
                                         "POST copyById", "POST copyByIdAndFetch",
                                         "POST copyByIds", "POST copyByIdsAndFetch",
                                         "GET getCopyableFields")));
+
+    /** The per-model actions a row scope is asked for, by the action segment of a permission id. */
+    private static final List<String> MODEL_ACTIONS = List.of("view", "create", "update", "delete");
+
+    /** {@code "VERB suffix"} → the per-model standard actions whose endpoint list holds it. */
+    private static final Map<String, Set<String>> ACTIONS_BY_ENTRY = actionsByEntry();
+
+    private static Map<String, Set<String>> actionsByEntry() {
+        Map<String, Set<String>> out = new HashMap<>();
+        for (String action : MODEL_ACTIONS) {
+            for (String entry : STANDARD_ACTION_MAP.get(action)) {
+                out.computeIfAbsent(entry, k -> new HashSet<>()).add(action);
+            }
+        }
+        Map<String, Set<String>> frozen = new HashMap<>(out.size());
+        out.forEach((entry, actions) -> frozen.put(entry, Set.copyOf(actions)));
+        return Collections.unmodifiableMap(frozen);
+    }
 
     private final PermissionEndpointSource endpointSource;
 
@@ -174,14 +196,29 @@ public class EndpointIndex {
     private Map<String, Set<String>> exactIndex = Map.of();
     private List<PatternEntry> patternEntries = List.of();
 
+    /** {@code "<Model> <action>"} → the permission ids declaring that standard action on that model. For
+     *  the actions whose endpoints are shared across models and so cannot be told apart by URL. */
+    private Map<String, Set<String>> actionIndex = Map.of();
+
+    /** {@code "<Model> <action>"} → the permission ids reaching any standard endpoint of a per-model
+     *  action on that model, whether derived or hand-listed. See {@link #modelActionPermissions}. */
+    private Map<String, Set<String>> modelActionIndex = Map.of();
+
     @PostConstruct
     void init() {
         Map<String, Set<String>> exact = new HashMap<>();
         List<PatternEntry> patterns = new ArrayList<>();
+        Map<String, Set<String>> actions = new HashMap<>();
+        Map<String, Set<String>> modelActions = new HashMap<>();
 
         for (PermissionEndpointDef def : endpointSource.getPermissionEndpoints()) {
+            if (def.model() != null && !def.model().isEmpty() && def.permissionId() != null) {
+                actions.computeIfAbsent(def.model() + " " + lastSegment(def.permissionId()), k -> new HashSet<>())
+                        .add(def.permissionId());
+            }
             List<String> endpoints = explicitOrDerive(def);
             for (String ep : endpoints) {
+                indexModelAction(ep, def.permissionId(), modelActions);
                 if (ep.contains("{")) {
                     patterns.add(PatternEntry.compile(ep, def.permissionId()));
                 } else {
@@ -198,6 +235,12 @@ public class EndpointIndex {
         }
         this.exactIndex = Collections.unmodifiableMap(frozenExact);
         this.patternEntries = List.copyOf(patterns);
+        Map<String, Set<String>> frozenActions = new HashMap<>(actions.size());
+        actions.forEach((key, ids) -> frozenActions.put(key, Set.copyOf(ids)));
+        this.actionIndex = Collections.unmodifiableMap(frozenActions);
+        Map<String, Set<String>> frozenModelActions = new HashMap<>(modelActions.size());
+        modelActions.forEach((key, ids) -> frozenModelActions.put(key, Set.copyOf(ids)));
+        this.modelActionIndex = Collections.unmodifiableMap(frozenModelActions);
         log.info("EndpointIndex built: {} exact + {} pattern entries",
                 exact.size(), patterns.size());
     }
@@ -229,6 +272,53 @@ public class EndpointIndex {
     }
 
     /**
+     * The permission ids that declare the standard {@code action} on {@code model} — for an action whose
+     * endpoints every model shares (export, import), where {@link #lookup} by URL answers with every
+     * model's permission at once.
+     *
+     * @param model  the model, as the permission's navigation names it
+     * @param action the action segment of the permission id, e.g. {@code "export"}
+     * @return the permission ids, empty when none declares it
+     */
+    public Set<String> actionPermissions(String model, String action) {
+        return actionIndex.getOrDefault(model + " " + action, Set.of());
+    }
+
+    /**
+     * The permission ids that reach a standard endpoint of {@code action} on {@code model} — "who may
+     * perform this action on this model", asked without a URL.
+     *
+     * <p>Covers every endpoint a permission registers, whichever way it got there: the standard set a
+     * permission without explicit endpoints derives (its relation lookups included), and a hand-listed
+     * {@code VERB /Model/suffix} whose suffix is one of the action's standard endpoints. A permission
+     * listing only {@code POST /Employee/updateList} therefore counts for {@code update} on
+     * {@code Employee}, as it does at the endpoint gate. Asking by one fixed URL per action missed it,
+     * and a missed holder silently widened the action to the rows of every role.
+     *
+     * @param model  the model the endpoint path names
+     * @param action one of {@code view}, {@code create}, {@code update}, {@code delete}
+     * @return the permission ids, empty when none reaches any of them
+     */
+    public Set<String> modelActionPermissions(String model, String action) {
+        return modelActionIndex.getOrDefault(model + " " + action, Set.of());
+    }
+
+    /** Record {@code endpoint} under each per-model standard action its {@code VERB /Model/suffix} is in. */
+    private static void indexModelAction(String endpoint, String permissionId, Map<String, Set<String>> out) {
+        if (permissionId == null) return;
+        int space = endpoint.indexOf(' ');
+        if (space <= 0 || endpoint.length() < space + 2 || endpoint.charAt(space + 1) != '/') return;
+        int slash = endpoint.indexOf('/', space + 2);
+        if (slash < 0) return;
+        String model = endpoint.substring(space + 2, slash);
+        Set<String> matched = ACTIONS_BY_ENTRY.get(endpoint.substring(0, space) + " " + endpoint.substring(slash + 1));
+        if (model.isEmpty() || matched == null) return;
+        for (String action : matched) {
+            out.computeIfAbsent(model + " " + action, k -> new HashSet<>()).add(permissionId);
+        }
+    }
+
+    /**
      * Returns explicit endpoints from permission.endpoints when present;
      * otherwise derives POST /&lt;Model&gt;/&lt;suffix&gt; via nav.model + action.
      *
@@ -256,10 +346,56 @@ public class EndpointIndex {
                 // that grant nothing at runtime.
                 validateExplicitEndpoint(def.permissionId(), ep, contextPath);
                 out.add(ep);
+                for (String companion : companionsOf(ep)) {
+                    if (!out.contains(companion) && !explicit.contains(companion)) {
+                        out.add(companion);
+                    }
+                }
             }
             return out;
         }
         return deriveStandardEndpoints(def);
+    }
+
+    /**
+     * Endpoints a hand-listed endpoint brings with it on the same model.
+     *
+     * <ul>
+     *   <li>A create brings the question its form asks before rendering — which sensitive sections
+     *       it may show. A permission listing its endpoints by hand names the write its button
+     *       makes, never that question, so every such form was refused on opening.</li>
+     *   <li>A list read brings the reads by id. Both are the same view, filtered by the same row
+     *       scope: a record the list returns is one a read by id may return, so naming one and not
+     *       the other only breaks the page that opens a row it was just shown (a workflow page
+     *       reopening its own draft).</li>
+     *   <li>A read by id brings the question a detail form asks before rendering.</li>
+     * </ul>
+     * Each answers only within what the listed endpoint already allows; the standard actions bring
+     * the same through {@link #STANDARD_ACTION_MAP}.
+     */
+    private static final Map<String, List<String>> COMPANIONS = Map.of(
+            "POST createOne", List.of("GET getCreateAccess"),
+            "POST createOneAndFetch", List.of("GET getCreateAccess"),
+            "POST createList", List.of("GET getCreateAccess"),
+            "POST createListAndFetch", List.of("GET getCreateAccess"),
+            "POST searchList", List.of("POST getById", "POST getByIds", "POST getRecordAccess"),
+            "POST searchPage", List.of("POST getById", "POST getByIds", "POST getRecordAccess"),
+            "POST getById", List.of("POST getRecordAccess"),
+            "POST getOne", List.of("POST getRecordAccess"));
+
+    /** {@code POST /M/createOne} → {@code [GET /M/getCreateAccess]}; empty when it brings none. */
+    static List<String> companionsOf(String endpoint) {
+        int space = endpoint.indexOf(' ');
+        int slash = endpoint.lastIndexOf('/');
+        if (space <= 0 || slash <= space + 1) return List.of();
+        String base = endpoint.substring(space + 1, slash);
+        if (base.indexOf('/', 1) >= 0) return List.of();
+        List<String> companions = COMPANIONS.get(endpoint.substring(0, space) + " " + endpoint.substring(slash + 1));
+        if (companions == null) return List.of();
+        return companions.stream().map(c -> {
+            int sep = c.indexOf(' ');
+            return c.substring(0, sep) + " " + base + "/" + c.substring(sep + 1);
+        }).toList();
     }
 
     /**

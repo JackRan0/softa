@@ -10,7 +10,6 @@ import org.apache.fesod.sheet.write.handler.context.SheetWriteHandlerContext;
 import org.apache.poi.ss.usermodel.DataValidation;
 import org.apache.poi.ss.usermodel.DataValidationConstraint;
 import org.apache.poi.ss.usermodel.DataValidationHelper;
-import org.apache.poi.ss.usermodel.Name;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -67,23 +66,11 @@ public class OptionDropdownHandler implements SheetWriteHandler {
     /** Name of the sheet holding the values that do not fit inline. */
     static final String OPTIONS_SHEET_NAME = "_options";
 
-    /** Prefix of the defined names holding one parent's children. Numbered, never derived from text. */
-    static final String CASCADE_NAME_PREFIX = "_c";
-
     /** Column index (0-based, on the main sheet) → the item codes allowed in it. */
     private final Map<Integer, List<String>> optionsByColumn;
 
-    /** Column index → the column it is narrowed by, for the few columns that are. */
-    private final Map<Integer, OptionDropdownResolver.Cascade> cascadesByColumn;
-
     public OptionDropdownHandler(Map<Integer, List<String>> optionsByColumn) {
-        this(optionsByColumn, Map.of());
-    }
-
-    public OptionDropdownHandler(Map<Integer, List<String>> optionsByColumn,
-                                 Map<Integer, OptionDropdownResolver.Cascade> cascadesByColumn) {
         this.optionsByColumn = optionsByColumn == null ? Map.of() : new LinkedHashMap<>(optionsByColumn);
-        this.cascadesByColumn = cascadesByColumn == null ? Map.of() : new LinkedHashMap<>(cascadesByColumn);
     }
 
     @Override
@@ -124,17 +111,7 @@ public class OptionDropdownHandler implements SheetWriteHandler {
             }
             try {
                 DataValidationConstraint constraint;
-                OptionDropdownResolver.Cascade cascade = cascadesByColumn.get(columnIndex);
-                if (cascade != null) {
-                    if (optionsSheet == null) {
-                        optionsSheet = createHiddenOptionsSheet(workbook);
-                    }
-                    int parentValuesColumn = nextOptionsColumn;
-                    nextOptionsColumn = writeCascade(workbook, optionsSheet, nextOptionsColumn,
-                            cascade, columnIndex);
-                    constraint = helper.createFormulaListConstraint(
-                            cascadeFormula(cascade, parentValuesColumn, columnIndex));
-                } else if (fitsInline(codes)) {
+                if (fitsInline(codes)) {
                     constraint = helper.createExplicitListConstraint(codes.toArray(new String[0]));
                 } else {
                     if (optionsSheet == null) {
@@ -166,78 +143,6 @@ public class OptionDropdownHandler implements SheetWriteHandler {
                         columnIndex, sheet.getSheetName(), e.getMessage());
             }
         }
-    }
-
-    /**
-     * Lays a cascade out on the hidden sheet: one column of parent values, then one column per parent
-     * holding that parent's children, each of the latter given a defined name.
-     *
-     * <p><b>The names are numbered, never derived from the parent's text.</b> Excel is strict about
-     * what a defined name may contain — no spaces, no leading digit, nothing that reads as a cell
-     * reference — so keying them by value would mean sanitising every parent and reproducing the exact
-     * same sanitisation inside the formula, in nested SUBSTITUTE calls that depend on what the values
-     * happen to be. Numbering by position sidesteps all of it: the formula finds the position with
-     * MATCH and builds {@code _c3} from it, and every name is valid by construction.
-     *
-     * @return the next free column on the hidden sheet
-     */
-    private static int writeCascade(Workbook workbook, Sheet optionsSheet, int firstColumn,
-                                    OptionDropdownResolver.Cascade cascade, int columnIndex) {
-        List<String> parents = List.copyOf(cascade.valuesByParentValue().keySet());
-        writeOptionsColumn(optionsSheet, firstColumn, parents);
-        int column = firstColumn + 1;
-        for (int i = 0; i < parents.size(); i++) {
-            List<String> children = cascade.valuesByParentValue().get(parents.get(i));
-            // A parent with nothing to offer still needs a name and a cell behind it. Empty, the range
-            // would come out as $B$1:$B$0 — not an empty range but an invalid reference, which takes
-            // the whole validation down rather than just this branch of it. One blank cell instead:
-            // the reader picks that parent and the list is empty, which is the answer.
-            List<String> cells = children.isEmpty() ? List.of("") : children;
-            writeOptionsColumn(optionsSheet, column, cells);
-            Name name = workbook.createName();
-            // Positions are 1-based in the formula, so the first parent is _c<col>_1 and _c<col>_0
-            // stays free to mean "no parent chosen yet".
-            name.setNameName(cascadeNamePrefix(columnIndex) + (i + 1));
-            name.setRefersToFormula(rangeReference(column, cells.size()));
-            column++;
-        }
-        // _c0: a single blank cell. A child cell whose parent is still empty has to point somewhere —
-        // pointing at a name that does not exist makes Excel treat the whole validation as broken and
-        // drop the dropdown, blank parent or not.
-        Name blank = workbook.createName();
-        blank.setNameName(cascadeNamePrefix(columnIndex) + "0");
-        blank.setRefersToFormula(rangeReference(column, 1));
-        writeOptionsColumn(optionsSheet, column, List.of(""));
-        return column + 1;
-    }
-
-    /**
-     * {@code INDIRECT("_c" & IFERROR(MATCH($D2,_options!$A$1:$A$5,0),0))}
-     *
-     * <p>Relative on the row so the rule travels down the column, absolute on the parent's column so
-     * it keeps pointing at the parent. IFERROR covers the cell whose parent is still blank, which
-     * would otherwise leave MATCH returning #N/A and the name unresolvable.
-     */
-    private static String cascadeFormula(OptionDropdownResolver.Cascade cascade, int parentValuesColumn,
-                                         int columnIndex) {
-        int parentCount = cascade.valuesByParentValue().size();
-        String parentCell = "$" + columnLetter(cascade.parentColumn()) + "2";
-        String parentRange = rangeReference(parentValuesColumn, parentCount);
-        return String.format("INDIRECT(\"%s\"&IFERROR(MATCH(%s,%s,0),0))",
-                cascadeNamePrefix(columnIndex), parentCell, parentRange);
-    }
-
-    /**
-     * The defined-name prefix for one cascaded column, e.g. {@code _c4_}.
-     *
-     * <p><b>Carries the column, because a defined name belongs to the workbook and not to a sheet or
-     * a column.</b> Numbering each cascade from one would have the second column claim names the
-     * first already holds — and a template with two cascaded columns is not hypothetical, it is what
-     * the employee template asks for. The parents differ between the two, so the collision would not
-     * even fail loudly: it would offer one column the other's values.
-     */
-    private static String cascadeNamePrefix(int columnIndex) {
-        return CASCADE_NAME_PREFIX + columnIndex + "_";
     }
 
     /**

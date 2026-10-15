@@ -40,6 +40,14 @@ public class UiContext {
     private Map<String, Set<String>> modelSensitiveFieldSetsMap;
 
     /**
+     * Model name → the sensitive fields on it that none of the caller's roles grants, so a screen can
+     * leave them out. Appended per request; empty for a caller with full data access, and models with
+     * nothing hidden are omitted. Fields hidden only on some records are not listed here — a record's
+     * own access says which.
+     */
+    private Map<String, Set<String>> modelHiddenFieldsMap;
+
+    /**
      * The caller's own employee id, or null when the account is not linked to an employee record.
      *
      * <p>Appended per request rather than baked into the cached snapshot: the snapshot holds for an

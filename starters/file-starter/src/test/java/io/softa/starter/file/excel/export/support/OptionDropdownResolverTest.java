@@ -370,208 +370,31 @@ class OptionDropdownResolverTest {
         });
     }
 
-    // ---------------------------------------------------------------- cascade
+    // ---------------------------------------------------------------- columns stay independent
 
     @Test
-    void spotsThatOneColumnNarrowsAnother() {
-        // A track names the level it belongs to, so the tracks worth offering are the ones for the
-        // level already chosen. Both sides are code-as-id, so the track's foreign key holds exactly
-        // the value the level column offers and the grouping needs no translation.
+    void relatedColumnsEachKeepTheirWholeList() {
+        // A department sheet carries its parent department and its person in charge, and the two
+        // models point at each other: a department names its head, an employee names their department.
+        // That is an association, not a hierarchy, and nothing in the metadata tells the two apart —
+        // so no column is narrowed by another. Pairing them by the relation alone left the parent
+        // column empty until a head was picked.
         withMetadata(mm -> {
-            field("EmployeeProfile", "highestEducationLevel", FieldType.MANY_TO_ONE,
-                    "HighestEducationLevel", null, null);
-            field("EmployeeProfile", "highestEducationTrack", FieldType.MANY_TO_ONE,
-                    "HighestEducationTrack", null, null);
-            field("HighestEducationTrack", "level", FieldType.MANY_TO_ONE, "HighestEducationLevel", null, null);
-            model("HighestEducationLevel", false, IdStrategy.EXTERNAL_ID);
-            model("HighestEducationTrack", false, IdStrategy.EXTERNAL_ID);
-            stubRows("HighestEducationLevel", "id", List.of("SG_Bachelor", "SG_Master"));
-            stubGroupedRows("HighestEducationTrack",
-                    List.of(Map.of("id", "SG_BEng", "level", "SG_Bachelor"),
-                            Map.of("id", "SG_MEng", "level", "SG_Master")));
+            field("Department", "parentId", FieldType.MANY_TO_ONE, "Department", null, null);
+            field("Department", "picEmpId", FieldType.MANY_TO_ONE, "Employee", null, null);
+            field("Department", "name", FieldType.STRING, null, null, null);
+            field("Employee", "departmentId", FieldType.MANY_TO_ONE, "Department", null, null);
+            field("Employee", "name", FieldType.STRING, null, null, null);
+            model("Department", false);
+            model("Employee", false);
+            stubRows("Department", "name", List.of("Finance", "HR"));
+            stubRows("Employee", "name", List.of("Ada", "Grace"));
 
-            var resolution = resolveAll("EmployeeProfile", null,
-                    "highestEducationLevel", "highestEducationTrack");
-
-            assertThat(resolution.cascadesByColumn()).containsOnlyKeys(1);
-            var cascade = resolution.cascadesByColumn().get(1);
-            assertThat(cascade.parentColumn()).isEqualTo(0);
-            assertThat(cascade.valuesByParentValue())
-                    .containsEntry("SG_Bachelor", List.of("SG_BEng"))
-                    .containsEntry("SG_Master", List.of("SG_MEng"));
-        });
-    }
-
-    @Test
-    void leavesTwoUnrelatedColumnsAlone() {
-        // Neither model points at the other, so there is nothing to narrow by. Reading a cascade into
-        // any two code-as-id columns that happen to share a sheet would offer the wrong values with
-        // full confidence.
-        withMetadata(mm -> {
-            field("EmployeeProfile", "idType", FieldType.MANY_TO_ONE, "IdType", null, null);
-            field("EmployeeProfile", "passType", FieldType.MANY_TO_ONE, "PassType", null, null);
-            // Both carry a many-to-one of their own — onto the country, as the country data models all
-            // do. Neither points at the other, which is the only thing that makes a pair.
-            field("IdType", "country", FieldType.MANY_TO_ONE, "CountryRegion", null, null);
-            field("PassType", "country", FieldType.MANY_TO_ONE, "CountryRegion", null, null);
-            model("IdType", false, IdStrategy.EXTERNAL_ID);
-            model("PassType", false, IdStrategy.EXTERNAL_ID);
-            stubRows("IdType", "id", List.of("SG_NRIC"));
-            stubRows("PassType", "id", List.of("SG_EP"));
-
-            assertThat(resolveAll("EmployeeProfile", null, "idType", "passType").cascadesByColumn())
-                    .isEmpty();
-            // And no grouping query was even attempted. Asserting only on the empty result would pass
-            // just as well if a bogus pair had been formed and then produced nothing.
-            assertThat(capturedQuery("IdType").getFields())
-                    .as("only the flat list of ids was asked for").containsExactly("id");
-            assertThat(capturedQuery("PassType").getFields()).containsExactly("id");
-        });
-    }
-
-    @Test
-    void cascadesBetweenTwoColumnsAddressedByName() {
-        // The pairing used to require both columns to offer ids, which is what made a column unable to
-        // be readable and cascaded at once. Addressed by name, the child's foreign key still holds the
-        // parent's id — so the grouping has to be keyed by what the parent CELL shows instead.
-        withMetadata(mm -> {
-            field("EmployeeProfile", "highestEducationLevel", FieldType.MANY_TO_ONE,
-                    "HighestEducationLevel", null, null);
-            field("EmployeeProfile", "highestEducationTrack", FieldType.MANY_TO_ONE,
-                    "HighestEducationTrack", null, null);
-            field("HighestEducationLevel", "name", FieldType.STRING, null, null, null);
-            field("HighestEducationTrack", "name", FieldType.STRING, null, null, null);
-            field("HighestEducationTrack", "level", FieldType.MANY_TO_ONE, "HighestEducationLevel", null, null);
-            model("HighestEducationLevel", false, IdStrategy.EXTERNAL_ID);
-            model("HighestEducationTrack", false, IdStrategy.EXTERNAL_ID);
-            stubRowsByFields("HighestEducationLevel", Map.of(
-                    List.of("name"), rows("name", "Bachelor's Degree", "Doctorate (PhD)"),
-                    List.of("id", "name"), List.of(
-                            Map.of("id", "SG_Bachelor", "name", "Bachelor's Degree"),
-                            Map.of("id", "SG_Doctorate", "name", "Doctorate (PhD)"))));
-            stubGroupedRows("HighestEducationTrack",
-                    List.of(Map.of("name", "BEng", "level", "SG_Bachelor"),
-                            Map.of("name", "PhD", "level", "SG_Doctorate")));
-
-            var resolution = resolveAll("EmployeeProfile", null,
-                    "highestEducationLevel.name", "highestEducationTrack.name");
-
-            var cascade = resolution.cascadesByColumn().get(1);
-            assertThat(cascade).as("the name-addressed pair still cascades").isNotNull();
-            assertThat(cascade.parentColumn()).isEqualTo(0);
-            // Keyed by the shown name, not by SG_Bachelor — the validation formula MATCHes the cell.
-            assertThat(cascade.valuesByParentValue())
-                    .containsEntry("Bachelor's Degree", List.of("BEng"))
-                    .containsEntry("Doctorate (PhD)", List.of("PhD"));
-        });
-    }
-
-    @Test
-    void theCountryAnchorIsNotAParent() {
-        // A track points at its level and at its country with the same kind of field. Read the second
-        // as a parent and the Nationality column starts narrowing the track column — and every other
-        // country-partitioned column on the sheet with it.
-        withMetadata(mm -> {
-            field("EmployeeProfile", "nationality", FieldType.MANY_TO_ONE, "CountryRegion", null, null);
-            field("EmployeeProfile", "highestEducationTrack", FieldType.MANY_TO_ONE,
-                    "HighestEducationTrack", null, null);
-            field("CountryRegion", "name", FieldType.STRING, null, null, null);
-            field("HighestEducationTrack", "name", FieldType.STRING, null, null, null);
-            field("HighestEducationTrack", "country", FieldType.MANY_TO_ONE, "CountryRegion", null, null);
-            model("CountryRegion", false, IdStrategy.EXTERNAL_ID);
-            model("HighestEducationTrack", true, IdStrategy.EXTERNAL_ID);
-            fieldExists("HighestEducationTrack", "country");
-            stubRows("CountryRegion", "name", List.of("Singapore"));
-            stubRows("HighestEducationTrack", "name", List.of("BEng", "PhD"));
-
-            var resolution = resolveAll("EmployeeProfile", null,
-                    "nationality.name", "highestEducationTrack.name");
-
-            assertThat(resolution.cascadesByColumn()).isEmpty();
-            // And no grouping query was attempted. Asserting only on the empty result would pass just
-            // as well if a bogus pair had been formed and then produced nothing.
-            assertThat(capturedQuery("HighestEducationTrack").getFields())
-                    .as("only the flat list of names was asked for").containsExactly("name");
-        });
-    }
-
-    @Test
-    void aCountryRelationOnAModelThatIsNotPartitionedStillPairs() {
-        // The exclusion is about the partition axis, not about the word "country". A model that is not
-        // multi-country has no partition axis, so its relation onto a country is an ordinary parent.
-        withMetadata(mm -> {
-            field("Employee", "nationality", FieldType.MANY_TO_ONE, "CountryRegion", null, null);
-            field("Employee", "cityId", FieldType.MANY_TO_ONE, "City", null, null);
-            field("CountryRegion", "name", FieldType.STRING, null, null, null);
-            field("City", "name", FieldType.STRING, null, null, null);
-            field("City", "country", FieldType.MANY_TO_ONE, "CountryRegion", null, null);
-            model("CountryRegion", false, IdStrategy.EXTERNAL_ID);
-            model("City", false, IdStrategy.EXTERNAL_ID);
-            stubRowsByFields("CountryRegion", Map.of(
-                    List.of("name"), rows("name", "Singapore"),
-                    List.of("id", "name"), List.of(Map.of("id", "SG", "name", "Singapore"))));
-            stubGroupedRows("City", List.of(Map.of("name", "Jurong", "country", "SG")));
-
-            var resolution = resolveAll("Employee", null, "nationality.name", "cityId.name");
-
-            assertThat(resolution.cascadesByColumn().get(1)).isNotNull();
-            assertThat(resolution.cascadesByColumn().get(1).valuesByParentValue())
-                    .containsEntry("Singapore", List.of("Jurong"));
-        });
-    }
-
-    @Test
-    void dropsChildrenWhoseParentTheColumnDoesNotOffer() {
-        // The parent list is read under the same filters and country the parent column resolved under.
-        // A child hanging off a parent outside that list belongs to a value the reader cannot pick, so
-        // offering it under anything would be offering it under the wrong thing.
-        withMetadata(mm -> {
-            field("EmployeeProfile", "highestEducationLevel", FieldType.MANY_TO_ONE,
-                    "HighestEducationLevel", null, null);
-            field("EmployeeProfile", "highestEducationTrack", FieldType.MANY_TO_ONE,
-                    "HighestEducationTrack", null, null);
-            field("HighestEducationLevel", "name", FieldType.STRING, null, null, null);
-            field("HighestEducationTrack", "name", FieldType.STRING, null, null, null);
-            field("HighestEducationTrack", "level", FieldType.MANY_TO_ONE, "HighestEducationLevel", null, null);
-            model("HighestEducationLevel", false, IdStrategy.EXTERNAL_ID);
-            model("HighestEducationTrack", false, IdStrategy.EXTERNAL_ID);
-            stubRowsByFields("HighestEducationLevel", Map.of(
-                    List.of("name"), rows("name", "Bachelor's Degree"),
-                    // NZ_Certificate is not in the parent list this column offers.
-                    List.of("id", "name"), List.of(Map.of("id", "SG_Bachelor", "name", "Bachelor's Degree"))));
-            stubGroupedRows("HighestEducationTrack",
-                    List.of(Map.of("name", "BEng", "level", "SG_Bachelor"),
-                            Map.of("name", "NZ Cert", "level", "NZ_Certificate")));
-
-            var cascade = resolveAll("EmployeeProfile", null,
-                    "highestEducationLevel.name", "highestEducationTrack.name").cascadesByColumn().get(1);
-
-            assertThat(cascade.valuesByParentValue()).containsOnlyKeys("Bachelor's Degree");
-            assertThat(cascade.valuesByParentValue().get("Bachelor's Degree")).containsExactly("BEng");
-        });
-    }
-
-    @Test
-    void anIdAddressedPairStillNeedsNoTranslation() {
-        // The pre-existing shape, kept honest: when the parent column offers ids the link column
-        // already holds exactly what the cell shows, and the second query would be wasted.
-        withMetadata(mm -> {
-            field("EmployeeProfile", "highestEducationLevel", FieldType.MANY_TO_ONE,
-                    "HighestEducationLevel", null, null);
-            field("EmployeeProfile", "highestEducationTrack", FieldType.MANY_TO_ONE,
-                    "HighestEducationTrack", null, null);
-            field("HighestEducationTrack", "level", FieldType.MANY_TO_ONE, "HighestEducationLevel", null, null);
-            model("HighestEducationLevel", false, IdStrategy.EXTERNAL_ID);
-            model("HighestEducationTrack", false, IdStrategy.EXTERNAL_ID);
-            stubRows("HighestEducationLevel", "id", List.of("SG_Bachelor"));
-            stubGroupedRows("HighestEducationTrack", List.of(Map.of("id", "SG_BEng", "level", "SG_Bachelor")));
-
-            var cascade = resolveAll("EmployeeProfile", null,
-                    "highestEducationLevel", "highestEducationTrack").cascadesByColumn().get(1);
-
-            assertThat(cascade.valuesByParentValue()).containsEntry("SG_Bachelor", List.of("SG_BEng"));
-            assertThat(capturedQuery("HighestEducationLevel").getFields())
-                    .as("no id-to-name translation query").containsExactly("id");
+            assertThat(resolve("Department", null, "parentId.name", "picEmpId.name"))
+                    .containsEntry(0, List.of("Finance", "HR"))
+                    .containsEntry(1, List.of("Ada", "Grace"));
+            assertThat(capturedQuery("Department").getFields()).containsExactly("name");
+            assertThat(capturedQuery("Employee").getFields()).containsExactly("name");
         });
     }
 
@@ -621,14 +444,10 @@ class OptionDropdownResolverTest {
         ImportFieldDTO field = new ImportFieldDTO();
         field.setFieldName(fieldName);
         field.setNoDropdown(noDropdown);
-        return resolver.resolveAll(modelName, List.of(field), null).optionsByColumn();
+        return resolver.resolve(modelName, List.of(field), null);
     }
 
     private Map<Integer, List<String>> resolve(String modelName, String country, String... columns) {
-        return resolveAll(modelName, country, columns).optionsByColumn();
-    }
-
-    private OptionDropdownResolver.Resolution resolveAll(String modelName, String country, String... columns) {
         OptionDropdownResolver resolver = new OptionDropdownResolver();
         ReflectionTestUtils.setField(resolver, "modelService", modelService);
         List<ImportFieldDTO> importFields = new ArrayList<>();
@@ -637,40 +456,7 @@ class OptionDropdownResolverTest {
             dto.setFieldName(column);
             importFields.add(dto);
         }
-        return resolver.resolveAll(modelName, importFields, country);
-    }
-
-    /** Single-column rows, for a flat value list. */
-    private static List<Map<String, Object>> rows(String field, String... values) {
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (String value : values) {
-            out.add(Map.of(field, value));
-        }
-        return out;
-    }
-
-    /**
-     * Answers differently per requested field list, for a model queried more than once in one resolve —
-     * a name-addressed parent is read twice: its flat list, then its id-to-name pairs.
-     */
-    @SuppressWarnings("unchecked")
-    private void stubRowsByFields(String modelName, Map<List<String>, List<Map<String, Object>>> byFields) {
-        when(((ModelService<Long>) modelService).searchList(eq(modelName), any(FlexQuery.class)))
-                .thenAnswer(inv -> {
-                    FlexQuery flexQuery = inv.getArgument(1);
-                    queriesByModel.put(inv.getArgument(0), flexQuery);
-                    return byFields.getOrDefault(List.copyOf(flexQuery.getFields()), List.of());
-                });
-    }
-
-    /** Rows carrying more than one column, for the grouping query a cascade issues. */
-    @SuppressWarnings("unchecked")
-    private void stubGroupedRows(String modelName, List<Map<String, Object>> rows) {
-        when(((ModelService<Long>) modelService).searchList(eq(modelName), any(FlexQuery.class)))
-                .thenAnswer(inv -> {
-                    queriesByModel.put(inv.getArgument(0), inv.getArgument(1));
-                    return rows;
-                });
+        return resolver.resolve(modelName, importFields, country);
     }
 
     /**

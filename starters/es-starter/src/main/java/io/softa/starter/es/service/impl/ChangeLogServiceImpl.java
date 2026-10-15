@@ -21,6 +21,7 @@ import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.changelog.message.dto.ChangeLog;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -77,9 +78,19 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
                 page.getPageNumber(), page.getPageSize(), page.isCursorPage(), page.isCount());
         super.searchPage(ChangeLogDocument.class, filters, orders, docPage);
         page.setTotalCount(docPage.getTotalCount());
-        page.setRows(withoutBlockedFields(
-                docPage.getRows().stream().map(ChangeLogDocument::toChangeLog).toList()));
+        List<ChangeLog> logs = docPage.getRows().stream().map(ChangeLogDocument::toChangeLog).toList();
+        page.setRows(visibleToReader(logs));
         return page;
+    }
+
+    /**
+     * The logs as the reader may see them — what every read of the log returns. Per record first,
+     * then the fields hidden on every record: an update left with nothing the reader may see is then
+     * dropped whole by {@link #withoutBlockedFields}.
+     */
+    private List<ChangeLog> visibleToReader(List<ChangeLog> logs) {
+        maskInaccessibleFields(logs);
+        return withoutBlockedFields(logs);
     }
 
     /**
@@ -106,9 +117,11 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
 
     @Override
     public Page<ChangeLog> getRecordChangeLog(String modelName, Serializable id, List<String> relations,
-                                              Page<ChangeLog> page, String order, boolean includeCreation) {
+                                              List<String> referencing, Page<ChangeLog> page, String order,
+                                              boolean includeCreation) {
         permissionService.checkIdsFieldsAccess(modelName, Collections.singletonList(id), null, READ);
-        List<HistoryPart> parts = this.historyParts(modelName, id, relations == null ? List.of() : relations);
+        List<HistoryPart> parts = this.historyParts(modelName, id, relations == null ? List.of() : relations,
+                referencing == null ? List.of() : referencing);
 
         NativeQuery query = NativeQuery.builder()
                 .withQuery(this.historyQuery(parts, includeCreation))
@@ -120,7 +133,7 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
         SearchHits<ChangeLogDocument> hits =
                 esOperations.search(query, ChangeLogDocument.class, IndexCoordinates.of(getIndexName()));
         page.setTotalCount(hits.getTotalHits());
-        page.setRows(withoutBlockedFields(hits.getSearchHits().stream()
+        page.setRows(visibleToReader(hits.getSearchHits().stream()
                 .map(SearchHit::getContent).map(ChangeLogDocument::toChangeLog).toList()));
         return this.processChangeLogData(modelName, page, ConvertType.REFERENCE);
     }
@@ -138,6 +151,22 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
      * references at all.
      */
     List<HistoryPart> historyParts(String modelName, Serializable id, List<String> relations) {
+        return this.historyParts(modelName, id, relations, List.of());
+    }
+
+    /**
+     * As {@link #historyParts(String, Serializable, List)}, with the rows of other models that point
+     * at the record, each named {@code Model.field}.
+     *
+     * <p>For rows the record's model has no relation field to reach — a grant that points at a
+     * person through a many-to-one, on a model the person's own does not list. Asked like a
+     * one-to-many: by the reference every recent log carries, so a deleted row is found, and by
+     * the rows that point at the record now. A one-to-one is accepted too — the person's login
+     * identity — and found by its row alone: logs carry references for many-to-one fields only,
+     * and a row that lives and dies with the record has no deleted history to lose.
+     */
+    List<HistoryPart> historyParts(String modelName, Serializable id, List<String> relations,
+                                   List<String> referencing) {
         MetaModel metaModel = ModelManager.getModel(modelName);
         Assert.notTrue(metaModel.isTimeline(),
                 "The timeline model can only call the API to get the slice change log: getSliceChangeLog");
@@ -158,11 +187,25 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
             if (FieldType.ONE_TO_ONE.equals(field.getFieldType())) {
                 oneToOne.add(relation);
             } else {
-                List<String> current = this.logRowIds(field.getRelatedModel(),
-                        Filters.of(field.getRelatedField(), Operator.EQUAL, id), CURRENT_ROWS_ASKED_BY_ID + 1);
-                parts.add(new HistoryPart(field.getRelatedModel(),
-                        current.size() > CURRENT_ROWS_ASKED_BY_ID ? List.of() : current,
-                        field.getRelatedField() + "=" + rowId, visibleFieldsOf(field.getRelatedModel())));
+                parts.add(this.pointingPart(field.getRelatedModel(), field.getRelatedField(), id));
+            }
+        }
+        for (String reference : new LinkedHashSet<>(referencing)) {
+            int dot = reference.lastIndexOf('.');
+            Assert.isTrue(dot > 0 && dot < reference.length() - 1,
+                    "Reference {0} is not written as Model.field.", reference);
+            String model = reference.substring(0, dot);
+            String fieldName = reference.substring(dot + 1);
+            MetaField field = ModelManager.getModelFieldOrNull(model, fieldName);
+            Assert.notNull(field, "Model {0} has no field {1}.", model, fieldName);
+            // Only a reference to this record's model: anything else would let one record's
+            // history read the logs of rows that have nothing to do with it.
+            Assert.isTrue((FieldType.MANY_TO_ONE.equals(field.getFieldType())
+                            || FieldType.ONE_TO_ONE.equals(field.getFieldType()))
+                            && modelName.equals(field.getRelatedModel()),
+                    "Field {0}.{1} is not a many-to-one or one-to-one to {2}.", model, fieldName, modelName);
+            if (mayRead(model)) {
+                parts.add(this.pointingPart(model, fieldName, id));
             }
         }
         if (!oneToOne.isEmpty()) {
@@ -181,6 +224,18 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
             }
         }
         return parts;
+    }
+
+    /**
+     * The rows of a model that point at the record through one of its fields: by the reference
+     * their logs carry, and by the rows that do now — past {@link #CURRENT_ROWS_ASKED_BY_ID}, by
+     * the reference alone.
+     */
+    private HistoryPart pointingPart(String model, String field, Serializable id) {
+        List<String> current = this.logRowIds(model,
+                Filters.of(field, Operator.EQUAL, id), CURRENT_ROWS_ASKED_BY_ID + 1);
+        return new HistoryPart(model, current.size() > CURRENT_ROWS_ASKED_BY_ID ? List.of() : current,
+                field + "=" + id, visibleFieldsOf(model));
     }
 
     /**
@@ -468,6 +523,11 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
                 // CREATE only has data after change
                 fields.addAll(changeLog.getDataAfterChange().keySet());
                 changeLogDataList.add(changeLog.getDataAfterChange());
+            } else if (DELETE.equals(changeLog.getAccessType()) && changeLog.getDataBeforeChange() != null) {
+                // DELETE only has data before change. Left out, a deleted row came back with raw values —
+                // a file as its bare id, a reference as a number — where its creation showed names.
+                fields.addAll(changeLog.getDataBeforeChange().keySet());
+                changeLogDataList.add(changeLog.getDataBeforeChange());
             }
         });
         // Enhance the field values in before and after data, only retain the fields existing in the metadata.
@@ -487,6 +547,59 @@ public class ChangeLogServiceImpl extends ESServiceImpl<ChangeLog> implements Ch
         for (int i = 0; i < changeLogDataList.size(); i++) {
             changeLogDataList.get(i).keySet().retainAll(ownKeys.get(i));
         }
+    }
+
+    /**
+     * Drop from each entry the fields the caller may not see on that record — its before and after
+     * values alike, so the entry neither shows the value nor what it was changed from. Each entry is
+     * judged as a row of its own model, so a page mixing models is masked correctly.
+     *
+     * <p>Judged per record, exactly as a read of the record would be: the values are masked by the
+     * permission service as rows of the model, keyed by the record's id. A field hidden on either side
+     * is removed from both.
+     */
+    private void maskInaccessibleFields(List<ChangeLog> changeLogs) {
+        // One mask call per model for the whole page, not one per entry: each call may ask which of
+        // the rows the caller's roles reach.
+        Map<String, List<ChangeLog>> byModel = new LinkedHashMap<>();
+        for (ChangeLog changeLog : changeLogs) {
+            if (changeLog.getModel() != null) {
+                byModel.computeIfAbsent(changeLog.getModel(), k -> new ArrayList<>()).add(changeLog);
+            }
+        }
+        byModel.forEach((modelName, logs) -> {
+            List<List<Map<String, Object>>> sidesByLog = new ArrayList<>(logs.size());
+            List<Map<String, Object>> masked = new ArrayList<>();
+            for (ChangeLog changeLog : logs) {
+                List<Map<String, Object>> sides = new ArrayList<>(2);
+                if (changeLog.getDataBeforeChange() != null) sides.add(changeLog.getDataBeforeChange());
+                if (changeLog.getDataAfterChange() != null) sides.add(changeLog.getDataAfterChange());
+                sidesByLog.add(sides);
+                // Masked as copies carrying the record's id, so the stored maps are only ever pruned.
+                for (Map<String, Object> side : sides) {
+                    Map<String, Object> copy = new HashMap<>(side);
+                    copy.putIfAbsent(ModelConstant.ID, changeLog.getRowId());
+                    masked.add(copy);
+                }
+            }
+            if (masked.isEmpty()) return;
+            permissionService.maskRows(modelName, masked);
+            int next = 0;
+            for (List<Map<String, Object>> sides : sidesByLog) {
+                Set<String> hidden = new HashSet<>();
+                for (Map<String, Object> side : sides) {
+                    Map<String, Object> maskedSide = masked.get(next++);
+                    for (Map.Entry<String, Object> entry : side.entrySet()) {
+                        if (entry.getValue() != null && maskedSide.get(entry.getKey()) == null) {
+                            hidden.add(entry.getKey());
+                        }
+                    }
+                }
+                if (!hidden.isEmpty()) {
+                    sides.forEach(side -> side.keySet().removeAll(hidden));
+                }
+            }
+        });
     }
 
 }

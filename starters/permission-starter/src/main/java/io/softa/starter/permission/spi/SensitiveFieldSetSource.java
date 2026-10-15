@@ -43,6 +43,14 @@ public interface SensitiveFieldSetSource {
      * @param attachedTo UI-only aggregation hint — models under whose nav rows
      *                   this set should also appear as a Wizard checkbox; does
      *                   NOT affect mask authority; may be {@code null} / empty
+     * @param shortName  the short noun a refusal names the fields by ("Pay" → "Pay fields"); may be
+     *                   {@code null}, then {@code name} is used
      */
-    record SensitiveFieldSetDef(String id, String model, Set<String> fieldCodes, String name, Set<String> attachedTo) {}
+    record SensitiveFieldSetDef(String id, String model, Set<String> fieldCodes, String name, Set<String> attachedTo,
+                                String shortName) {
+        /** A set with no short name: messages name it by {@code name}. */
+        public SensitiveFieldSetDef(String id, String model, Set<String> fieldCodes, String name, Set<String> attachedTo) {
+            this(id, model, fieldCodes, name, attachedTo, null);
+        }
+    }
 }

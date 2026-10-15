@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,6 +91,12 @@ class UserAccountControllerTest {
         invalidator = mock(PermissionCacheInvalidator.class);
         ReflectionTestUtils.setField(controller, "modelService", modelService);
         ReflectionTestUtils.setField(controller, "permissionCacheInvalidator", invalidator);
+        // The account service carries a contact edit's login identifier before the write it is
+        // handed; these cases are about the write, so it simply runs it.
+        UserAccountService accountService = mock(UserAccountService.class);
+        when(accountService.updateCarryingLoginIdentifiers(any(), any()))
+                .thenAnswer(call -> call.<Supplier<?>>getArgument(1).get());
+        ReflectionTestUtils.setField(controller, "service", accountService);
         // The roster window + bounds moved to UserRosterScope; the controller now delegates. Bare
         // mocks are enough for the non-super-admin paths, which return before resolving the roster.
         installRosterScope(mock(RoleService.class));
