@@ -284,31 +284,39 @@ public class DataUpdatePipeline extends DataPipeline {
     /**
      * Determine whether the field value has been modified, by judging whether the new and old values are equal.
      *
+     * <p>Both sides are brought to one form before comparing: a temporal value becomes its formatted
+     * string. The stored value arrives as {@code java.time} (the row mapper normalizes every driver's
+     * types), the new one as whatever the caller sent — a {@code LocalDate}, a {@code java.util.Date}
+     * or the string itself. Formatting only the new side, as this once did, compared a string with a
+     * {@code LocalDate}: every date field present in a patch counted as changed, was written again and
+     * was listed in the change log with the same value on both sides.
+     *
      * @param modelName model name
      * @param fieldName field name
-     * @param newValue new value of the field, for Date and DateTime type fields, the field value needs to be
-     *                converted to String for comparison, to avoid unequal equals due to different object class.
-     * @param oldValue old value of the field, for Date and DateTime type fields,
-     *                 the original value read from database is already String
+     * @param newValue new value of the field
+     * @param oldValue old value of the field, as read from the database
      * @return whether the field value has been modified
      */
     private static boolean valueModified(String modelName, String fieldName, Object newValue, Object oldValue) {
-        if (newValue instanceof LocalDate localDate) {
-            newValue = TimeConstant.DATE_FORMATTER.format(localDate);
-        } else if (newValue instanceof LocalDateTime localDateTime) {
-            newValue = TimeConstant.DATETIME_FORMATTER.format(localDateTime);
-        } else if (newValue instanceof LocalTime localTime) {
-            newValue = TimeConstant.TIME_FORMATTER.format(localTime);
-        } else if (newValue instanceof Date) {
+        return !Objects.equals(comparable(modelName, fieldName, newValue), comparable(modelName, fieldName, oldValue));
+    }
+
+    /** A temporal value as its formatted string, so values of different classes compare by what they say. */
+    private static Object comparable(String modelName, String fieldName, Object value) {
+        if (value instanceof LocalDate localDate) {
+            return TimeConstant.DATE_FORMATTER.format(localDate);
+        } else if (value instanceof LocalDateTime localDateTime) {
+            return TimeConstant.DATETIME_FORMATTER.format(localDateTime);
+        } else if (value instanceof LocalTime localTime) {
+            return TimeConstant.TIME_FORMATTER.format(localTime);
+        } else if (value instanceof Date) {
             FieldType fieldType = ModelManager.getModelField(modelName, fieldName).getFieldType();
             if (fieldType.equals(FieldType.DATE)) {
-                newValue = TimeConstant.DATE_FORMATTER.format(DateUtils.dateToLocalDate(newValue));
+                return TimeConstant.DATE_FORMATTER.format(DateUtils.dateToLocalDate(value));
             } else if (fieldType.equals(FieldType.DATE_TIME)) {
-                newValue = TimeConstant.DATETIME_FORMATTER.format(DateUtils.dateToLocalDateTime(newValue));
+                return TimeConstant.DATETIME_FORMATTER.format(DateUtils.dateToLocalDateTime(value));
             }
-            // After converting to a String, if they are equal, it is judged as not modified.
-            return !(newValue.equals(oldValue));
         }
-        return !Objects.equals(newValue, oldValue);
+        return value;
     }
 }
