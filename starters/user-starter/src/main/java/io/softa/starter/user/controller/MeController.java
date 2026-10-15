@@ -1,5 +1,6 @@
 package io.softa.starter.user.controller;
 
+import java.util.Map;
 import java.util.Set;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,6 +16,7 @@ import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.EntitlementService;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.dto.UiContext;
@@ -46,6 +48,9 @@ public class MeController {
     /** Optional — only present when tenant-starter (entitlement) is installed; null = pure
      *  RBAC, no version gating (frontend then treats every module as entitled). */
     private final ObjectProvider<EntitlementService> entitlementServiceProvider;
+    /** The data plane's own answer for which sensitive fields the caller never sees; absent in a
+     *  deployment without a permission engine, which then hides nothing. */
+    private final ObjectProvider<PermissionService> permissionServiceProvider;
 
     @GetMapping("/uiContext")
     @Operation(summary = "Get the current user's UI context (navigations, permissions, sensitive field sets)")
@@ -60,7 +65,21 @@ public class MeController {
         }
         appendEntitlement(info, ctx.getTenantId());
         appendEmployeeIdentity(info, ctx);
+        appendHiddenFields(info);
         return ApiResponse.success(info);
+    }
+
+    /**
+     * Add the sensitive fields the caller can never see, per model.
+     *
+     * <p>Asked of the permission engine on every request rather than read from the cached snapshot:
+     * it is the same computation the write guard refuses by, so the screen and the server cannot
+     * disagree about it. Only field names leave the server — not the set catalogue behind them.
+     */
+    private void appendHiddenFields(UiContext info) {
+        PermissionService permissionService = permissionServiceProvider.getIfAvailable();
+        Map<String, Set<String>> hidden = permissionService == null ? null : permissionService.getHiddenSensitiveFields();
+        info.setModelHiddenFieldsMap(hidden == null ? Map.of() : hidden);
     }
 
     /**

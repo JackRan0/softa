@@ -289,6 +289,93 @@ class MetadataServiceImplTest {
     }
 
     @Test
+    void getMetaModelDtoLeavesOutFieldsWithheldFromTheCaller() {
+        // A sensitive field no role of the caller grants never shows its value, so its definition is
+        // not served either; the model's other fields, and other models' withheld lists, do not matter.
+        PermissionService permissionService = mock(PermissionService.class);
+        when(permissionService.getHiddenSensitiveFields())
+                .thenReturn(Map.of("Staff", Set.of("basePay"), "Contract", Set.of("name")));
+        MetadataServiceImpl service = serviceWithPermission(permissionService);
+
+        try (MockedStatic<MetadataDtoMapper> mapper = Mockito.mockStatic(MetadataDtoMapper.class)) {
+            mapper.when(() -> MetadataDtoMapper.toModelDTO("Staff"))
+                    .thenAnswer(inv -> modelDto("Staff", "name", "basePay", "payGrade"));
+
+            MetaModelDTO dto = service.getMetaModelDTO("Staff");
+
+            assertEquals(Set.of("name", "payGrade"), dto.getModelFields().keySet());
+        }
+    }
+
+    @Test
+    void getMetaModelDtoServesEveryFieldWhenNothingIsWithheld() {
+        PermissionService permissionService = mock(PermissionService.class);
+        when(permissionService.getHiddenSensitiveFields()).thenReturn(Map.of());
+        MetadataServiceImpl service = serviceWithPermission(permissionService);
+
+        try (MockedStatic<MetadataDtoMapper> mapper = Mockito.mockStatic(MetadataDtoMapper.class)) {
+            mapper.when(() -> MetadataDtoMapper.toModelDTO("Staff"))
+                    .thenAnswer(inv -> modelDto("Staff", "name", "basePay"));
+
+            assertEquals(Set.of("name", "basePay"), service.getMetaModelDTO("Staff").getModelFields().keySet());
+        }
+    }
+
+    @Test
+    void resolveCascadedPathsTreatsAWithheldFieldAsNotFound() {
+        // A path landing on a withheld field resolves as that field missing — the same answer
+        // getMetaModel gives by leaving it out — and the related model it reaches is served without it.
+        PermissionService permissionService = mock(PermissionService.class);
+        when(permissionService.getHiddenSensitiveFields()).thenReturn(Map.of("Staff", Set.of("basePay")));
+        MetadataServiceImpl service = serviceWithPermission(permissionService);
+
+        MetaField manager = mockField("Leave", "managerId", FieldType.MANY_TO_ONE, "Staff");
+        MetaField basePay = mockField("Staff", "basePay", FieldType.BIG_DECIMAL, null);
+        MetaField name = mockField("Staff", "name", FieldType.STRING, null);
+
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class);
+             MockedStatic<MetadataDtoMapper> mapper = Mockito.mockStatic(MetadataDtoMapper.class)) {
+            stubMapper(mapper);
+            mapper.when(() -> MetadataDtoMapper.toModelDTO("Staff"))
+                    .thenAnswer(inv -> modelDto("Staff", "name", "basePay"));
+            mm.when(() -> ModelManager.validateModel("Leave")).thenAnswer(inv -> null);
+            mm.when(() -> ModelManager.existField("Leave", "managerId")).thenReturn(true);
+            mm.when(() -> ModelManager.existField("Staff", "basePay")).thenReturn(true);
+            mm.when(() -> ModelManager.existField("Staff", "name")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelField("Leave", "managerId")).thenReturn(manager);
+            mm.when(() -> ModelManager.getModelField("Staff", "basePay")).thenReturn(basePay);
+            mm.when(() -> ModelManager.getModelField("Staff", "name")).thenReturn(name);
+
+            ResolveCascadedPathsResponse response = service.resolveCascadedPaths(
+                    "Leave", List.of("managerId.basePay", "managerId.name"));
+
+            PathResolution withheld = response.getResolutions().get(0);
+            assertFalse(withheld.isOk());
+            assertEquals(CascadeFieldWalker.ErrorKind.FIELD_NOT_FOUND, withheld.getErrorCode());
+            assertEquals(Integer.valueOf(1), withheld.getErrorAt());
+            assertEquals("Field 'basePay' not found on model 'Staff'", withheld.getMessage());
+
+            assertTrue(response.getResolutions().get(1).isOk());
+            assertEquals(1, response.getMetaModels().size());
+            assertEquals(Set.of("name"), response.getMetaModels().get(0).getModelFields().keySet());
+        }
+    }
+
+    private static MetaModelDTO modelDto(String modelName, String... fieldNames) {
+        MetaModelDTO dto = new MetaModelDTO();
+        dto.setModelName(modelName);
+        Map<String, MetaFieldDTO> fields = new java.util.HashMap<>();
+        for (String fieldName : fieldNames) {
+            MetaFieldDTO field = new MetaFieldDTO();
+            field.setFieldName(fieldName);
+            field.setModelName(modelName);
+            fields.put(fieldName, field);
+        }
+        dto.setModelFields(fields);
+        return dto;
+    }
+
+    @Test
     void resolveCascadedPathsResolvesValidDepth2Path() {
         PermissionService permissionService = mock(PermissionService.class);
         MetadataServiceImpl service = serviceWithPermission(permissionService);

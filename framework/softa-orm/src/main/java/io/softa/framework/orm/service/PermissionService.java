@@ -2,10 +2,13 @@ package io.softa.framework.orm.service;
 
 import java.io.Serializable;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import io.softa.framework.orm.domain.CreateAccess;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.RecordAccess;
 import io.softa.framework.orm.enums.AccessType;
 
 /**
@@ -115,6 +118,27 @@ public interface PermissionService {
     }
 
     /**
+     * Everything {@link #appendScopeAccessFilters} does except adding the caller's row range: the
+     * rewrite of {@link #rewriteScopeFilters}, and the guard on conditions the caller wrote against
+     * fields it may not see on every row.
+     *
+     * <p>Used by a read that legitimately crosses the caller's row range — see
+     * {@link ModelService#searchListIgnoringRowScope}. Crossing the range to resolve a label says
+     * nothing about which values the caller may test: {@code searchName} accepts the caller's own
+     * filters, so without the guard a condition such as {@code salary > 5000} would sort every row of
+     * the table by a figure the caller is never shown.
+     *
+     * <p>Default: the rewrite alone, which is what an implementation without field guards needs.
+     *
+     * @param model the model being queried
+     * @param originalFilters the filters as assembled so far
+     * @return the filters with the rewrite and the condition guard applied, without the row range
+     */
+    default Filters appendScopeAccessFiltersIgnoringRowScope(String model, Filters originalFilters) {
+        return rewriteScopeFilters(model, originalFilters);
+    }
+
+    /**
      * Silently drop blocked-for-{@code accessType} fields from the caller's
      * requested field set. Used inside read entry points
      * ({@code searchList}/{@code searchPage}/etc.) before the SELECT clause
@@ -174,6 +198,32 @@ public interface PermissionService {
     }
 
     /**
+     * Mask sensitive fields on rows of {@code model} that were not read through this service's read
+     * path — the before / after values of a change log entry, say — exactly as a read would have
+     * masked them. Each row is judged by its {@code id}: a row without one shows only what the caller
+     * may see on every row.
+     *
+     * <p>Default no-op.
+     *
+     * @param model the model the rows belong to
+     * @param rows  the rows, masked in place
+     */
+    default void maskRows(String model, List<Map<String, Object>> rows) {
+        // no-op default
+    }
+
+    /**
+     * Keep a query from learning, through its ordering or grouping, what its masking hides: a sort on
+     * a sensitive field the caller cannot see on every row is dropped, and grouping or aggregating by
+     * one is refused. Called on the query before it runs; may modify it.
+     *
+     * <p>Default no-op.
+     */
+    default void guardQuery(String model, io.softa.framework.orm.domain.FlexQuery flexQuery) {
+        // no-op default
+    }
+
+    /**
      * Reject writes touching blocked-for-write fields in the payload map.
      * Called by every write entry point in {@code ModelServiceImpl}
      * ({@code createOne}/{@code createList}/{@code updateOne}/
@@ -209,8 +259,8 @@ public interface PermissionService {
      * index. The file upload endpoints cannot be matched that way — their model arrives as a request
      * <em>parameter</em>, so {@code /file/...} resolves to no model — and they are reachable only
      * because they are whitelisted, which means the gate never runs for them at all. They ask here
-     * instead, naming the model and the action, and the same index answers via the canonical endpoint
-     * for that pair.
+     * instead, naming the model and the action, and the same index answers from every standard endpoint
+     * of that action on that model.
      *
      * <p><b>Two defaults point opposite ways, and confusing them is easy.</b> The endpoint gate denies
      * an unregistered URL — an endpoint nobody wrote a permission for is unreachable. This grants an
@@ -223,5 +273,69 @@ public interface PermissionService {
      * @return true when the caller may perform it, or when no permission covers it
      */
     boolean hasModelActionGrant(String model, AccessType accessType);
+
+    /**
+     * What the caller may do with each of these existing records: which sensitive sets are hidden or
+     * read-only on it, and which of {@code UPDATE} / {@code DELETE} it may perform.
+     *
+     * <p>Default: nothing hidden, nothing read-only, and every action the caller holds on the model.
+     *
+     * @param model the model
+     * @param ids   the records
+     * @return one entry per id, in the order given
+     */
+    default List<RecordAccess> getRecordAccess(String model, Collection<? extends Serializable> ids) {
+        Set<AccessType> actions = java.util.EnumSet.noneOf(AccessType.class);
+        for (AccessType action : List.of(AccessType.UPDATE, AccessType.DELETE)) {
+            if (hasModelActionGrant(model, action)) {
+                actions.add(action);
+            }
+        }
+        return ids.stream().map(id -> new RecordAccess(id, Set.of(), Set.of(), actions)).toList();
+    }
+
+    /**
+     * The fields of {@code model} whose writes this service judges field by field — the ones for which
+     * a null that merely echoes a stored null must not count as a write.
+     *
+     * <p>A write is judged by the fields it names. For most fields naming one with a null is harmless,
+     * but for a field only some callers may write it decides whether the write is refused: an update
+     * that sends back a whole record, nulls included, would be refused for a field the caller never
+     * changed. {@code updateList} reads the stored values of these fields where the payload carries a
+     * null, and leaves a null over a null out of what it hands {@link #checkIdsFieldsAccess}.
+     *
+     * <p>Default: none, which costs no read.
+     *
+     * @param model the model being written
+     * @return the field names; empty when no field of the model is guarded for the caller
+     */
+    default Set<String> getWriteGuardedFields(String model) {
+        return Set.of();
+    }
+
+    /**
+     * The sensitive fields the caller can never see, per model: on each model that has sensitive
+     * fields, those no role of the caller grants on any row. A screen can leave them out altogether
+     * instead of rendering columns and inputs that would always come back empty or be refused.
+     *
+     * <p>Fields some role grants are not listed, even where they are hidden on some rows — that is
+     * per record, answered by {@link #getRecordAccess}. Models with nothing hidden are omitted.
+     *
+     * <p>Default: nothing hidden.
+     *
+     * @return model name → field names; empty for a caller with full data access
+     */
+    default Map<String, Set<String>> getHiddenSensitiveFields() {
+        return Map.of();
+    }
+
+    /**
+     * Which sensitive sets a form creating a record of {@code model} must not show.
+     *
+     * <p>Default: none.
+     */
+    default CreateAccess getCreateAccess(String model) {
+        return new CreateAccess(Set.of());
+    }
 
 }

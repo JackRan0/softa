@@ -128,6 +128,16 @@ tenant. `list`, `save` (person + consultant record + the whole grant table in on
 transaction), `authorizations`, `setActive`, and `actors` (which of these acting
 account ids are consultants, for a tenant's audit trail).
 
+`MeController` (`/me/*`) — `uiContext` returns what the frontend's permission hook reads: role
+codes, visible navigations, granted permission ids, the granted sensitive-field-set ids per model
+(`modelSensitiveFieldSetsMap`), `modelHiddenFieldsMap` (per model, the sensitive fields none of the
+caller's roles grants — empty for a caller with full data access, models with nothing hidden omitted;
+only field names, never the set catalogue), the caller's `empId`, and `entitledModules` when
+entitlement is installed. `modelHiddenFieldsMap` and `empId` are computed per request, not read from
+the cached snapshot. A field hidden only on some records is not in `modelHiddenFieldsMap`; ask
+`POST /{model}/getRecordAccess` for those. The same fields are left out of what
+`GET /metadata/getMetaModel` serves this caller (metadata-starter README).
+
 ## Consultants
 
 Platform implementation staff, authorized into a client company for a bounded
@@ -149,6 +159,15 @@ starter owns the data:
   (`UserRosterScope`): a tenant does not administer them, and an admin who could see
   one could freeze it, leaving the platform's grant saying yes while the membership
   said no.
+
+## Role data scopes
+
+`RoleDataScope` is one role's rules on one model (`dataScopes`, OR-combined) plus an optional
+`scopeCondition` — a `Filters` expression AND-ed onto those rules, cascaded fields allowed (e.g. only
+employees whose `employeeProfileId.employmentType` is not Contractor). It narrows that role's grant
+on the model and nothing else: with permission-starter each role answers for itself, so a condition on
+one role never narrows what another role grants. The role wizard saves menus, data scopes (with their
+conditions) and sensitive field sets as separate fields of `WizardSaveDTO`, each replacing the stored rows.
 
 ## Programmatic API
 

@@ -151,9 +151,13 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         if (writeValidators != null) {
             writeValidators.validateCreate(modelName, rows);
         }
-        // Extracts a set of assigned fields for checking field-level permissions
+        // Extracts a set of assigned fields for checking field-level permissions. A field given only as
+        // null writes nothing on a create, so it is not counted as assigned — a payload serialized with
+        // its nulls must not be refused for a field the caller may not write and did not set.
         Set<String> assignedFields = new HashSet<>();
-        rows.forEach(row -> assignedFields.addAll(row.keySet()));
+        rows.forEach(row -> row.forEach((field, value) -> {
+            if (value != null) assignedFields.add(field);
+        }));
         // The ids can only be extracted after the write is executed
         rows = versioning.of(modelName).create(modelName, rows);
         List<Serializable> ids = rows.stream()
@@ -490,7 +494,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * afterwards — the narrowing works within what the role allows.
      *
      * <p>There is no per-company narrowing here any more. Which companies' records a caller sees is the
-     * grant ({@code appendCompanyGrant}) and nothing else; the header selection that used to narrow
+     * grant ({@code PermissionServiceImpl.companyScope}) and nothing else; the header selection that used to narrow
      * within it went with the header switcher.
      */
     private Filters scopedAccess(String modelName, Filters filters) {
@@ -503,7 +507,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * <p>What {@code applyRowScope == false} drops is exactly the row range: the role's per-model
      * rules and the company grant. It does NOT drop the country narrowing, nor the subtree rewrite
      * that {@code appendScopeAccessFilters} performs before any of its own early returns — those two
-     * apply to every caller, an admin and a relation expansion included. A subtree condition left
+     * apply to every caller, an admin and a relation expansion included. Nor does it drop the guard on
+     * conditions written against a sensitive field: {@code searchName} takes the caller's filters, and
+     * a condition on a value the caller cannot see would otherwise test it across the whole table. A subtree condition left
      * unrewritten does not widen or narrow a result, it compiles to a pattern match against an id and
      * matches by coincidence; and an expansion reading a country-partitioned model wants the same
      * countries a direct read would.
@@ -512,7 +518,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         Filters narrowed = MultiCountryScope.append(modelName, filters);
         return applyRowScope
                 ? permissionService.appendScopeAccessFilters(modelName, narrowed)
-                : permissionService.rewriteScopeFilters(modelName, narrowed);
+                : permissionService.appendScopeAccessFiltersIgnoringRowScope(modelName, narrowed);
     }
 
     /**
@@ -917,7 +923,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         // Timeline models remap sliceId to the trusted logical id (backfilling row ids);
         // identity models use the rows' own ids.
         Collection<Serializable> targetIds = strategy.resolveTargetIds(modelName, rows);
-        permissionService.checkIdsFieldsAccess(modelName, targetIds, toUpdateFields, AccessType.UPDATE);
+        checkUpdateAccess(modelName, targetIds, rows.size(), toUpdateRows, toUpdateFields, updatableFields, pkField);
         // Code-layer rules see each patch merged onto its stored row. The stored rows are read here,
         // whole, only when a validator applies — the pipeline's own read fetches just the changed columns.
         if (writeValidators != null && writeValidators.supports(modelName)) {
@@ -936,6 +942,97 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         }
         Integer updateCount = strategy.update(modelName, rows, toUpdateFields);
         return updateCount > 0;
+    }
+
+    /**
+     * Hand the update to the permission check: the rows, and the fields each of them writes.
+     *
+     * <p>A guarded field is judged on the rows that write it, not on the whole batch. Rows writing
+     * different guarded fields — one row a salary, another only a name — are checked as separate groups,
+     * so a row outside the salary editors' reach does not refuse a batch in which it only renames. Every
+     * row is still checked for the update itself, together with the unguarded fields. A batch whose rows
+     * all write the same guarded fields stays one check, as it always was.
+     *
+     * <p>What a row writes is {@link #fieldsChangedByRow}: a null echoed over a stored null is not a write.
+     * A timeline model, and a caller with nothing guarded, are judged by the batch's fields as before.
+     */
+    private void checkUpdateAccess(String modelName, Collection<Serializable> targetIds, int rowCount,
+                                   List<Map<String, Object>> rows, Set<String> toUpdateFields,
+                                   Set<String> updatableFields, String pkField) {
+        Set<String> guarded = permissionService.getWriteGuardedFields(modelName);
+        if (guarded == null || guarded.isEmpty() || ModelManager.isTimelineModel(modelName)) {
+            permissionService.checkIdsFieldsAccess(modelName, targetIds, toUpdateFields, AccessType.UPDATE);
+            return;
+        }
+        Map<String, Set<String>> changedByPk = fieldsChangedByRow(modelName, rows, guarded, toUpdateFields,
+                updatableFields, pkField);
+        Set<String> changed = new HashSet<>();
+        Map<Set<String>, List<Serializable>> idsByGuarded = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            Set<String> written = changedByPk.getOrDefault(String.valueOf(row.get(pkField)), Set.of());
+            changed.addAll(written);
+            Set<String> guardedWritten = new HashSet<>(written);
+            guardedWritten.retainAll(guarded);
+            idsByGuarded.computeIfAbsent(guardedWritten, k -> new ArrayList<>()).add((Serializable) row.get(pkField));
+        }
+        if (idsByGuarded.size() <= 1 && rows.size() == rowCount) {
+            permissionService.checkIdsFieldsAccess(modelName, targetIds, changed, AccessType.UPDATE);
+            return;
+        }
+        Set<String> unguarded = new HashSet<>(changed);
+        unguarded.removeAll(guarded);
+        permissionService.checkIdsFieldsAccess(modelName, targetIds, unguarded, AccessType.UPDATE);
+        idsByGuarded.forEach((fields, ids) -> {
+            if (!fields.isEmpty()) {
+                permissionService.checkIdsFieldsAccess(modelName, ids, fields, AccessType.UPDATE);
+            }
+        });
+    }
+
+    /**
+     * The fields each row writes, by primary key: its share of {@code toUpdateFields}, less a guarded
+     * field the payload gives as null where the stored value is null too — a null echoed over a null
+     * changes nothing. A null over a stored value is a real write (it clears it) and stays.
+     *
+     * <p>Only the fields {@code guarded} names are read back, and only when some row carries one of them
+     * as null, so an ordinary update costs nothing extra.
+     */
+    private Map<String, Set<String>> fieldsChangedByRow(String modelName, List<Map<String, Object>> rows,
+                                                        Set<String> guarded, Set<String> toUpdateFields,
+                                                        Set<String> updatableFields, String pkField) {
+        Map<String, Set<String>> nullsByPk = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Set<String> nulls = new HashSet<>();
+            row.forEach((field, value) -> {
+                if (value == null && guarded.contains(field) && updatableFields.contains(field)) nulls.add(field);
+            });
+            if (!nulls.isEmpty()) nullsByPk.put(String.valueOf(row.get(pkField)), nulls);
+        }
+        Map<String, Map<String, Object>> storedByPk = new HashMap<>();
+        if (!nullsByPk.isEmpty()) {
+            Set<String> readFields = new HashSet<>();
+            nullsByPk.values().forEach(readFields::addAll);
+            readFields.add(pkField);
+            List<K> pks = rows.stream()
+                    .filter(row -> nullsByPk.containsKey(String.valueOf(row.get(pkField))))
+                    .map(row -> Cast.<K>of(row.get(pkField)))
+                    .toList();
+            jdbcService.selectByIds(modelName, pks, new ArrayList<>(readFields), ConvertType.ORIGINAL)
+                    .forEach(stored -> storedByPk.put(String.valueOf(stored.get(pkField)), stored));
+        }
+        Map<String, Set<String>> changedByPk = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            String pk = String.valueOf(row.get(pkField));
+            Set<String> nulls = nullsByPk.getOrDefault(pk, Set.of());
+            Map<String, Object> stored = storedByPk.get(pk);
+            Set<String> changed = changedByPk.computeIfAbsent(pk, k -> new HashSet<>());
+            for (String field : row.keySet()) {
+                if (!toUpdateFields.contains(field)) continue;
+                boolean nullOverNull = nulls.contains(field) && stored != null && stored.get(field) == null;
+                if (!nullOverNull) changed.add(field);
+            }
+        }
+        return changedByPk;
     }
 
     /**
@@ -1365,6 +1462,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      * direct read.
      */
     private List<Map<String, Object>> searchList(String modelName, FlexQuery flexQuery, boolean applyRowScope) {
+        // A sort or grouping on a field masked on some rows would reveal what the mask hides.
+        permissionService.guardQuery(modelName, flexQuery);
         // Silently drop blocked-for-read fields from the request, BEFORE checkModelFieldsAccess, so
         // callers see the fields they DO have access to rather than 403-ing on any single blocked one.
         Collection<String> filteredFields = permissionService.filterReadableFields(
@@ -1444,6 +1543,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     public Page<Map<String, Object>> searchPage(String modelName, FlexQuery flexQuery, Page<Map<String, Object>> page) {
+        // A sort or grouping on a field masked on some rows would reveal what the mask hides.
+        permissionService.guardQuery(modelName, flexQuery);
         // Silently drop blocked-for-read fields from the request (Layer C PRE)
         Collection<String> filteredFields = permissionService.filterReadableFields(
                 modelName, flexQuery.getFields(), AccessType.READ);

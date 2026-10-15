@@ -84,6 +84,8 @@ public class SensitiveFieldSetCache {
      *  see an empty SFS list. */
     private final AtomicReference<Map<String, String>> setIdToName =
             new AtomicReference<>(Map.of());
+    /** setId → the short noun refusals name its fields by; only sets that declare one. */
+    private final AtomicReference<Map<String, String>> setIdToShortName = new AtomicReference<>(Map.of());
 
     /** attachmentModel → list of setIds that declared {@code attachedTo}
      *  containing that model. Powers Wizard "extra rows" so a SFS bound to
@@ -126,6 +128,7 @@ public class SensitiveFieldSetCache {
         Map<String, Set<String>> bySetId = new HashMap<>();
         Map<String, String> setToModel = new HashMap<>();
         Map<String, String> setToName = new HashMap<>();
+        Map<String, String> setToShortName = new HashMap<>();
         Map<String, Set<String>> byAttached = new HashMap<>();
         for (SensitiveFieldSetDef s : sets) {
             if (s.id() == null || s.model() == null) continue;
@@ -133,6 +136,7 @@ public class SensitiveFieldSetCache {
             bySetId.put(s.id(), codes);
             setToModel.put(s.id(), s.model());
             if (s.name() != null) setToName.put(s.id(), s.name());
+            if (s.shortName() != null && !s.shortName().isBlank()) setToShortName.put(s.id(), s.shortName());
             byModel.computeIfAbsent(s.model(), k -> new HashSet<>()).addAll(codes);
             // Index UI attachment hints. attachedTo lets a SFS bound to
             // model A appear as a Wizard option under nav rows whose
@@ -150,9 +154,18 @@ public class SensitiveFieldSetCache {
         setIdToFieldCodes.set(Map.copyOf(bySetId));
         setIdToModel.set(Map.copyOf(setToModel));
         setIdToName.set(Map.copyOf(setToName));
+        setIdToShortName.set(Map.copyOf(setToShortName));
         setIdsByAttachedModel.set(Map.copyOf(byAttached));
         log.info("SensitiveFieldSetCache — loaded {} sensitive_field_set defs across {} models ({} attachment hints)",
                 sets.size(), byModel.size(), byAttached.size());
+    }
+
+    /** The short noun a refusal names the set's fields by ("Pay" → "Pay fields"); falls back to
+     *  {@link #nameOf}, then null. */
+    public String shortNameOf(String setId) {
+        if (setId == null) return null;
+        String shortName = setIdToShortName.get().get(setId);
+        return shortName != null ? shortName : nameOf(setId);
     }
 
     /** Display name of a {@code setId}, or null if unknown. Powers Wizard
@@ -180,6 +193,15 @@ public class SensitiveFieldSetCache {
         if (modelName == null) return Set.of();
         Set<String> codes = allSensitiveByModel.get().get(modelName);
         return codes == null ? Set.of() : codes;
+    }
+
+    /** Every model with at least one sensitive field registered. */
+    public Set<String> modelsWithSensitiveFields() {
+        Set<String> out = new HashSet<>();
+        allSensitiveByModel.get().forEach((model, codes) -> {
+            if (codes != null && !codes.isEmpty()) out.add(model);
+        });
+        return out;
     }
 
     /** True iff this model has at least one sensitive_field_set defined.
@@ -210,6 +232,21 @@ public class SensitiveFieldSetCache {
         if (modelName == null) return Set.of();
         Set<String> ids = setIdsByAttachedModel.get().get(modelName);
         return ids == null ? Set.of() : ids;
+    }
+
+    /** The setIds bound to {@code modelName} whose field codes include {@code fieldCode} — for naming,
+     *  in a refusal, the set a field belongs to. */
+    public Set<String> setIdsContaining(String modelName, String fieldCode) {
+        if (modelName == null || fieldCode == null) return Set.of();
+        Map<String, String> models = setIdToModel.get();
+        Map<String, Set<String>> codesBySet = setIdToFieldCodes.get();
+        Set<String> out = new HashSet<>();
+        for (Map.Entry<String, Set<String>> e : codesBySet.entrySet()) {
+            if (modelName.equals(models.get(e.getKey())) && e.getValue() != null && e.getValue().contains(fieldCode)) {
+                out.add(e.getKey());
+            }
+        }
+        return out;
     }
 
     /** Translate granted {@code setIds} to the union of their field codes,

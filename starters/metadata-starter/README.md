@@ -389,6 +389,10 @@ both the new and prior name present — fails fast until resolved manually.
 See the *Manual migrations* section of
 [annotation-lane.md](../../docs/ai/framework/annotation-lane.md).
 
+## Serving metadata to a caller (`GET /metadata/getMetaModel`, `POST /metadata/resolveCascadedPaths`)
+
+Both answer for the caller, not for the catalogue: the sensitive fields none of the caller's roles grants on any row (`PermissionService.getHiddenSensitiveFields`, the same list `/me/uiContext` serves as `modelHiddenFieldsMap`) are left out of `modelFields`, on the requested model and on every related model `resolveCascadedPaths` returns. A cascaded path landing on such a field resolves as `FIELD_NOT_FOUND`, worded as for a field that does not exist. Their values never reach this caller, so a screen has no input, column or filter to offer for them. A field hidden on some records only stays — which records is a per-record answer (`POST /{model}/getRecordAccess`) — and a caller with full data access gets every field. The DTO is built per request, so nothing cached is shared between callers.
+
 ## Configuration
 
 Optional: MQ topic config for change notifications (if `message-starter` is
