@@ -7,6 +7,11 @@ name: Deploy Maven packages (GitHub Packages + Maven Central)
 #   3) Otherwise → create release branch, bump versions, deploy from that branch,
 #      and only after deploy succeeds → create PR, merge it, clean up.
 #   This guarantees main is never polluted by a failed deploy.
+#   4) Deploy to Maven Central first, then GitHub Packages. Central validates the
+#      whole bundle before publishing, so a failed Central deploy leaves nothing
+#      published anywhere and the same version can simply be re-run.
+#   5) Each deploy step skips itself when the version already exists in that
+#      registry, so a run that failed half-way can be re-run with the same version.
 
 on:
   push:
@@ -81,6 +86,28 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
+
+      # Maven 3.10.0 (default on ubuntu-latest since image 20261004) leaves
+      # maven-metadata-local.xml in central-publishing-maven-plugin's staging dir,
+      # and Central Portal rejects the bundle with
+      # "Bundle has content that does NOT have a .pom file".
+      # Keep Maven on 3.9.x until the plugin handles Maven 3.10:
+      # https://github.com/mavenplugins/central-publishing-maven-plugin/issues/79
+      - name: Set up Maven 3.9.16 (pinned)
+        shell: bash
+        env:
+          MAVEN_VERSION: "3.9.16"
+        run: |
+          set -euo pipefail
+          base="https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries"
+          tarball="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$tarball" "$base/$tarball"
+          expected="$(curl -fsSL --retry 3 "$base/$tarball.sha512" | awk '{print $1}')"
+          [[ -n "$expected" ]] || { echo "Empty sha512 for $tarball" >&2; exit 1; }
+          echo "$expected  $RUNNER_TEMP/$tarball" | sha512sum -c -
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/apache-maven-${MAVEN_VERSION}/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/apache-maven-${MAVEN_VERSION}/bin/mvn" -v
 
       # ──────────────────────────────────────────────────────────
       # 2. Check whether main already has target version
@@ -195,21 +222,45 @@ jobs:
         run: |
           mvn -B -ntp -DskipTests=false verify
 
-      - name: Deploy to GitHub Packages (Maven Registry)
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mvn -B -ntp -DskipTests -Pgithub deploy
-
+      # Central first: its bundle is validated as a whole before anything is
+      # published, so a failure here leaves both registries untouched.
       - name: Deploy to Maven Central (Central Portal)
         shell: bash
         env:
           CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
           CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
+          set -euo pipefail
+          # Re-run safety: a Central deployment is all-or-nothing, so checking the
+          # parent POM is enough. The public mirror can lag a fresh publish by up
+          # to ~30 min; within that window a re-run fails here as a duplicate.
+          url="https://repo1.maven.org/maven2/io/softa/softa-parent/${VERSION}/softa-parent-${VERSION}.pom"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' "$url" || true)"
+          if [[ "$code" == "200" ]]; then
+            echo "::notice::io.softa:softa-parent:${VERSION} is already on Maven Central; skipping Central deploy."
+            exit 0
+          fi
           mvn -B -ntp -DskipTests -Pcentral deploy
+
+      - name: Deploy to GitHub Packages (Maven Registry)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # GitHub Packages never overwrites a release version (HTTP 409), so skip
+          # when this version is already there. Only skip on a confirmed 200; any
+          # other answer falls through to a normal deploy.
+          url="https://maven.pkg.github.com/${GITHUB_REPOSITORY}/io/softa/softa-parent/${VERSION}/softa-parent-${VERSION}.pom"
+          code="$(curl -sSL -o /dev/null -w '%{http_code}' -u "${GITHUB_ACTOR}:${GITHUB_TOKEN}" "$url" || true)"
+          if [[ "$code" == "200" ]]; then
+            echo "::warning::io.softa:softa-parent:${VERSION} already exists in GitHub Packages; skipping. If it was built from different code, delete that version and re-run."
+            exit 0
+          fi
+          mvn -B -ntp -DskipTests -Pgithub deploy
 
       # ──────────────────────────────────────────────────────────
       # 6. Post-deploy: merge release branch into main (fire-and-forget)
@@ -230,7 +281,7 @@ jobs:
           title="chore(release): $version"
           body="Automated release PR — bumps Maven module versions to $version.
 
-          Deploy to GitHub Packages and Maven Central succeeded; merging version bump into main."
+          Maven Central and GitHub Packages both have this version; merging version bump into main."
 
           # Create PR (or reuse existing one)
           url=$(gh pr create \
