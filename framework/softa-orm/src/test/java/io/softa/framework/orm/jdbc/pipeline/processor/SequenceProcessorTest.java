@@ -15,6 +15,7 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.sequence.SequenceService;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
@@ -83,7 +84,7 @@ class SequenceProcessorTest {
 
     @Test
     void batch_blankRows_shareOneNextBatchCall_assignedInOrder() {
-        when(sequenceService.nextBatch(eq(CODE), anyList())).thenReturn(List.of("EMP-00001", "EMP-00002"));
+        when(sequenceService.nextBatch(eq(CODE), anyList(), anyCollection())).thenReturn(List.of("EMP-00001", "EMP-00002"));
         SequenceProcessor processor = new SequenceProcessor(stringField(false), AccessType.CREATE, sequenceService);
 
         Map<String, Object> first = row(null);
@@ -106,7 +107,7 @@ class SequenceProcessorTest {
         processor.batchProcessInputRows(List.of(row));
 
         assertEquals("EMP-00007", row.get(FIELD));
-        verify(sequenceService, never()).nextBatch(Mockito.anyString(), anyList());
+        verify(sequenceService, never()).nextBatch(Mockito.anyString(), anyList(), anyCollection());
     }
 
     // ---- readonly = strict system numbering ---------------------------------
@@ -127,7 +128,7 @@ class SequenceProcessorTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> processor.batchProcessInputRows(List.of(row(null), row("HAND-01"))));
-        verify(sequenceService, never()).nextBatch(Mockito.anyString(), anyList());
+        verify(sequenceService, never()).nextBatch(Mockito.anyString(), anyList(), anyCollection());
     }
 
     @Test
@@ -173,13 +174,28 @@ class SequenceProcessorTest {
         Map<String, Object> a = row(null);
         Map<String, Object> given = row("KEEP-1");
         Map<String, Object> b = row(null);
-        when(sequenceService.nextBatch(eq(CODE), anyList())).thenReturn(List.of("ZK0001", "HF0002"));
+        when(sequenceService.nextBatch(eq(CODE), anyList(), anyCollection())).thenReturn(List.of("ZK0001", "HF0002"));
         new SequenceProcessor(stringField(false), AccessType.CREATE, sequenceService)
                 .batchProcessInputRows(List.of(a, given, b));
 
-        verify(sequenceService).nextBatch(CODE, List.of(a, b));
+        verify(sequenceService).nextBatch(CODE, List.of(a, b), List.of("KEEP-1"));
         assertEquals("ZK0001", a.get(FIELD));
         assertEquals("KEEP-1", given.get(FIELD));
         assertEquals("HF0002", b.get(FIELD));
+    }
+
+    @Test
+    void batch_oneBlankBesideAHandTypedValue_stillTellsTheServiceAboutIt() {
+        // A single blank would normally take the next() fast path, but next() cannot see the value
+        // typed into the other row — it is not in the table yet. The batch path carries it.
+        Map<String, Object> given = row("ZK1000030");
+        Map<String, Object> blank = row(null);
+        when(sequenceService.nextBatch(eq(CODE), anyList(), anyCollection())).thenReturn(List.of("ZK1000031"));
+        new SequenceProcessor(stringField(false), AccessType.CREATE, sequenceService)
+                .batchProcessInputRows(List.of(given, blank));
+
+        verify(sequenceService).nextBatch(CODE, List.of(blank), List.of("ZK1000030"));
+        verify(sequenceService, never()).next(Mockito.anyString(), anyMap());
+        assertEquals("ZK1000031", blank.get(FIELD));
     }
 }

@@ -1,7 +1,9 @@
 package io.softa.framework.orm.sequence;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import io.softa.framework.orm.sequence.exception.SequenceCrossTenantException;
 import io.softa.framework.orm.sequence.exception.SequenceNotFoundException;
@@ -79,6 +81,22 @@ public interface SequenceService {
      * @return rendered sequence strings, aligned with {@code rows}
      */
     default List<String> nextBatch(String code, List<Map<String, Object>> rows) {
+        return nextBatch(code, rows, Set.of());
+    }
+
+    /**
+     * {@link #nextBatch(String, List)} that also avoids values other records of the same write carry.
+     *
+     * <p>A generated value that is already in use is skipped, comparing without regard to case: one
+     * in the table, or one in {@code claimed} — values supplied by hand on other records of the same
+     * insert, which the table cannot show yet because they are not in it.
+     *
+     * @param code    business code
+     * @param rows    the records the values are for; must not be empty
+     * @param claimed values other records of the same write already carry
+     * @return rendered sequence strings, aligned with {@code rows}
+     */
+    default List<String> nextBatch(String code, List<Map<String, Object>> rows, Collection<String> claimed) {
         return nextBatch(code, rows.size());
     }
 
