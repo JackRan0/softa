@@ -32,8 +32,9 @@ import io.softa.framework.orm.enums.OnDelete;
  * <pre>
  * viewStateKey         table|Order|/sales/order|          (view kind | model | route | tab)
  * modelName            Order
- * columnOrder          ["orderNo","customer","orderDate","amount","status"]
+ * columnOrder          ["orderNo","customer","orderDate","amount","status","customerId.creditLimit"]
  * hiddenColumns        ["remark"]
+ * addedColumns         ["customerId.creditLimit"]
  * freezeColumnIndex    1
  * exportFields         ["orderNo","customer","amount"]
  * exportObjectFields   {"lines":["product","quantity","price"]}   (keyed by the collection field)
@@ -81,6 +82,18 @@ public class UserListViewPreference extends AuditableModel {
     /** Column ids the person hid, as a JSON array. */
     @Field(label = "Hidden Columns", fieldType = FieldType.TEXT)
     private String hiddenColumns;
+
+    /**
+     * Columns the person added that the list does not declare, as a JSON array of field paths: a field
+     * of the list's model ({@code ipaPosition}) or one level into a one-to-one record
+     * ({@code employeeProfileId.passNumber}). Says only which ones; {@link #columnOrder} says where.
+     *
+     * <p>Kept apart from the order because the order alone cannot tell an added column from a stale
+     * one: a reader that keeps only the columns the list declares would otherwise drop every column
+     * the person added, the next time the list opens.
+     */
+    @Field(label = "Added Columns", fieldType = FieldType.TEXT)
+    private String addedColumns;
 
     /** How many leading columns are frozen. */
     @Field(label = "Freeze Column Index")

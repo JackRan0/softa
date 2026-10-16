@@ -5,6 +5,8 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +19,7 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.PermissionService;
@@ -75,6 +78,14 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         // What the person may not read is not kept either: an arrangement is a list of what they
         // see, and storing a withdrawn field would only bring it back if the grant ever returned.
         UserListViewPreferenceDTO incoming = readable(bounded(preference));
+        // What the caller cannot see right now is still theirs: a column dropped by a withdrawn grant or
+        // a country no longer managed comes back where it was when they can see it again. Worked out
+        // here, in the caller's own context — inside asSystem every field reads as visible, and nothing
+        // would ever look unseen.
+        UserListViewPreference stored = asSystem(() -> findMine(incoming.getViewStateKey()));
+        if (stored != null) {
+            keepUnseen(incoming, toDto(stored), name -> isUnseen(model, name));
+        }
         Long me = currentUserId();
         asSystem(() -> {
             UserListViewPreference existing = findMine(incoming.getViewStateKey());
@@ -116,6 +127,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             if (columns) {
                 row.setColumnOrder(null);
                 row.setHiddenColumns(null);
+                row.setAddedColumns(null);
                 row.setFreezeColumnIndex(null);
             }
             if (export) {
@@ -147,6 +159,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         row.setModelName(incoming.getModelName());
         if (incoming.getColumnOrder() != null) row.setColumnOrder(JsonUtils.objectToString(incoming.getColumnOrder()));
         if (incoming.getHiddenColumns() != null) row.setHiddenColumns(JsonUtils.objectToString(incoming.getHiddenColumns()));
+        if (incoming.getAddedColumns() != null) row.setAddedColumns(JsonUtils.objectToString(incoming.getAddedColumns()));
         if (incoming.getFreezeColumnIndex() != null) row.setFreezeColumnIndex(Math.max(0, incoming.getFreezeColumnIndex()));
         if (incoming.getExportFields() != null) row.setExportFields(JsonUtils.objectToString(incoming.getExportFields()));
         if (incoming.getExportObjectFields() != null) {
@@ -159,22 +172,29 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
     }
 
     private static boolean isEmpty(UserListViewPreference row) {
-        return row.getColumnOrder() == null && row.getHiddenColumns() == null && row.getFreezeColumnIndex() == null
+        return row.getColumnOrder() == null && row.getHiddenColumns() == null && row.getAddedColumns() == null
+                && row.getFreezeColumnIndex() == null
                 && row.getExportFields() == null && row.getExportObjectFields() == null
                 && row.getViewSettings() == null;
     }
 
     /**
-     * Drop every field the caller may not read. The list's own fields are checked against its
-     * model; each object's fields against the model that object is.
+     * Drop every field the caller may not see. The list's own fields are checked against its model;
+     * each object's fields against the model that object is; a column path one level into a one-to-one
+     * record against both — the link on the list's model, the field on the record's.
+     *
+     * <p>"See" is two things for a column: readable under the caller's sensitive sets, and — for a
+     * field that only some countries use — one of the caller's countries. The export lists keep the
+     * readability check alone; they are not this change's to widen.
      */
     UserListViewPreferenceDTO readable(UserListViewPreferenceDTO dto) {
         String model = dto.getModelName();
         if (model == null || !ModelManager.existModel(model)) {
             return dto;
         }
-        dto.setColumnOrder(readableOf(model, dto.getColumnOrder()));
-        dto.setHiddenColumns(readableOf(model, dto.getHiddenColumns()));
+        dto.setColumnOrder(visibleColumns(model, dto.getColumnOrder()));
+        dto.setHiddenColumns(visibleColumns(model, dto.getHiddenColumns()));
+        dto.setAddedColumns(visibleAdded(model, dto.getAddedColumns()));
         dto.setExportFields(readableOf(model, dto.getExportFields()));
         Map<String, List<String>> objects = dto.getExportObjectFields();
         if (objects != null) {
@@ -196,6 +216,158 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         }
         Collection<String> readable = permissionService.filterReadableFields(model, names, AccessType.READ);
         return readable == null ? names : new ArrayList<>(readable);
+    }
+
+    /** Where a column path stands for the caller. */
+    enum PathState {
+        /** Resolves, and the caller may see it. */
+        VISIBLE,
+        /** Resolves, but the caller may not see it right now — kept for when they can again. */
+        UNSEEN,
+        /** Names nothing the list can show: a deleted field, a link that is not one-to-one, two levels. */
+        GONE
+    }
+
+    /**
+     * Where {@code path} stands: a field of {@code model}, or {@code link.field} one level into a
+     * one-to-one record. Deeper paths and any other kind of link name no column the list can show.
+     */
+    PathState stateOf(String model, String path) {
+        int dot = path.indexOf('.');
+        if (dot < 0) {
+            MetaField field = ModelManager.getModelFieldOrNull(model, path);
+            if (field == null) {
+                return PathState.GONE;
+            }
+            return seen(model, path, field) ? PathState.VISIBLE : PathState.UNSEEN;
+        }
+        if (path.indexOf('.', dot + 1) >= 0) {
+            return PathState.GONE;
+        }
+        String linkName = path.substring(0, dot);
+        String leafName = path.substring(dot + 1);
+        MetaField link = ModelManager.getModelFieldOrNull(model, linkName);
+        if (link == null || link.getFieldType() != FieldType.ONE_TO_ONE || link.getRelatedModel() == null) {
+            return PathState.GONE;
+        }
+        String related = link.getRelatedModel();
+        MetaField leaf = ModelManager.getModelFieldOrNull(related, leafName);
+        if (leaf == null) {
+            return PathState.GONE;
+        }
+        return seen(model, linkName, link) && seen(related, leafName, leaf) ? PathState.VISIBLE : PathState.UNSEEN;
+    }
+
+    /**
+     * The column ids of the order or the hidden list the caller may see. A plain id that is not a field
+     * is kept as it is — a list can have columns of its own (a pivot column, say) that only the list
+     * can judge — and a plain field id goes through the readability check as one batch.
+     */
+    private List<String> visibleColumns(String model, List<String> ids) {
+        if (ids == null) {
+            return null;
+        }
+        List<String> plain = ids.stream().filter(id -> id.indexOf('.') < 0).toList();
+        Set<String> readable = Set.copyOf(readableOf(model, plain));
+        List<String> out = new ArrayList<>(ids.size());
+        for (String id : ids) {
+            if (id.indexOf('.') >= 0) {
+                if (stateOf(model, id) == PathState.VISIBLE) out.add(id);
+                continue;
+            }
+            MetaField field = ModelManager.getModelFieldOrNull(model, id);
+            if (readable.contains(id) && (field == null || inMyCountries(field))) out.add(id);
+        }
+        return out;
+    }
+
+    /** Added columns are always field paths, so each must still name a field the caller may see. */
+    private List<String> visibleAdded(String model, List<String> paths) {
+        if (paths == null) {
+            return null;
+        }
+        return paths.stream().filter(path -> stateOf(model, path) == PathState.VISIBLE).toList();
+    }
+
+    /** Whether a stored column is still a column, just not one the caller can see right now. */
+    private boolean isUnseen(String model, String id) {
+        return stateOf(model, id) == PathState.UNSEEN;
+    }
+
+    private boolean seen(String model, String fieldName, MetaField field) {
+        Collection<String> readable = permissionService.filterReadableFields(model, List.of(fieldName), AccessType.READ);
+        return (readable == null || readable.contains(fieldName)) && inMyCountries(field);
+    }
+
+    /**
+     * Whether a field applies to one of the caller's countries. A field no country is named on applies
+     * everywhere; a caller whose countries are unknown or none is not narrowed — the same reading the
+     * per-country narrowing of value lists makes, so a column and its dropdown never disagree.
+     */
+    static boolean inMyCountries(MetaField field) {
+        List<String> fieldCountries = field.getCountries();
+        if (fieldCountries == null || fieldCountries.isEmpty()) {
+            return true;
+        }
+        Set<String> mine = ContextHolder.getContext().getGrantedCountries();
+        if (mine == null || mine.isEmpty()) {
+            return true;
+        }
+        return fieldCountries.stream().anyMatch(mine::contains);
+    }
+
+    /**
+     * Put back into {@code incoming}'s columns what is stored but unseen. The incoming lists hold only
+     * what the caller could see, so an absent column is either one they removed or one they could not
+     * see; only the second is kept. A column that no longer exists is neither, and goes.
+     */
+    static void keepUnseen(UserListViewPreferenceDTO incoming, UserListViewPreferenceDTO stored, Predicate<String> unseen) {
+        if (incoming.getColumnOrder() != null) {
+            incoming.setColumnOrder(reinserted(stored.getColumnOrder(), incoming.getColumnOrder(), unseen));
+        }
+        if (incoming.getHiddenColumns() != null) {
+            incoming.setHiddenColumns(kept(stored.getHiddenColumns(), incoming.getHiddenColumns(), unseen));
+        }
+        if (incoming.getAddedColumns() != null) {
+            incoming.setAddedColumns(kept(stored.getAddedColumns(), incoming.getAddedColumns(), unseen));
+        }
+    }
+
+    /**
+     * {@code incoming} with each unseen stored column put back after the column it followed — the
+     * nearest earlier stored column that is in the result — or first when none is. Walked in stored
+     * order, so a run of unseen columns keeps its own order.
+     */
+    static List<String> reinserted(List<String> stored, List<String> incoming, Predicate<String> unseen) {
+        List<String> out = new ArrayList<>(incoming);
+        if (stored == null) {
+            return out;
+        }
+        for (int i = 0; i < stored.size(); i++) {
+            String id = stored.get(i);
+            if (out.contains(id) || !unseen.test(id)) {
+                continue;
+            }
+            int at = 0;
+            for (int j = i - 1; j >= 0; j--) {
+                int k = out.indexOf(stored.get(j));
+                if (k >= 0) {
+                    at = k + 1;
+                    break;
+                }
+            }
+            out.add(at, id);
+        }
+        return out;
+    }
+
+    /** {@code incoming} plus the unseen stored entries it does not hold. */
+    static List<String> kept(List<String> stored, List<String> incoming, Predicate<String> unseen) {
+        List<String> out = new ArrayList<>(incoming);
+        if (stored != null) {
+            stored.stream().filter(id -> !out.contains(id) && unseen.test(id)).forEach(out::add);
+        }
+        return out;
     }
 
     private static String relatedModelOf(String model, String field) {
@@ -234,6 +406,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
     private static UserListViewPreferenceDTO bounded(UserListViewPreferenceDTO dto) {
         checkNames(dto.getColumnOrder());
         checkNames(dto.getHiddenColumns());
+        checkNames(dto.getAddedColumns());
         checkNames(dto.getExportFields());
         if (dto.getViewSettings() != null) {
             dto.getViewSettings().keySet().forEach(UserListViewPreferenceServiceImpl::checkName);
@@ -272,6 +445,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         dto.setModelName(row.getModelName());
         dto.setColumnOrder(parseList(row.getColumnOrder()));
         dto.setHiddenColumns(parseList(row.getHiddenColumns()));
+        dto.setAddedColumns(parseList(row.getAddedColumns()));
         dto.setFreezeColumnIndex(row.getFreezeColumnIndex());
         dto.setExportFields(parseList(row.getExportFields()));
         dto.setExportObjectFields(row.getExportObjectFields() == null ? null

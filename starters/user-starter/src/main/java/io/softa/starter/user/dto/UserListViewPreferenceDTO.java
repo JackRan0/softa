@@ -22,6 +22,12 @@ public class UserListViewPreferenceDTO {
 
     private List<String> hiddenColumns;
 
+    /**
+     * Columns the person added that the list does not declare — field paths, at most one level into a
+     * one-to-one record. Which ones only; {@link #columnOrder} carries their place.
+     */
+    private List<String> addedColumns;
+
     private Integer freezeColumnIndex;
 
     private List<String> exportFields;
