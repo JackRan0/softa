@@ -1498,11 +1498,31 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
      */
     @Override
     public List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery) {
+        return searchName(modelName, flexQuery, true);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Everything {@link #searchName} does except appending the caller's row range.
+     */
+    @Override
+    public List<Map<String, Object>> searchNameIgnoringRowScope(String modelName, FlexQuery flexQuery) {
+        return searchName(modelName, flexQuery, false);
+    }
+
+    /**
+     * The one name-search body, with the row range as the only thing either caller varies.
+     *
+     * <p>The plain entry point keeps the range on because it is what {@code /{model}/searchName} and every
+     * typed shadow of it call: the rows it returns are the candidates a picker offers, and a candidate
+     * outside the caller's range is one they can choose but not use. It ran without the range for a
+     * while, which is how a picker came to list employees whose detail read then refused them.
+     */
+    private List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery, boolean applyRowScope) {
         List<String> displayFields = ModelManager.getModelDisplayName(modelName);
         flexQuery.select(displayFields);
-        // Same reason as getDisplayNames: this resolves labels, and a label outside the caller's row
-        // range is still the label of a row they were legitimately shown a reference to.
-        List<Map<String, Object>> rows = searchListIgnoringRowScope(modelName, flexQuery);
+        List<Map<String, Object>> rows = searchList(modelName, flexQuery, applyRowScope);
         for (Map<String, Object> row : rows) {
             // Filter out field values for null or empty strings
             List<Object> displayValues = displayFields.stream().map(row::get)
