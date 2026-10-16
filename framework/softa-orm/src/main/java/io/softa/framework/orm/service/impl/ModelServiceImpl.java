@@ -1489,12 +1489,13 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     }
 
     /**
-     * Performs a non-paginated query based on FlexQuery, intended for internal code use.
-     * <p>If the result set exceeds {@code MAX_BATCH_SIZE}, an error is logged but no exception is thrown.</p>
+     * Name search within the caller's row range: the display fields plus {@code displayName}.
+     * <p>This is the read behind {@code /{model}/searchName} and its typed shadows, so it must stay
+     * row-scoped. The read pipeline names related rows through {@link #searchNameIgnoringRowScope}.</p>
      *
      * @param modelName the name of the model
      * @param flexQuery a {@link FlexQuery} object defining fields, filters, sorting, etc.
-     * @return a list of maps representing the matching rows
+     * @return a list of maps representing the matching rows with displayName and ID
      */
     @Override
     public List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery) {

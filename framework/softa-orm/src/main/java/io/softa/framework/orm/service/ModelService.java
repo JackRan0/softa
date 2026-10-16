@@ -533,8 +533,10 @@ public interface ModelService<K extends Serializable> {
     List<Map<String, Object>> searchListIgnoringRowScope(String modelName, FlexQuery flexQuery);
 
     /**
-     * Performs a non-paginated query based on FlexQuery.
-     * <p>If the result set exceeds {@code MAX_BATCH_SIZE}, an error is logged but no exception is thrown.</p>
+     * Name search within the caller's row range: the display fields plus {@code displayName}.
+     * <p>This is what a picker lists candidates through, so it applies the row range like
+     * {@link #searchList}. If the result set exceeds {@code MAX_BATCH_SIZE}, an error is logged but no
+     * exception is thrown.</p>
      *
      * @param modelName the name of the model
      * @param flexQuery a {@link FlexQuery} object defining fields, filters, sorting, etc.
