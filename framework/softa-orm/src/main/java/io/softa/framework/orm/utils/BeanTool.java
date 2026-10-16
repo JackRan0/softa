@@ -41,6 +41,18 @@ public class BeanTool {
 
     private BeanTool() {}
 
+    /** A field by name on the class or any superclass — getDeclaredField alone misses inherited ones. */
+    private static Field findField(Class<?> type, String name) throws NoSuchFieldException {
+        for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {
+            try {
+                return c.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {
+                // keep walking
+            }
+        }
+        throw new NoSuchFieldException(name);
+    }
+
     /**
      * Get the value of a field in an object.
      *
@@ -50,7 +62,7 @@ public class BeanTool {
      */
     public static <T> Object getFieldValue(T object, String fieldName) {
         try {
-            Field field = object.getClass().getDeclaredField(fieldName);
+            Field field = findField(object.getClass(), fieldName);
             field.setAccessible(true);
             return field.get(object);
         } catch (NoSuchFieldException | IllegalAccessException e) {
@@ -67,7 +79,7 @@ public class BeanTool {
      */
     private static Class<?> getElementClass(Class<?> entityClass, String fieldName) {
         try {
-            Field field = entityClass.getDeclaredField(fieldName);
+            Field field = findField(entityClass, fieldName);
             Type fieldType = field.getGenericType();
             if (fieldType instanceof ParameterizedType parameterizedType) {
                 Type[] typeArguments = parameterizedType.getActualTypeArguments();
@@ -435,7 +447,7 @@ public class BeanTool {
 
     public static <T> Object convertPropertyValue(Class<T> entityClass, String fieldName, Object value) {
         try {
-            Class<?> fieldTypeClass = entityClass.getDeclaredField(fieldName).getType();
+            Class<?> fieldTypeClass = findField(entityClass, fieldName).getType();
             return convertValueForField(entityClass, fieldName, fieldTypeClass, value);
         } catch (NoSuchFieldException e) {
             throw new IllegalArgumentException(e.getMessage(), e);
@@ -444,7 +456,7 @@ public class BeanTool {
 
     public static <T, R> List<R> convertPropertyValues(Class<T> entityClass, String fieldName, List<Object> values) {
         try {
-            Class<?> fieldTypeClass = entityClass.getDeclaredField(fieldName).getType();
+            Class<?> fieldTypeClass = findField(entityClass, fieldName).getType();
             return Cast.of(values.stream().map(value -> convertValueForField(entityClass, fieldName, fieldTypeClass, value)).toList());
         } catch (NoSuchFieldException e) {
             throw new IllegalArgumentException(e.getMessage(), e);
