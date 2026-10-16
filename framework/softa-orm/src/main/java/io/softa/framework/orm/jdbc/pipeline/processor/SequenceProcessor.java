@@ -34,6 +34,10 @@ import io.softa.framework.orm.sequence.SequenceService;
  * <p>{@link #batchProcessInputRows(List)} is overridden to coalesce a batch
  * insert into a single {@code nextBatch} call, taking the row lock once for
  * the whole batch instead of {@code rows.size()} times.
+ *
+ * <p>The rows themselves are handed to the service, not just their count: a
+ * template token may depend on the record being numbered ({@code {companyAbbr}}
+ * renders the abbreviation of the company the record belongs to).
  */
 public class SequenceProcessor extends BaseProcessor {
 
@@ -54,7 +58,7 @@ public class SequenceProcessor extends BaseProcessor {
             return;
         }
         if (isBlank(row.get(fieldName))) {
-            row.put(fieldName, sequenceService.next(code));
+            row.put(fieldName, sequenceService.next(code, row));
         } else if (metaField.isReadonly()) {
             throw readonlyViolation();
         }
@@ -85,10 +89,10 @@ public class SequenceProcessor extends BaseProcessor {
             return;
         }
         if (blanks.size() == 1) {
-            blanks.getFirst().put(fieldName, sequenceService.next(code));
+            blanks.getFirst().put(fieldName, sequenceService.next(code, blanks.getFirst()));
             return;
         }
-        List<String> codes = sequenceService.nextBatch(code, blanks.size());
+        List<String> codes = sequenceService.nextBatch(code, blanks);
         Iterator<String> it = codes.iterator();
         for (Map<String, Object> r : blanks) {
             r.put(fieldName, it.next());

@@ -1,6 +1,7 @@
 package io.softa.framework.orm.sequence;
 
 import java.util.List;
+import java.util.Map;
 
 import io.softa.framework.orm.sequence.exception.SequenceCrossTenantException;
 import io.softa.framework.orm.sequence.exception.SequenceNotFoundException;
@@ -53,6 +54,33 @@ public interface SequenceService {
      * @return rendered sequence strings in allocation order
      */
     List<String> nextBatch(String code, int count);
+
+    /**
+     * {@link #next(String)} for one record about to be inserted.
+     *
+     * <p>Some template tokens depend on the record being numbered — {@code {companyAbbr}} renders
+     * the abbreviation of the company the record belongs to — and are read from {@code row}. A
+     * template without such tokens renders exactly as {@link #next(String)} would.
+     *
+     * @param code business code
+     * @param row  the record the value is for, as it will be inserted
+     * @return rendered sequence string
+     */
+    default String next(String code, Map<String, Object> row) {
+        return next(code);
+    }
+
+    /**
+     * {@link #nextBatch(String, int)} for records about to be inserted, one value per row in order.
+     * Record-dependent tokens are read from each row, as in {@link #next(String, Map)}.
+     *
+     * @param code business code
+     * @param rows the records the values are for; must not be empty
+     * @return rendered sequence strings, aligned with {@code rows}
+     */
+    default List<String> nextBatch(String code, List<Map<String, Object>> rows) {
+        return nextBatch(code, rows.size());
+    }
 
     /**
      * Read-only preview of the next sequence value without consuming it.

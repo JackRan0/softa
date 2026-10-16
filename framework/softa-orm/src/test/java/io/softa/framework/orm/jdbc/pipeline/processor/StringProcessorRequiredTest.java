@@ -17,6 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 /**
@@ -124,7 +126,7 @@ class StringProcessorRequiredTest {
         ReflectionTestUtils.setField(code, "columnName", "code");
         ReflectionTestUtils.setField(code, "autoSequence", true);
         SequenceService sequence = Mockito.mock(SequenceService.class);
-        when(sequence.next(MODEL + ".code")).thenReturn("CO-00001");
+        when(sequence.next(eq(MODEL + ".code"), anyMap())).thenReturn("CO-00001");
 
         Map<String, Object> created = new HashMap<>();
         created.put("code", "");

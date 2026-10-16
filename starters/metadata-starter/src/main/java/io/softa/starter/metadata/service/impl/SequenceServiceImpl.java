@@ -2,7 +2,9 @@ package io.softa.starter.metadata.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.ContextHolder;
@@ -20,6 +22,7 @@ import io.softa.starter.metadata.enums.SequenceMode;
 import io.softa.starter.metadata.sequence.dialect.SequenceDialect;
 import io.softa.starter.metadata.sequence.dialect.SequenceDialectFactory;
 import io.softa.starter.metadata.service.SysSequenceService;
+import io.softa.starter.metadata.sequence.CompanyAbbreviationResolver;
 import io.softa.starter.metadata.sequence.TemplateRenderer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +52,13 @@ import org.springframework.util.Assert;
  *
  * <p>Both single and batch paths share the same dispatcher and defer SQL
  * details to database-specific sequence dialects.
+ *
+ * <p>Allocation hands back numbers; rendering happens after, per record. Tokens
+ * that depend on the record being numbered ({@code {companyAbbr}}) are resolved
+ * before the allocation is dispatched, in the caller's transaction — an
+ * ALLOW_GAP allocation runs in a transaction of its own, which cannot see a
+ * record the caller inserted moments earlier (an employee whose address is
+ * being numbered in the same save).
  */
 @Service
 @Slf4j
@@ -61,6 +71,7 @@ public class SequenceServiceImpl implements SequenceService {
     private final SysSequenceService sysSequenceService;
     private final TemplateRenderer templateRenderer;
     private final SequenceDialectFactory sequenceDialectFactory;
+    private final CompanyAbbreviationResolver companyAbbreviationResolver;
 
     /** Self-proxy for transactional dispatch; must be lazy to break the cycle. */
     @Autowired
@@ -69,13 +80,34 @@ public class SequenceServiceImpl implements SequenceService {
 
     @Override
     public String next(String code) {
-        return dispatch(code, 1).getFirst();
+        return next(code, Map.of());
     }
 
     @Override
     public List<String> nextBatch(String code, int count) {
         Assert.isTrue(count > 0, "count must be positive");
-        return dispatch(code, count);
+        return nextBatch(code, Collections.nCopies(count, Map.of()));
+    }
+
+    @Override
+    public String next(String code, Map<String, Object> row) {
+        return nextBatch(code, List.of(row == null ? Map.of() : row)).getFirst();
+    }
+
+    @Override
+    public List<String> nextBatch(String code, List<Map<String, Object>> rows) {
+        Assert.isTrue(rows != null && !rows.isEmpty(), "rows must not be empty");
+        rejectCrossTenant(code);
+        SysSequence cfg = sysSequenceService.loadConfigByCode(code);
+        String template = cfg.getTemplate();
+        List<Map<String, String>> variables = variablesFor(code, template, rows);
+        Allocation allocation = allocate(code, cfg, rows.size());
+        List<String> result = new ArrayList<>(rows.size());
+        for (int i = 0; i < rows.size(); i++) {
+            result.add(templateRenderer.render(
+                    template, allocation.numbers().get(i), allocation.anchor(), code, variables.get(i)));
+        }
+        return result;
     }
 
     @Override
@@ -102,13 +134,37 @@ public class SequenceServiceImpl implements SequenceService {
         return new SequencePreview(code, rendered, preview, "Preview only, not reserved");
     }
 
+    /** Numbers a template is rendered with, and the moment its date tokens take their values from. */
+    public record Allocation(List<Long> numbers, LocalDateTime anchor) {
+    }
+
     /** Mode dispatcher; goes through {@link #self} so the propagation annotations apply. */
-    private List<String> dispatch(String code, int count) {
-        rejectCrossTenant(code);
-        SysSequence cfg = sysSequenceService.loadConfigByCode(code);
+    private Allocation allocate(String code, SysSequence cfg, int count) {
         return SequenceMode.ALLOW_GAP == cfg.getMode()
                 ? self.allocateInNewTx(code, cfg, count)
                 : self.allocateInOuterTx(code, cfg, count);
+    }
+
+    /**
+     * Per-record token values. Empty for every row unless the template asks for one, so a template
+     * without record-dependent tokens costs no lookup at all.
+     */
+    private List<Map<String, String>> variablesFor(String code, String template, List<Map<String, Object>> rows) {
+        if (!TemplateRenderer.usesCompanyAbbr(template)) {
+            return Collections.nCopies(rows.size(), Map.of());
+        }
+        List<String> abbreviations = companyAbbreviationResolver.abbreviationsOf(modelOf(code), rows);
+        List<Map<String, String>> variables = new ArrayList<>(rows.size());
+        for (String abbreviation : abbreviations) {
+            variables.add(abbreviation == null ? Map.of() : Map.of(TemplateRenderer.COMPANY_ABBR, abbreviation));
+        }
+        return variables;
+    }
+
+    /** The model a sequence numbers: its code is {@code "<ModelName>.<fieldName>"}. */
+    static String modelOf(String code) {
+        int dot = code.lastIndexOf('.');
+        return dot > 0 ? code.substring(0, dot) : code;
     }
 
     /**
@@ -116,7 +172,7 @@ public class SequenceServiceImpl implements SequenceService {
      * the outer business transaction commits or rolls back.
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public List<String> allocateInOuterTx(String code, SysSequence cfg, int count) {
+    public Allocation allocateInOuterTx(String code, SysSequence cfg, int count) {
         return doAllocate(code, cfg, count);
     }
 
@@ -126,11 +182,11 @@ public class SequenceServiceImpl implements SequenceService {
      * resumes. Business rollback after this point cannot retract the counter.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public List<String> allocateInNewTx(String code, SysSequence cfg, int count) {
+    public Allocation allocateInNewTx(String code, SysSequence cfg, int count) {
         return doAllocate(code, cfg, count);
     }
 
-    private List<String> doAllocate(String code, SysSequence cfg, int count) {
+    private Allocation doAllocate(String code, SysSequence cfg, int count) {
         Long tenantId = ContextHolder.getContext().getTenantId();
         if (SystemConfig.env.isEnableMultiTenancy() && tenantId == null) {
             throw new IllegalStateException(
@@ -163,13 +219,11 @@ public class SequenceServiceImpl implements SequenceService {
         }
 
         long start = endValue - (long) (count - 1) * step;
-        List<String> result = new ArrayList<>(count);
-        String template = cfg.getTemplate();
+        List<Long> numbers = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
-            long n = start + (long) i * step;
-            result.add(templateRenderer.render(template, n, now, code));
+            numbers.add(start + (long) i * step);
         }
-        return result;
+        return new Allocation(numbers, now);
     }
 
     private void rejectCrossTenant(String code) {

@@ -15,6 +15,9 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.sequence.SequenceService;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -58,7 +61,7 @@ class SequenceProcessorTest {
 
     @Test
     void create_blankValue_isFilledFromSequence() {
-        when(sequenceService.next(CODE)).thenReturn("EMP-00001");
+        when(sequenceService.next(eq(CODE), anyMap())).thenReturn("EMP-00001");
         SequenceProcessor processor = new SequenceProcessor(stringField(false), AccessType.CREATE, sequenceService);
 
         Map<String, Object> row = row("  ");
@@ -75,12 +78,12 @@ class SequenceProcessorTest {
         processor.processInputRow(row);
 
         assertEquals("LEGACY-42", row.get(FIELD));
-        verify(sequenceService, never()).next(Mockito.anyString());
+        verify(sequenceService, never()).next(Mockito.anyString(), anyMap());
     }
 
     @Test
     void batch_blankRows_shareOneNextBatchCall_assignedInOrder() {
-        when(sequenceService.nextBatch(CODE, 2)).thenReturn(List.of("EMP-00001", "EMP-00002"));
+        when(sequenceService.nextBatch(eq(CODE), anyList())).thenReturn(List.of("EMP-00001", "EMP-00002"));
         SequenceProcessor processor = new SequenceProcessor(stringField(false), AccessType.CREATE, sequenceService);
 
         Map<String, Object> first = row(null);
@@ -91,19 +94,19 @@ class SequenceProcessorTest {
         assertEquals("EMP-00001", first.get(FIELD));
         assertEquals("LEGACY-42", kept.get(FIELD));
         assertEquals("EMP-00002", second.get(FIELD));
-        verify(sequenceService, never()).next(Mockito.anyString());
+        verify(sequenceService, never()).next(Mockito.anyString(), anyMap());
     }
 
     @Test
     void batch_singleBlankRow_usesTheSingleAllocationFastPath() {
-        when(sequenceService.next(CODE)).thenReturn("EMP-00007");
+        when(sequenceService.next(eq(CODE), anyMap())).thenReturn("EMP-00007");
         SequenceProcessor processor = new SequenceProcessor(stringField(false), AccessType.CREATE, sequenceService);
 
         Map<String, Object> row = row(null);
         processor.batchProcessInputRows(List.of(row));
 
         assertEquals("EMP-00007", row.get(FIELD));
-        verify(sequenceService, never()).nextBatch(Mockito.anyString(), Mockito.anyInt());
+        verify(sequenceService, never()).nextBatch(Mockito.anyString(), anyList());
     }
 
     // ---- readonly = strict system numbering ---------------------------------
@@ -115,7 +118,7 @@ class SequenceProcessorTest {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> processor.processInputRow(row("HAND-01")));
         assertTrue(e.getMessage().contains("readonly"));
-        verify(sequenceService, never()).next(Mockito.anyString());
+        verify(sequenceService, never()).next(Mockito.anyString(), anyMap());
     }
 
     @Test
@@ -124,7 +127,7 @@ class SequenceProcessorTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> processor.batchProcessInputRows(List.of(row(null), row("HAND-01"))));
-        verify(sequenceService, never()).nextBatch(Mockito.anyString(), Mockito.anyInt());
+        verify(sequenceService, never()).nextBatch(Mockito.anyString(), anyList());
     }
 
     @Test
@@ -132,7 +135,7 @@ class SequenceProcessorTest {
         // Real chain order: SequenceProcessor fills, then StringProcessor's
         // checkReadonly sees the field present — the autoSequence CREATE
         // exemption must let the system-written value through.
-        when(sequenceService.next(CODE)).thenReturn("EMP-00042");
+        when(sequenceService.next(eq(CODE), anyMap())).thenReturn("EMP-00042");
         MetaField metaField = stringField(true);
         SequenceProcessor sequenceProcessor = new SequenceProcessor(metaField, AccessType.CREATE, sequenceService);
         StringProcessor stringProcessor = new StringProcessor(metaField, AccessType.CREATE);
@@ -151,5 +154,32 @@ class SequenceProcessorTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> stringProcessor.processInputRow(row("EMP-99999")));
+    }
+
+    // ---- the record reaches the service ------------------------------------
+
+    @Test
+    void create_passesTheRowItself_soRecordDependentTokensCanReadIt() {
+        Map<String, Object> r = row(null);
+        r.put("companyId", 9001L);
+        when(sequenceService.next(eq(CODE), anyMap())).thenReturn("ZK0001");
+        new SequenceProcessor(stringField(false), AccessType.CREATE, sequenceService).processInputRow(r);
+
+        verify(sequenceService).next(CODE, r);
+    }
+
+    @Test
+    void batch_passesTheBlankRowsInOrder_notJustTheirCount() {
+        Map<String, Object> a = row(null);
+        Map<String, Object> given = row("KEEP-1");
+        Map<String, Object> b = row(null);
+        when(sequenceService.nextBatch(eq(CODE), anyList())).thenReturn(List.of("ZK0001", "HF0002"));
+        new SequenceProcessor(stringField(false), AccessType.CREATE, sequenceService)
+                .batchProcessInputRows(List.of(a, given, b));
+
+        verify(sequenceService).nextBatch(CODE, List.of(a, b));
+        assertEquals("ZK0001", a.get(FIELD));
+        assertEquals("KEEP-1", given.get(FIELD));
+        assertEquals("HF0002", b.get(FIELD));
     }
 }
