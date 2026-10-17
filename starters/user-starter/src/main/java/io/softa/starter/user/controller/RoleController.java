@@ -264,8 +264,9 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
         roleNavigationService.createList(rows);
     }
 
-    /** Writes one role_data_scope row per {@code {model, dataScopes}} entry
-     *  (one per queryable model). Entries without a model are skipped.
+    /** Writes one role_data_scope row per {@code {model, dataScopes, scopeCondition?}} entry
+     *  (one per queryable model). Entries without a model are skipped; a condition without any
+     *  rule is refused.
      *  Incoming id/roleId ignored — id auto-assigned, roleId bound by caller. */
     private void writeRoleDataScopes(Long roleId, JsonNode rowsJson) {
         if (rowsJson == null || !rowsJson.isArray() || rowsJson.isEmpty()) return;
@@ -278,6 +279,16 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
             rds.setRoleId(roleId);
             rds.setModel(modelNode.asString());
             rds.setDataScopes(row.get("dataScopes"));
+            JsonNode condition = row.get("scopeCondition");
+            if (condition != null && condition.isArray() && !condition.isEmpty()) {
+                // A condition narrows the role's rules on the model; with no rule there is nothing to
+                // narrow, and the runtime would ignore it while the role read as restricted.
+                JsonNode rules = row.get("dataScopes");
+                if (rules == null || !rules.isArray() || rules.isEmpty()) {
+                    throw new BusinessException("An additional condition needs at least one scope rule.");
+                }
+                rds.setScopeCondition(condition);
+            }
             rows.add(rds);
         }
         if (!rows.isEmpty()) roleDataScopeService.createList(rows);

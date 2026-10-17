@@ -309,6 +309,11 @@ rules, 200–299 collection / cross-row, 300+ batch-wide and expensive), at the 
 endpoint, the import, a flow write node and a direct `service.createOne` are all covered. Per validator
 the batch method runs first, then the rows; values are the caller's, before the pipeline coerces them.
 
+The rejections are thrown together as one `WriteValidationException` (400). Its message names each field
+by its **label** — a nested path such as `employeeProfileId.residenceStatus` reads as the label of the
+field it ends on — while `fieldErrors()` stays keyed by path, so a form still puts each sentence on its
+control. A path that names no known field is shown as written.
+
 ##### Writing a validator
 
 The example above only implements the row methods, which is the right shape for a rule that reads
@@ -805,7 +810,7 @@ permissionService.appendScopeAccessFilters(model, MultiCountryScope.append(model
 
 **The narrowing feeds the permission call; it does not wrap its result.** It skips when the caller already constrains the country field — what lets a form scope its dropdowns by the legal entity picked *in the form*, one country out of the caller's several. Applied to the permission call's output, that check would also see the conditions a role grant just added. Fed as the input, it sees only the caller's own filters and the grant is AND-ed on afterwards.
 
-**There is no per-company narrowing.** `@Model(multiCompany = true)` still marks a model whose rows belong to one company, and the anchor contract below still holds — but the flag now only names the field the permission grant (`appendCompanyGrant`) bounds every such read by. A `MultiCompanyScope` used to narrow within the grant to the company selected in the header; it went with the header.
+**There is no per-company narrowing.** `@Model(multiCompany = true)` still marks a model whose rows belong to one company, and the anchor contract below still holds — but the flag now only names the field the permission grant (`PermissionServiceImpl.companyScope`) bounds every such read by. A `MultiCompanyScope` used to narrow within the grant to the company selected in the header; it went with the header.
 
 ### Resolving the anchor
 
@@ -836,7 +841,7 @@ A to-many reference is never an anchor. A bank serving many countries is not par
 
 Three things, kept apart:
 
-- **The grant** — `PermissionInfo.grantedCompanyIds`, bridged as `Context.grantedCompanyIds`: which companies' *records* the caller may see, applied by `appendCompanyGrant` to every model carrying the company anchor. Tri-state: `null` = unrestricted (an unconfigured role), **empty** = reaches no company at all (only ever an explicit configuration — a self-service role), non-empty = exactly those. It is the role's ordinary data scope on the company model (`role_data_scope` where `model = 'Company'`), resolved by `DefaultPermissionSnapshotProvider.readGrantedCompanyIds`; there is deliberately no company scope type and no store of its own.
+- **The grant** — `PermissionInfo.grantedCompanyIds`, bridged as `Context.grantedCompanyIds`: which companies' *records* the caller may see, applied by `PermissionServiceImpl.companyScope` to every model carrying the company anchor. Tri-state: `null` = unrestricted (an unconfigured role), **empty** = reaches no company at all (only ever an explicit configuration — a self-service role), non-empty = exactly those. It is the role's ordinary data scope on the company model (`role_data_scope` where `model = 'Company'`), resolved by `DefaultPermissionSnapshotProvider.readGrantedCompanyIds`; there is deliberately no company scope type and no store of its own.
 - **The countries** — `PermissionInfo.grantedCountries`, bridged as `Context.grantedCountries`: the countries of those companies, read in the same snapshot build. Concrete even for an unrestricted grant (every company of the tenant), because "no company restriction" is not "every country": an SG-only tenant's administrator works in SG whatever a value domain was seeded for. `null` only when unknown — a request that never consulted the snapshot — and a reader must treat that as "do not narrow", never as "none".
 - **The affiliation** — `EmpInfo.companyId` / `USER_COMP_ID`, "the company I belong to": anchors permission rules and must stay out of the grant (a grant derived from it makes one role behave differently per holder). On the country axis it is the fallback: a self-service employee whose roles reach no company has an empty set, and `CompanyCountryEnricher` puts their own company's country on `Context.companyCountry` so their dropdowns still narrow.
 

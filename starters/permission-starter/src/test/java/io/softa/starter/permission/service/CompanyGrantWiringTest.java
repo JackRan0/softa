@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
 /**
  * The company grant through the PUBLIC entry point, with a crafted header.
  *
- * <p>{@code CompanyGrantTest} calls {@code appendCompanyGrant} directly. That pins what the method
+ * <p>{@code CompanyGrantTest} calls {@code companyScope} directly. That pins what the method
  * decides, and nothing about whether the public entry point actually routes through it under a
  * crafted header — which is where the exposure would be. A security property no test can see from
  * the outside is a comment.

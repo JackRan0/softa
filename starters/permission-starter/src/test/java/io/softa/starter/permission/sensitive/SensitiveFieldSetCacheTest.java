@@ -148,4 +148,18 @@ class SensitiveFieldSetCacheTest {
         assertThat(cache.nameOf("comp")).isEqualTo("Compensation");
         assertThat(cache.nameOf("unknown")).isNull();
     }
+
+    @Test
+    void shortNameOf_prefersTheShortNameAndFallsBackToTheName() {
+        primeWith(List.of(
+                new SensitiveFieldSetDef("pay", "Employee", Set.of("salary"), "Pay Details", null, "Pay"),
+                new SensitiveFieldSetDef("bank", "Employee", Set.of("iban"), "Banking", null, " "),
+                sfs("plain", "Employee", "Contact", List.of("phone"), null)));
+
+        assertThat(cache.shortNameOf("pay")).isEqualTo("Pay");
+        assertThat(cache.shortNameOf("bank")).isEqualTo("Banking");
+        assertThat(cache.shortNameOf("plain")).isEqualTo("Contact");
+        assertThat(cache.shortNameOf("unknown")).isNull();
+        assertThat(cache.shortNameOf(null)).isNull();
+    }
 }

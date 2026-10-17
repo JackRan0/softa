@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,6 +79,10 @@ class UserAccountConsultantRowRulesTest {
 
         ReflectionTestUtils.setField(controller, "modelService", modelService);
         ReflectionTestUtils.setField(controller, "service", service);
+        // The account service carries a contact edit's login identifier before the write it is
+        // handed; these cases are about the write, so it simply runs it.
+        when(service.updateCarryingLoginIdentifiers(any(), any()))
+                .thenAnswer(call -> call.<Supplier<?>>getArgument(1).get());
         ReflectionTestUtils.setField(controller, "permissionCacheInvalidator", mock(PermissionCacheInvalidator.class));
         // getById stamps the derived lock badge after a hit; the badge is not what these cases are about.
         UserIdentityService identityService = mock(UserIdentityService.class);

@@ -199,6 +199,34 @@ class RoleCompanyScopeValidationTest {
                 .doesNotThrowAnyException();
     }
 
+    // ---- a condition narrows rules, so it needs one ----------------------
+
+    @Test
+    void aConditionWithoutAnyRuleIsRejected() {
+        // Saved, it would be ignored at runtime — a condition only narrows the rules beside it — while
+        // the role read as restricted to whoever looked at it.
+        ObjectNode noRules = scopeRow(PLAIN_MODEL, new String[0]);
+        noRules.putArray("scopeCondition").addArray().add("active").add("=").add(true);
+        ObjectNode missingRules = scopeRow(PLAIN_MODEL);
+        missingRules.putArray("scopeCondition").addArray().add("active").add("=").add(true);
+
+        assertThatThrownBy(() -> controller.createWithWizard(wizardWith(noRules)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("An additional condition needs at least one scope rule.");
+        assertThatThrownBy(() -> controller.createWithWizard(wizardWith(missingRules)))
+                .isInstanceOf(BusinessException.class);
+        verify(roleDataScopeService, never()).createList(any());
+    }
+
+    @Test
+    void aConditionBesideARuleIsSaved() {
+        ObjectNode narrowed = scopeRow(PLAIN_MODEL, "ALL");
+        narrowed.putArray("scopeCondition").addArray().add("active").add("=").add(true);
+
+        assertThatCode(() -> controller.createWithWizard(wizardWith(narrowed))).doesNotThrowAnyException();
+        verify(roleDataScopeService).createList(any());
+    }
+
     // ---- the update path shares the check --------------------------------
 
     @Test

@@ -1,7 +1,9 @@
 package io.softa.starter.user.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import jakarta.validation.constraints.NotNull;
 
 import io.softa.framework.base.context.UserInfo;
@@ -305,4 +307,24 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
      * whoever now holds it.
      */
     void resetWorkContacts(Long userId, String reason);
+
+    /**
+     * Writes account rows through {@code write}, carrying any change of email or mobile to the
+     * person's login identifiers in the same transaction.
+     *
+     * <p>A contact edited on the account alone left the person's login identifier behind: the old
+     * address still signed them in, and still named them — a new account created with it was
+     * refused as "already a member". The identifier moves only where it was the account's own
+     * value, the same rule {@link #resetWorkContacts} applies, so a personal login email is never
+     * rewritten.
+     *
+     * <p>Only before the membership is accepted (PENDING / INVITED): nobody has signed in with these
+     * contacts yet, so there is nobody to warn. Afterwards the change goes through
+     * {@link #resetWorkContacts}, which notifies the old address, and an edit here is refused.
+     *
+     * @param rows  the rows about to be written, each carrying its {@code id}
+     * @param write the write itself
+     * @return what {@code write} returned
+     */
+    <T> T updateCarryingLoginIdentifiers(List<Map<String, Object>> rows, Supplier<T> write);
 }

@@ -68,7 +68,7 @@ class RelationExpansionFieldMaskTest {
                 });
         when(permissionService.appendScopeAccessFilters(anyString(), any(Filters.class)))
                 .thenAnswer(i -> i.getArgument(1));
-        when(permissionService.rewriteScopeFilters(anyString(), any(Filters.class)))
+        when(permissionService.appendScopeAccessFiltersIgnoringRowScope(anyString(), any(Filters.class)))
                 .thenAnswer(i -> i.getArgument(1));
         when(jdbcService.selectByFilter(anyString(), any(FlexQuery.class))).thenReturn(rowsFromDb);
         return service;
@@ -135,7 +135,7 @@ class RelationExpansionFieldMaskTest {
     /**
      * What the row range waiver must NOT take with it.
      *
-     * <p>{@code appendScopeAccessFilters} rewrites a subtree condition into the id-path condition it
+     * <p>The rewrite first: {@code appendScopeAccessFilters} rewrites a subtree condition into the id-path condition it
      * means BEFORE any of its own early returns, deliberately — an admin and a system-level read ask
      * the same question as anyone else. Skipping the whole scope step to skip the range would drop
      * that rewrite too, and an unrewritten subtree condition does not widen or narrow a result: it
@@ -145,7 +145,7 @@ class RelationExpansionFieldMaskTest {
     void ignoringRowScope_stillAppliesTheScopeIndependentRewrite() {
         wire(new ArrayList<>()).searchListIgnoringRowScope(MODEL, queryAskingForAmount());
 
-        verify(permissionService).rewriteScopeFilters(eq(MODEL), any(Filters.class));
+        verify(permissionService).appendScopeAccessFiltersIgnoringRowScope(eq(MODEL), any(Filters.class));
     }
 
     /**
@@ -188,8 +188,8 @@ class RelationExpansionFieldMaskTest {
         var order = inOrder(permissionService, jdbcService);
         order.verify(permissionService).filterReadableFields(eq(MODEL), any(), eq(AccessType.READ));
         order.verify(permissionService).checkModelFieldsAccess(eq(MODEL), any(), eq(AccessType.READ));
-        // The one substitution: the rewrite alone, where the plain path takes the rewrite AND the range.
-        order.verify(permissionService).rewriteScopeFilters(eq(MODEL), any(Filters.class));
+        // The one substitution: everything but the range, where the plain path also takes the range.
+        order.verify(permissionService).appendScopeAccessFiltersIgnoringRowScope(eq(MODEL), any(Filters.class));
         order.verify(jdbcService).selectByFilter(eq(MODEL), any(FlexQuery.class));
         order.verify(permissionService).maskResponseValue(eq(MODEL), any(), eq(AccessType.READ));
         order.verifyNoMoreInteractions();

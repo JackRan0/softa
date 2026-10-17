@@ -7,6 +7,9 @@ name: Deploy Maven packages (GitHub Packages + Maven Central)
 #   3) Otherwise → create release branch, bump versions, deploy from that branch,
 #      and only after deploy succeeds → create PR, merge it, clean up.
 #   This guarantees main is never polluted by a failed deploy.
+#   4) Deploy to Maven Central first, then GitHub Packages. Central validates the
+#      whole bundle before publishing, so a failed Central deploy leaves nothing
+#      published anywhere and the same version can simply be re-run.
 
 on:
   push:
@@ -81,6 +84,28 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
+
+      # Maven 3.10.0 (default on ubuntu-latest since image 20261004) leaves
+      # maven-metadata-local.xml in central-publishing-maven-plugin's staging dir,
+      # and Central Portal rejects the bundle with
+      # "Bundle has content that does NOT have a .pom file".
+      # Keep Maven on 3.9.x until the plugin handles Maven 3.10:
+      # https://github.com/mavenplugins/central-publishing-maven-plugin/issues/79
+      - name: Set up Maven 3.9.16 (pinned)
+        shell: bash
+        env:
+          MAVEN_VERSION: "3.9.16"
+        run: |
+          set -euo pipefail
+          base="https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries"
+          tarball="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$tarball" "$base/$tarball"
+          expected="$(curl -fsSL --retry 3 "$base/$tarball.sha512" | awk '{print $1}')"
+          [[ -n "$expected" ]] || { echo "Empty sha512 for $tarball" >&2; exit 1; }
+          echo "$expected  $RUNNER_TEMP/$tarball" | sha512sum -c -
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/apache-maven-${MAVEN_VERSION}/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/apache-maven-${MAVEN_VERSION}/bin/mvn" -v
 
       # ──────────────────────────────────────────────────────────
       # 2. Check whether main already has target version
@@ -195,13 +220,8 @@ jobs:
         run: |
           mvn -B -ntp -DskipTests=false verify
 
-      - name: Deploy to GitHub Packages (Maven Registry)
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mvn -B -ntp -DskipTests -Pgithub deploy
-
+      # Central first: its bundle is validated as a whole before anything is
+      # published, so a failure here leaves both registries untouched.
       - name: Deploy to Maven Central (Central Portal)
         shell: bash
         env:
@@ -210,6 +230,13 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           mvn -B -ntp -DskipTests -Pcentral deploy
+
+      - name: Deploy to GitHub Packages (Maven Registry)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mvn -B -ntp -DskipTests -Pgithub deploy
 
       # ──────────────────────────────────────────────────────────
       # 6. Post-deploy: merge release branch into main (fire-and-forget)

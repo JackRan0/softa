@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.base.enums.BuiltinRole;
 import io.softa.starter.user.constant.RoleConstant;
 import io.softa.starter.user.dto.EffectiveAccess;
+import io.softa.starter.user.dto.RoleGrantView;
 import io.softa.starter.user.dto.UiContext;
 import io.softa.starter.user.entity.Navigation;
 import io.softa.starter.user.entity.Role;
@@ -244,6 +246,69 @@ public class UiContextBuilder {
             }
         }
         return out;
+    }
+
+    /**
+     * Each of a user's roles as a grant pair of its own, for the effective-permissions panel — the
+     * shape the engine keeps per role. Empty for the admin principals, which hold no grant rows and
+     * bypass the data plane.
+     */
+    @SkipPermissionCheck
+    public List<RoleGrantView> roleGrantsFor(Long userId) {
+        List<Role> activeRoles = loadActiveRolesFor(userId);
+        Set<String> roleCodes = activeRoles.stream()
+                .map(Role::getCode)
+                .filter(c -> c != null && !c.isEmpty())
+                .collect(Collectors.toSet());
+        if (BuiltinRole.anyHeldBy(roleCodes, BuiltinRole.SUPER_ADMIN, BuiltinRole.TENANT_ADMIN)) {
+            return List.of();
+        }
+        Map<Long, RoleGrantView> byRole = new LinkedHashMap<>();
+        for (Role role : activeRoles) {
+            if (role.getId() == null) continue;
+            RoleGrantView view = new RoleGrantView();
+            view.setRoleId(role.getId());
+            view.setRoleCode(role.getCode());
+            view.setRoleName(role.getName());
+            view.setPermissions(new HashSet<>());
+            view.setModelScopeMap(new HashMap<>());
+            view.setModelScopeConditions(new HashMap<>());
+            view.setModelSensitiveFieldSetsMap(new HashMap<>());
+            byRole.put(role.getId(), view);
+        }
+        if (byRole.isEmpty()) {
+            return List.of();
+        }
+        List<Long> roleIds = new ArrayList<>(byRole.keySet());
+        for (RoleNavigation rn : roleNavigationService.searchList(new FlexQuery(
+                List.of("roleId", "permissionIds"), new Filters().in(RoleNavigation::getRoleId, roleIds)))) {
+            RoleGrantView view = byRole.get(rn.getRoleId());
+            if (view != null) {
+                view.getPermissions().addAll(JsonArrayUtils.toStringList(rn.getPermissionIds(), true));
+            }
+        }
+        for (RoleDataScope rds : roleDataScopeService.searchList(new FlexQuery(
+                List.of("roleId", "model", "dataScopes", "scopeCondition"),
+                new Filters().in(RoleDataScope::getRoleId, roleIds)))) {
+            RoleGrantView view = byRole.get(rds.getRoleId());
+            JsonNode rules = rds.getDataScopes();
+            if (view == null || rds.getModel() == null || rds.getModel().isBlank()
+                    || rules == null || !rules.isArray() || rules.isEmpty()) {
+                continue;
+            }
+            for (JsonNode rule : rules) {
+                view.getModelScopeMap().computeIfAbsent(rds.getModel(), k -> new ArrayList<>()).add(rule);
+            }
+            JsonNode condition = rds.getScopeCondition();
+            if (condition != null && condition.isArray() && !condition.isEmpty()) {
+                view.getModelScopeConditions().put(rds.getModel(), condition);
+            }
+        }
+        buildModelSfsMapByRole(roleIds).forEach((roleId, sets) -> {
+            RoleGrantView view = byRole.get(roleId);
+            if (view != null) view.getModelSensitiveFieldSetsMap().putAll(sets);
+        });
+        return new ArrayList<>(byRole.values());
     }
 
     /**
@@ -467,7 +532,7 @@ public class UiContextBuilder {
                 .map(UserRoleRel::getRoleId).filter(Objects::nonNull).collect(Collectors.toSet());
         if (roleIds.isEmpty()) return List.of();
         return roleService.searchList(new FlexQuery(
-                List.of("id", "code", "active"),
+                List.of("id", "code", "name", "active"),
                 new Filters().in(Role::getId, roleIds).eq(Role::getActive, true)));
     }
 
@@ -492,6 +557,34 @@ public class UiContextBuilder {
             byModel.computeIfAbsent(model.toString(), k -> new HashSet<>()).add(id.toString());
         }
         return byModel;
+    }
+
+    /** Each role's granted sensitive-field-set ids grouped by their canonical model — every role's
+     *  grant rows read in one query and the sets' models in one more, whatever the number of roles. */
+    private Map<Long, Map<String, Set<String>>> buildModelSfsMapByRole(List<Long> roleIds) {
+        List<RoleSensitiveFieldSet> sfsGrants = roleSensitiveFieldSetService.searchList(new FlexQuery(
+                List.of("roleId", "sensitiveFieldSetId"),
+                new Filters().in(RoleSensitiveFieldSet::getRoleId, roleIds)));
+        Set<String> sfsIds = new HashSet<>();
+        for (RoleSensitiveFieldSet g : sfsGrants) {
+            if (g.getSensitiveFieldSetId() != null) sfsIds.add(g.getSensitiveFieldSetId());
+        }
+        if (sfsIds.isEmpty()) return Map.of();
+        Map<String, String> modelBySet = new HashMap<>();
+        for (Map<String, Object> m : modelService.searchList("SensitiveFieldSet",
+                new FlexQuery(List.of("id", "model"), new Filters().in("id", new ArrayList<>(sfsIds))))) {
+            Object id = m.get("id");
+            Object model = m.get("model");
+            if (id != null && model != null) modelBySet.put(id.toString(), model.toString());
+        }
+        Map<Long, Map<String, Set<String>>> byRole = new HashMap<>();
+        for (RoleSensitiveFieldSet g : sfsGrants) {
+            String model = g.getSensitiveFieldSetId() == null ? null : modelBySet.get(g.getSensitiveFieldSetId());
+            if (g.getRoleId() == null || model == null) continue;
+            byRole.computeIfAbsent(g.getRoleId(), k -> new HashMap<>())
+                    .computeIfAbsent(model, k -> new HashSet<>()).add(g.getSensitiveFieldSetId());
+        }
+        return byRole;
     }
 
     /** A granted child nav implies its container ancestors are visible. */
