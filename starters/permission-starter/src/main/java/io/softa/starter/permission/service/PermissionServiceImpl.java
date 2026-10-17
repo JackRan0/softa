@@ -1782,7 +1782,27 @@ public class PermissionServiceImpl implements PermissionService {
         if (PermissionInfo.isAdmin(pi)) return true;
         String action = MODEL_ACTIONS.get(accessType);
         if (action == null) return true;
-        Set<String> candidates = endpointIndex.modelActionPermissions(model, action);
+        return holdsAny(pi, endpointIndex.modelActionPermissions(model, action));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Asked by the action segment of the permission id, the way {@link #actionPermissions} asks for an
+     * export: no endpoint path names the model.
+     */
+    @Override
+    public boolean hasModelImportGrant(String model) {
+        if (shouldBypass() || model == null) return true;
+        EndpointIndex endpointIndex = endpointIndexSupplier.get();
+        if (endpointIndex == null) return true;
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.isAdmin(pi)) return true;
+        return holdsAny(pi, endpointIndex.actionPermissions(model, "import"));
+    }
+
+    /** Whether the caller holds one of {@code candidates}; an empty set — nothing registered — grants. */
+    private static boolean holdsAny(PermissionInfo pi, Set<String> candidates) {
         // Unregistered means granted — see the interface javadoc for why this default is the opposite
         // of the interceptor's.
         if (candidates.isEmpty()) return true;
