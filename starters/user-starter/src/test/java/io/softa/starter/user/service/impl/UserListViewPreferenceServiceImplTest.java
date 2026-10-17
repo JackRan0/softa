@@ -14,6 +14,7 @@ import org.mockito.MockedStatic;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.starter.user.dto.UserListViewPreferenceDTO;
+import io.softa.starter.user.entity.UserListViewPreference;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -294,5 +295,51 @@ class UserListViewPreferenceServiceImplTest {
 
     private static List<String> without(Collection<String> names, Set<String> blocked) {
         return names.stream().filter(n -> !blocked.contains(n)).toList();
+    }
+
+    @Test
+    void aSaveWritesOnlyThePartsItCarries() {
+        // The side tree and the columns of one page save at once: writing back what this request read
+        // of the other part would undo that other save.
+        UserListViewPreference stored = new UserListViewPreference();
+        stored.setId(7L);
+        stored.setColumnOrder("[\"code\"]");
+        stored.setViewSettings("{\"sidePanelCollapsed\":true,\"density\":\"compact\"}");
+        UserListViewPreferenceDTO incoming = new UserListViewPreferenceDTO();
+        incoming.setModelName(EMPLOYEE);
+        incoming.setViewSettings(new LinkedHashMap<>(Map.of("sidePanelCollapsed", false)));
+
+        Map<String, Object> row = UserListViewPreferenceServiceImpl.changes(stored, incoming);
+
+        assertThat(row).containsOnlyKeys("id", "modelName", "viewSettings");
+        assertThat((String) row.get("viewSettings")).contains("\"sidePanelCollapsed\":false").contains("\"density\":\"compact\"");
+    }
+
+    @Test
+    void anExportFieldTheCallerCannotSeeNowKeepsItsPlace() {
+        UserListViewPreferenceDTO stored = new UserListViewPreferenceDTO();
+        stored.setExportFields(List.of("fullName", "salary", "code"));
+        UserListViewPreferenceDTO incoming = new UserListViewPreferenceDTO();
+        incoming.setExportFields(List.of("fullName", "code", "hireDate"));
+
+        UserListViewPreferenceServiceImpl.keepUnseen(incoming, stored, "salary"::equals);
+
+        assertThat(incoming.getExportFields()).containsExactly("fullName", "salary", "code", "hireDate");
+    }
+
+    @Test
+    void aDamagedPartReadsAsNotArrangedRatherThanFailingTheList() {
+        UserListViewPreference row = new UserListViewPreference();
+        row.setViewStateKey("table|Employee|/e|");
+        row.setModelName(EMPLOYEE);
+        row.setColumnOrder("[\"code\"");
+        row.setHiddenColumns("[\"remark\"]");
+        row.setViewSettings("{not json");
+
+        UserListViewPreferenceDTO dto = UserListViewPreferenceServiceImpl.toDto(row);
+
+        assertThat(dto.getColumnOrder()).isNull();
+        assertThat(dto.getViewSettings()).isNull();
+        assertThat(dto.getHiddenColumns()).containsExactly("remark");
     }
 }

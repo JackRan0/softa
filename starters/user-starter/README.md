@@ -179,17 +179,23 @@ it, and the active tab of a tabbed page (empty when there is none, so the key en
 `UserListViewPreferenceController` (`/UserListViewPreference/*`) has only three endpoints —
 `getMyPreference`, `saveMyPreference`, `resetMyPreference` (`part = columns | export | settings`,
 all when omitted) — and acts on the caller's own row only. The host registers them in
-`permission.authenticated-bypass-patterns`.
+`permission.authenticated-bypass-patterns`. Every generic model endpoint (`/UserListViewPreference/searchPage`,
+`updateOne`, `deleteByIds` …) is declared by the controller too, and refused: left to the generic
+`/{modelName}/...` they would serve anyone's row to an admin's permission bypass.
 
 **A saved name is never a grant.** Every read and save drops what the caller may not see now: a
 field of the list's model by the model's sensitive sets, a related object's field by that object's
 model, and a dotted path in two steps — the one-to-one field by the list's model, the leaf by the
 record's model and the caller's countries. A path that is not one level into a one-to-one record is
-dropped, as is a field the metadata no longer has.
+dropped, as is a field — or a path's field — the metadata no longer has. A plain column id that is
+not a field at all is kept as it is: a list may have columns of its own, such as a pivot column.
 
-**Not seeing is not deleting.** A column the caller cannot see *right now* (a sensitive set
-withdrawn, a country no longer theirs) is not erased by their next save: it is put back after the
-nearest column it followed, so it returns to its place when they can see it again.
+**Not seeing is not deleting.** A column — or an export field — the caller cannot see *right now* (a
+sensitive set withdrawn, a country no longer theirs) is not erased by their next save: it is put back
+after the nearest one it followed, so it returns to its place when they can see it again.
+
+**A save writes only the parts it carries**, and a reset only the parts it clears: the side tree and
+the columns of one page save at once, and writing the whole row back would undo the other's save.
 
 Limits: 500 names per list, 128 characters per name, 4000 characters of `viewSettings`.
 

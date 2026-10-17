@@ -43,6 +43,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
     /** View settings are a handful of flags; this is ample, and keeps a row from becoming storage. */
     static final int MAX_SETTINGS_LENGTH = 4000;
 
+    private static final String MODEL = "UserListViewPreference";
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
     private static final TypeReference<Map<String, List<String>>> STRING_LIST_MAP = new TypeReference<>() {};
     private static final TypeReference<Map<String, Object>> OBJECT_MAP = new TypeReference<>() {};
@@ -75,8 +76,8 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         if (model == null || !ModelManager.existModel(model)) {
             throw new BusinessException("Unknown model: " + model);
         }
-        // What the person may not read is not kept either: an arrangement is a list of what they
-        // see, and storing a withdrawn field would only bring it back if the grant ever returned.
+        // Only what the person may read is accepted from them: a name they sent but cannot see is not
+        // theirs to store.
         UserListViewPreferenceDTO incoming = readable(bounded(preference));
         // What the caller cannot see right now is still theirs: a column dropped by a withdrawn grant or
         // a country no longer managed comes back where it was when they can see it again. Worked out
@@ -90,7 +91,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         asSystem(() -> {
             UserListViewPreference existing = findMine(incoming.getViewStateKey());
             if (existing != null) {
-                this.updateOne(applied(existing, incoming));
+                modelService.updateOne(MODEL, changes(existing, incoming));
                 return null;
             }
             UserListViewPreference created = new UserListViewPreference();
@@ -103,7 +104,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
                 if (winner == null) {
                     throw raced;
                 }
-                this.updateOne(applied(winner, incoming));
+                modelService.updateOne(MODEL, changes(winner, incoming));
             }
             return null;
         });
@@ -124,6 +125,23 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             if (row == null) {
                 return null;
             }
+            // Only the parts being reset are written: writing the whole row back would put the other
+            // parts as this request read them over a save that landed in between.
+            Map<String, Object> cleared = new LinkedHashMap<>();
+            cleared.put("id", row.getId());
+            if (columns) {
+                cleared.put("columnOrder", null);
+                cleared.put("hiddenColumns", null);
+                cleared.put("addedColumns", null);
+                cleared.put("freezeColumnIndex", null);
+            }
+            if (export) {
+                cleared.put("exportFields", null);
+                cleared.put("exportObjectFields", null);
+            }
+            if (settings) {
+                cleared.put("viewSettings", null);
+            }
             if (columns) {
                 row.setColumnOrder(null);
                 row.setHiddenColumns(null);
@@ -140,7 +158,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             if (isEmpty(row)) {
                 this.deleteById(row.getId());
             } else {
-                this.updateOne(row, false);
+                modelService.updateOne(MODEL, cleared);
             }
             return null;
         });
@@ -152,6 +170,29 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
                 .eq(UserListViewPreference::getUserId, currentUserId())
                 .eq(UserListViewPreference::getViewStateKey, viewStateKey));
         return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    /**
+     * The update for a stored row: its id and only the parts {@code incoming} carries. A part it omits
+     * is not written at all — written back as this request read it, it would undo a save of that part
+     * made in between (the side tree and the columns of one page save at once). View settings merge
+     * key by key into the stored ones; two saves of different keys at the same instant can still race.
+     */
+    static Map<String, Object> changes(UserListViewPreference existing, UserListViewPreferenceDTO incoming) {
+        UserListViewPreference patch = new UserListViewPreference();
+        patch.setViewSettings(existing.getViewSettings());
+        applied(patch, incoming);
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", existing.getId());
+        row.put("modelName", patch.getModelName());
+        if (incoming.getColumnOrder() != null) row.put("columnOrder", patch.getColumnOrder());
+        if (incoming.getHiddenColumns() != null) row.put("hiddenColumns", patch.getHiddenColumns());
+        if (incoming.getAddedColumns() != null) row.put("addedColumns", patch.getAddedColumns());
+        if (incoming.getFreezeColumnIndex() != null) row.put("freezeColumnIndex", patch.getFreezeColumnIndex());
+        if (incoming.getExportFields() != null) row.put("exportFields", patch.getExportFields());
+        if (incoming.getExportObjectFields() != null) row.put("exportObjectFields", patch.getExportObjectFields());
+        if (incoming.getViewSettings() != null) row.put("viewSettings", patch.getViewSettings());
+        return row;
     }
 
     /** {@code row} with the parts {@code incoming} carries laid over it; the parts it omits kept. */
@@ -203,7 +244,10 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             for (String collection : readableOf(model, new ArrayList<>(objects.keySet()))) {
                 String related = relatedModelOf(model, collection);
                 if (related != null) {
-                    kept.put(collection, readableOf(related, objects.get(collection)));
+                    // An object's sheet lists the object's own fields; a path into another record is not one.
+                    List<String> own = objects.get(collection) == null ? null
+                            : objects.get(collection).stream().filter(name -> name.indexOf('.') < 0).toList();
+                    kept.put(collection, readableOf(related, own));
                 }
             }
             dto.setExportObjectFields(kept);
@@ -351,6 +395,10 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         if (incoming.getAddedColumns() != null) {
             incoming.setAddedColumns(kept(stored.getAddedColumns(), incoming.getAddedColumns(), unseen));
         }
+        // An export field is a column of the sheet: one the caller cannot see now keeps its place too.
+        if (incoming.getExportFields() != null) {
+            incoming.setExportFields(reinserted(stored.getExportFields(), incoming.getExportFields(), unseen));
+        }
     }
 
     /**
@@ -405,7 +453,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
     static String mergeSettings(String stored, Map<String, Object> incoming) {
         Map<String, Object> merged = new LinkedHashMap<>();
         if (stored != null) {
-            Map<String, Object> existing = JsonUtils.stringToObject(stored, OBJECT_MAP, null);
+            Map<String, Object> existing = parsed(stored, OBJECT_MAP);
             if (existing != null) merged.putAll(existing);
         }
         incoming.forEach((key, value) -> {
@@ -459,7 +507,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         }
     }
 
-    private static UserListViewPreferenceDTO toDto(UserListViewPreference row) {
+    static UserListViewPreferenceDTO toDto(UserListViewPreference row) {
         UserListViewPreferenceDTO dto = new UserListViewPreferenceDTO();
         dto.setViewStateKey(row.getViewStateKey());
         dto.setModelName(row.getModelName());
@@ -468,15 +516,28 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         dto.setAddedColumns(parseList(row.getAddedColumns()));
         dto.setFreezeColumnIndex(row.getFreezeColumnIndex());
         dto.setExportFields(parseList(row.getExportFields()));
-        dto.setExportObjectFields(row.getExportObjectFields() == null ? null
-                : JsonUtils.stringToObject(row.getExportObjectFields(), STRING_LIST_MAP, null));
-        dto.setViewSettings(row.getViewSettings() == null ? null
-                : JsonUtils.stringToObject(row.getViewSettings(), OBJECT_MAP, null));
+        dto.setExportObjectFields(parsed(row.getExportObjectFields(), STRING_LIST_MAP));
+        dto.setViewSettings(parsed(row.getViewSettings(), OBJECT_MAP));
         return dto;
     }
 
     private static List<String> parseList(String json) {
-        return json == null ? null : JsonUtils.stringToObject(json, STRING_LIST, null);
+        return parsed(json, STRING_LIST);
+    }
+
+    /**
+     * A stored part, or null when it does not parse: one damaged part reads as not arranged, rather
+     * than locking the person out of the list until someone resets it.
+     */
+    private static <T> T parsed(String json, TypeReference<T> type) {
+        if (json == null) {
+            return null;
+        }
+        try {
+            return JsonUtils.stringToObject(json, type, null);
+        } catch (RuntimeException damaged) {
+            return null;
+        }
     }
 
     private static void requireViewStateKey(String viewStateKey) {

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.dto.UserListViewPreferenceDTO;
 import io.softa.starter.user.service.UserListViewPreferenceService;
@@ -17,10 +18,12 @@ import io.softa.starter.user.service.UserListViewPreferenceService;
 /**
  * Self-service endpoints for a person's own list view arrangements, and the only way to them.
  *
- * <p>Deliberately not an {@code EntityController}: the typed generic endpoints it would add serve
- * any row, and an admin's permission bypass would let one read and overwrite another person's
- * arrangement. A host lists these three under {@code permission.authenticated-bypass-patterns};
- * each acts on the caller only.
+ * <p>Deliberately not an {@code EntityController}, and more than that: Spring resolves any
+ * {@code /UserListViewPreference/<x>} this class does not declare to {@code ModelController}'s
+ * templated {@code /{modelName}/<x>}, which serves any row — an admin's permission bypass would let
+ * one read, overwrite or delete another person's arrangement there, past every check below. So each
+ * generic endpoint is declared here too, and refused. A host lists the three below under
+ * {@code permission.authenticated-bypass-patterns}; each acts on the caller only.
  */
 @Tag(name = "UserListViewPreference")
 @RestController
@@ -51,5 +54,25 @@ public class UserListViewPreferenceController {
                                                   @RequestParam(required = false) String part) {
         service.resetMine(viewStateKey, part);
         return ApiResponse.success(true);
+    }
+
+    private static final String ONLY_HERE =
+            "A list arrangement is read and saved only through getMyPreference, saveMyPreference and resetMyPreference.";
+
+    /** The generic model endpoints, refused: see the class comment. Pinned by a test against ModelController. */
+    @GetMapping({"/getCopyableFields", "/getDefaultValues", "/getUnmaskedField", "/getUnmaskedFields"})
+    public ApiResponse<Void> refuseGenericRead() {
+        throw new PermissionException(ONLY_HERE);
+    }
+
+    /** The generic model endpoints, refused: see the class comment. Pinned by a test against ModelController. */
+    @PostMapping({"/createList", "/createListAndFetch", "/createOne", "/createOneAndFetch",
+            "/copyById", "/copyByIdAndFetch", "/copyByIds", "/copyByIdsAndFetch",
+            "/count", "/getById", "/getByIds", "/searchList", "/searchName", "/searchPage", "/searchPivot",
+            "/searchSimpleAgg", "/onChange/{fieldName}",
+            "/updateByFilter", "/updateList", "/updateListAndFetch", "/updateOne", "/updateOneAndFetch",
+            "/deleteById", "/deleteByIds"})
+    public ApiResponse<Void> refuseGenericWrite() {
+        throw new PermissionException(ONLY_HERE);
     }
 }
