@@ -175,7 +175,6 @@ value-preserving rename would have carried wrong values.
 | (scanner sets) | — | — | `optionSetCode` | derived from enum type when fieldType is `OPTION`/`MULTI_OPTION` |
 | (scanner sets) | — | — | `appCode` / `id` | |
 | (FK fixup post-init) | — | — | `modelId` | |
-| (not exposed via `@Field`) | — | — | `hidden` | UI-only flag set via Studio |
 
 #### Field constraints (`constraints` — one column, seven attributes)
 
