@@ -201,6 +201,10 @@ all when omitted) — and acts on the caller's own row only. The host registers 
 `permission.authenticated-bypass-patterns`. Every generic model endpoint (`/UserListViewPreference/searchPage`,
 `updateOne`, `deleteByIds` …) is declared by the controller too, and refused: left to the generic
 `/{modelName}/...` they would serve anyone's row to an admin's permission bypass.
+Endpoints that take the model as a parameter rather than in the path — Dynamic Export
+(`/export/dynamicExport?modelName=…`) and, with es-starter, the change log (`/ChangeLog/*`) — are
+not covered: a caller who holds read or export on the model, an admin through the bypass, can still
+read others' arrangements there, though not change them.
 
 **A saved name is never a grant.** Every read and save drops what the caller may not see now: a
 field of the list's model by the model's sensitive sets, a related object's field by that object's
