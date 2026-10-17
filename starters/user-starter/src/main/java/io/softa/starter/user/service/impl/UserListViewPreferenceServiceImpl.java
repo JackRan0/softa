@@ -185,7 +185,8 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
      *
      * <p>"See" is two things for a column: readable under the caller's sensitive sets, and — for a
      * field that only some countries use — one of the caller's countries. The export lists keep the
-     * readability check alone; they are not this change's to widen.
+     * readability check alone for the model's own fields; a field of a one-to-one record is judged
+     * as a column on that record is.
      */
     UserListViewPreferenceDTO readable(UserListViewPreferenceDTO dto) {
         String model = dto.getModelName();
@@ -195,7 +196,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         dto.setColumnOrder(visibleColumns(model, dto.getColumnOrder()));
         dto.setHiddenColumns(visibleColumns(model, dto.getHiddenColumns()));
         dto.setAddedColumns(visibleAdded(model, dto.getAddedColumns()));
-        dto.setExportFields(readableOf(model, dto.getExportFields()));
+        dto.setExportFields(exportable(model, dto.getExportFields()));
         Map<String, List<String>> objects = dto.getExportObjectFields();
         if (objects != null) {
             Map<String, List<String>> kept = new LinkedHashMap<>();
@@ -208,6 +209,25 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             dto.setExportObjectFields(kept);
         }
         return dto;
+    }
+
+    /**
+     * Export fields the caller may still read: the model's own by the readability check, and a field
+     * of a one-to-one child ({@code employeeProfileId.passType}) by the child's own — the model's
+     * check knows nothing of a path, and would let one through whatever the child's sets say.
+     */
+    private List<String> exportable(String model, List<String> names) {
+        if (names == null) {
+            return null;
+        }
+        List<String> plain = names.stream().filter(name -> name.indexOf('.') < 0).toList();
+        Set<String> readable = Set.copyOf(readableOf(model, plain));
+        List<String> out = new ArrayList<>(names.size());
+        for (String name : names) {
+            boolean keep = name.indexOf('.') < 0 ? readable.contains(name) : stateOf(model, name) == PathState.VISIBLE;
+            if (keep) out.add(name);
+        }
+        return out;
     }
 
     private List<String> readableOf(String model, List<String> names) {

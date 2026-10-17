@@ -174,6 +174,16 @@ class UserListViewPreferenceServiceImplTest {
     }
 
     @Test
+    void anExportFieldOnAOneToOneRecordIsCheckedAgainstThatRecordsModel() {
+        UserListViewPreferenceDTO dto = arrangement();
+        dto.setExportFields(List.of("fullName", "employeeProfileId.passNumber", "employeeProfileId.idNumber"));
+
+        UserListViewPreferenceDTO out = service.readable(dto);
+
+        assertThat(out.getExportFields()).containsExactly("fullName", "employeeProfileId.passNumber");
+    }
+
+    @Test
     void aPathThroughAnythingButOneOneToOneLinkNamesNoColumn() {
         UserListViewPreferenceDTO dto = arrangement();
         dto.setAddedColumns(List.of(
