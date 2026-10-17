@@ -43,9 +43,13 @@ public class XToOneGroupProcessor extends BaseProcessor {
     private final List<MetaField> cascadedFields = new ArrayList<>(0);
     // The fields of the related model that need to be expanded through the OneToOne/ManyToOne field.
     private final Set<String> expandFields = Sets.newHashSet(ModelConstant.ID);
-    // The part of expandFields the model itself decides — id, displayName and cascaded fields — as opposed
-    // to what a subQuery asks for. The only part read for a row outside the caller's row range.
+    // The part of expandFields the model itself decides — id, displayName and declared cascaded fields — as
+    // opposed to what a subQuery or a dotted field asks for. The only part read for a row outside the
+    // caller's row range.
     private final Set<String> labelFields = Sets.newHashSet(ModelConstant.ID);
+    // A dotted field of the request (`managerId.dateOfBirth`) asks past the label: the related rows are then
+    // read within the caller's range, as for a subQuery.
+    private boolean requestedPastLabel;
     private final FlexQuery flexQuery;
     private final SubQuery subQuery;
 
@@ -79,8 +83,16 @@ public class XToOneGroupProcessor extends BaseProcessor {
      */
     public void addCascadedField(MetaField cascadedField) {
         this.cascadedFields.add(cascadedField);
-        this.expandFields.add(cascadedField.getDependentFields().get(1));
-        this.labelFields.add(cascadedField.getDependentFields().get(1));
+        String relatedField = cascadedField.getDependentFields().get(1);
+        this.expandFields.add(relatedField);
+        // A cascaded field the model declares is part of what its references show. A dotted field built
+        // from the request is the caller's own question about the related row, and past its label it is
+        // answered only for the rows the caller may read.
+        if (!cascadedField.getFieldName().contains(".") || this.labelFields.contains(relatedField)) {
+            this.labelFields.add(relatedField);
+        } else {
+            this.requestedPastLabel = true;
+        }
     }
 
     /**
@@ -126,9 +138,10 @@ public class XToOneGroupProcessor extends BaseProcessor {
      * Get the mapping of related model rows.
      *
      * <p>Without a subQuery only the label fields are read, across the caller's row range: a referenced
-     * row's label is shown wherever the reference is. With one, the subQuery's fields and nested subQueries
-     * are read through {@link ReflectTool#searchRelatedRows}, and a referenced row it does not return —
-     * outside the caller's range — falls back to its label alone.
+     * row's label is shown wherever the reference is. With one — or with a dotted field of the request
+     * that reads past the label — the requested fields and nested subQueries are read through
+     * {@link ReflectTool#searchRelatedRows}, and a referenced row it does not return — outside the
+     * caller's range — falls back to its label alone, the dotted field left empty.
      *
      * @param rows Data list
      * @return {relatedModelId: {related model row}}
@@ -142,10 +155,10 @@ public class XToOneGroupProcessor extends BaseProcessor {
             return relatedValueMap;
         }
         Set<Serializable> labelOnlyIds = relatedIds;
-        if (subQuery != null) {
+        if (subQuery != null || requestedPastLabel) {
             FlexQuery relatedFlexQuery = relatedFlexQuery(this.expandFields, relatedIds);
             // Propagate nested subQueries so the related model can resolve its own relational subQueries
-            if (!CollectionUtils.isEmpty(subQuery.getSubQueries())) {
+            if (subQuery != null && !CollectionUtils.isEmpty(subQuery.getSubQueries())) {
                 SubQueries nestedSubQueries = new SubQueries();
                 nestedSubQueries.setQueryMap(subQuery.getSubQueries());
                 relatedFlexQuery.setSubQueries(nestedSubQueries);
