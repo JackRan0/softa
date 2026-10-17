@@ -3,6 +3,7 @@ package io.softa.starter.user.service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -12,6 +13,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.softa.framework.base.context.Context;
@@ -25,13 +29,14 @@ import io.softa.framework.orm.service.validation.WriteContext;
  * Binding an admin role is a bypass handed out, so it is checked on every write path: the Super Admin
  * role never through a request, the Tenant Admin role only by someone who already has admin reach.
  */
-class BuiltinRoleBindValidatorTest {
+class RoleBindValidatorTest {
 
     private static final long SUPER_ADMIN = 1L;
     private static final long TENANT_ADMIN = 2L;
     private static final long ORDINARY = 3L;
 
-    private BuiltinRoleBindValidator validator;
+    private RoleBindValidator validator;
+    private RoleGrantCeiling ceiling;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -46,7 +51,9 @@ class BuiltinRoleBindValidatorTest {
             ordinary.put("code", null);
             return List.of(ordinary);
         });
-        validator = new BuiltinRoleBindValidator(modelService);
+        ceiling = mock(RoleGrantCeiling.class);
+        when(ceiling.violation(any())).thenReturn(Optional.empty());
+        validator = new RoleBindValidator(modelService, ceiling);
     }
 
     @Test
@@ -80,12 +87,48 @@ class BuiltinRoleBindValidatorTest {
     }
 
     @Test
-    void letsAnyoneBindAnOrdinaryRole() {
+    void letsARoleManagerBindARoleWithinTheirOwnGrants() {
         WriteContext ctx = create(ORDINARY);
 
         as(Set.of(), () -> validator.validateCreate(ctx));
 
         assertThat(ctx.hasErrors()).isFalse();
+        verify(ceiling).violation(ORDINARY);
+    }
+
+    @Test
+    void refusesARoleManagerBindingARoleWiderThanThemselves() {
+        // Assigning an existing, wider role to oneself is the same step up as writing one.
+        when(ceiling.violation(ORDINARY)).thenReturn(Optional.of("permission payroll.pay-run.view"));
+        WriteContext ctx = create(ORDINARY);
+
+        as(Set.of(), () -> validator.validateCreate(ctx));
+
+        assertThat(ctx.hasErrors()).isTrue();
+    }
+
+    @Test
+    void asksTheCeilingOncePerRoleInABatch() {
+        WriteContext first = create(ORDINARY);
+        Map<String, Object> scratch = new HashMap<>();
+        WriteContext a = WriteContext.of("UserRoleRel", AccessType.CREATE, first.row(), first.row(), null, scratch);
+        WriteContext b = WriteContext.of("UserRoleRel", AccessType.CREATE, create(ORDINARY).row(), create(ORDINARY).row(), null, scratch);
+
+        as(Set.of(), () -> {
+            validator.validateCreate(a);
+            validator.validateCreate(b);
+        });
+
+        verify(ceiling, times(1)).violation(ORDINARY);
+    }
+
+    @Test
+    void doesNotHoldAnAdminToTheCeiling() {
+        WriteContext ctx = create(ORDINARY);
+
+        as(Set.of("TENANT_ADMIN"), () -> validator.validateCreate(ctx));
+
+        verify(ceiling, never()).violation(any());
     }
 
     @Test

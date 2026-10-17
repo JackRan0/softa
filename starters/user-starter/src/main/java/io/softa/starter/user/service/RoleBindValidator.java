@@ -3,6 +3,7 @@ package io.softa.starter.user.service;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.core.annotation.Order;
@@ -19,7 +20,7 @@ import io.softa.framework.orm.service.validation.ModelWriteValidator;
 import io.softa.framework.orm.service.validation.WriteContext;
 
 /**
- * Who may put a user into an admin role.
+ * Who may put a user into a role.
  *
  * <p>Holding {@code SUPER_ADMIN} or {@code TENANT_ADMIN} is a bypass, not a set of grants, so binding
  * one is the most powerful write a request can make. Checked at the write root, where the typed
@@ -29,6 +30,9 @@ import io.softa.framework.orm.service.validation.WriteContext;
  *   <li>{@code TENANT_ADMIN} is bound only by a caller who already holds a built-in admin role. A role
  *       manager without that bypass may otherwise assign it to anyone, themselves included, and step
  *       from "manages roles" to "bypasses every check in the tenant".</li>
+ *   <li>any other role is bound by a caller without a built-in admin role only when it is within that
+ *       caller's own grants ({@link RoleGrantCeiling}) — otherwise assigning an existing, wider role to
+ *       oneself would do what the ceiling refuses on the role definition.</li>
  * </ul>
  * A bind is a create naming the role, or an update that moves an existing row onto the role or onto
  * another user — the second is the same grant handed to someone else.
@@ -38,7 +42,7 @@ import io.softa.framework.orm.service.validation.WriteContext;
  */
 @Component
 @Order(20)
-public class BuiltinRoleBindValidator implements ModelWriteValidator {
+public class RoleBindValidator implements ModelWriteValidator {
 
     private static final String USER_ROLE_REL = "UserRoleRel";
     private static final String ROLE = "Role";
@@ -47,9 +51,11 @@ public class BuiltinRoleBindValidator implements ModelWriteValidator {
     private static final String CODE = "code";
 
     private final ModelService<?> modelService;
+    private final RoleGrantCeiling ceiling;
 
-    public BuiltinRoleBindValidator(ModelService<?> modelService) {
+    public RoleBindValidator(ModelService<?> modelService, RoleGrantCeiling ceiling) {
         this.modelService = modelService;
+        this.ceiling = ceiling;
     }
 
     @Override
@@ -78,7 +84,18 @@ public class BuiltinRoleBindValidator implements ModelWriteValidator {
             ctx.reject(ROLE_ID, "The Super Admin role cannot be assigned here; it is managed by the platform.");
         } else if (BuiltinRole.TENANT_ADMIN.getCode().equals(code) && !callerIsAdmin()) {
             ctx.reject(ROLE_ID, "Only an administrator can assign the Tenant Admin role.");
+        } else if (roleId != null && !callerIsAdmin()) {
+            ceilingViolation(ctx, roleId).ifPresent(reason ->
+                    ctx.reject(ROLE_ID, "You can only assign a role whose access you hold yourself: " + reason));
         }
+    }
+
+    /** Asked once per role per write: a bulk assignment names many users and few roles. */
+    @SuppressWarnings("unchecked")
+    private Optional<String> ceilingViolation(WriteContext ctx, Object roleId) {
+        String key = "ceiling:" + asText(roleId);
+        return (Optional<String>) ctx.scratch().computeIfAbsent(key,
+                k -> ceiling.violation(Long.valueOf(asText(roleId))));
     }
 
     /** Whether the patch writes this field to a value other than the stored one. */
