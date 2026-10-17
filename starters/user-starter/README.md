@@ -162,12 +162,12 @@ it, and the active tab of a tabbed page (empty when there is none, so the key en
 
 | `viewStateKey` | The list |
 |---|---|
-| `table|Order|/sales/order|` | The order list, a page without tabs |
-| `table|Order|/sales/order|pending` | The same page's "pending" tab — its own row |
-| `table|Order|/sales/order|shipped` | Its "shipped" tab — another row |
-| `card|Order|/sales/order|` | The same orders shown as cards — another row |
-| `board|Task|/projects/task|` | A kanban board of tasks |
-| `table|OrderLine|/sales/order/42|` | A list inside the page of order 42: the path carries the id, so order 43's page keeps an arrangement of its own |
+| `table\|Order\|/sales/order\|` | The order list, a page without tabs |
+| `table\|Order\|/sales/order\|pending` | The same page's "pending" tab — its own row |
+| `table\|Order\|/sales/order\|shipped` | Its "shipped" tab — another row |
+| `card\|Order\|/sales/order\|` | The same orders shown as cards — another row |
+| `board\|Task\|/projects/task\|` | A kanban board of tasks |
+| `table\|OrderLine\|/sales/order/42\|` | A list inside the page of order 42: the path carries the id, so order 43's page keeps an arrangement of its own |
 
 | Part | Holds |
 |---|---|
