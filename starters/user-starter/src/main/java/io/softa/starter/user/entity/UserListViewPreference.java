@@ -42,6 +42,21 @@ import io.softa.framework.orm.enums.OnDelete;
  * </pre>
  * A part left null is not arranged, and the list uses its own default for it; a row whose parts are
  * all null is deleted.
+ *
+ * <p>The view state key is opaque here — compared, never parsed. The client builds it as
+ * {@code <view kind>|<model>|<route>|<tab>}: the kind of view ({@code table}, {@code card},
+ * {@code board}), the model it lists, the page's path exactly as the browser has it, and the active
+ * tab of a tabbed page (empty when the page has none, so the key then ends in {@code |}). Each
+ * distinct key is a list of its own, with an arrangement of its own:
+ * <pre>
+ * table|Order|/sales/order|             the order list, a page without tabs
+ * table|Order|/sales/order|pending      the same page's "pending" tab
+ * table|Order|/sales/order|shipped      its "shipped" tab — another row
+ * card|Order|/sales/order|              the same orders shown as cards — another row
+ * board|Task|/projects/task|            a kanban board of tasks
+ * table|OrderLine|/sales/order/42|      a list inside the page of order 42; the path carries the id,
+ *                                       so the page of order 43 keeps an arrangement of its own
+ * </pre>
  */
 @Data
 @EqualsAndHashCode(callSuper = true)

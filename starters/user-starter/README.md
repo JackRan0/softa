@@ -155,8 +155,19 @@ starter owns the data:
 
 `UserListViewPreference` keeps what a person did to a list — its columns, the columns they added,
 their Dynamic Export fields and the list's other view state — on their account, one row per
-membership and list. The list is named by the client's view-state key (`viewStateKey`); a page
-with tabs has one per tab.
+membership and list. The list is named by the client's view-state key (`viewStateKey`), which the
+server compares and never parses. The client builds it as `<view kind>|<model>|<route>|<tab>` —
+the kind of view (`table`, `card`, `board`), the model it lists, the page's path as the browser has
+it, and the active tab of a tabbed page (empty when there is none, so the key ends in `|`):
+
+| `viewStateKey` | The list |
+|---|---|
+| `table|Order|/sales/order|` | The order list, a page without tabs |
+| `table|Order|/sales/order|pending` | The same page's "pending" tab — its own row |
+| `table|Order|/sales/order|shipped` | Its "shipped" tab — another row |
+| `card|Order|/sales/order|` | The same orders shown as cards — another row |
+| `board|Task|/projects/task|` | A kanban board of tasks |
+| `table|OrderLine|/sales/order/42|` | A list inside the page of order 42: the path carries the id, so order 43's page keeps an arrangement of its own |
 
 | Part | Holds |
 |---|---|
