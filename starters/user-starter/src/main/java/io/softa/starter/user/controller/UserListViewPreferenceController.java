@@ -60,7 +60,7 @@ public class UserListViewPreferenceController {
             "A list arrangement is read and saved only through getMyPreference, saveMyPreference and resetMyPreference.";
 
     /** The generic model endpoints, refused: see the class comment. Pinned by a test against ModelController. */
-    @GetMapping({"/getCopyableFields", "/getDefaultValues", "/getUnmaskedField", "/getUnmaskedFields"})
+    @GetMapping({"/getCopyableFields", "/getCreateAccess", "/getDefaultValues", "/getUnmaskedField", "/getUnmaskedFields"})
     public ApiResponse<Void> refuseGenericRead() {
         throw new PermissionException(ONLY_HERE);
     }
@@ -68,7 +68,7 @@ public class UserListViewPreferenceController {
     /** The generic model endpoints, refused: see the class comment. Pinned by a test against ModelController. */
     @PostMapping({"/createList", "/createListAndFetch", "/createOne", "/createOneAndFetch",
             "/copyById", "/copyByIdAndFetch", "/copyByIds", "/copyByIdsAndFetch",
-            "/count", "/getById", "/getByIds", "/searchList", "/searchName", "/searchPage", "/searchPivot",
+            "/count", "/getById", "/getByIds", "/getRecordAccess", "/searchList", "/searchName", "/searchPage", "/searchPivot",
             "/searchSimpleAgg", "/onChange/{fieldName}",
             "/updateByFilter", "/updateList", "/updateListAndFetch", "/updateOne", "/updateOneAndFetch",
             "/deleteById", "/deleteByIds"})
