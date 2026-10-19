@@ -20,9 +20,13 @@ import io.softa.starter.message.mail.enums.MailSendStatus;
 /**
  * Outgoing mail record.
  * Written automatically by MessageService; not created manually via API.
+ *
+ * <p>Searched by recipient and subject: the send log is where "this user never got the email" is
+ * looked into, and the recipient is what the person investigating has in hand.
  */
 @Data
-@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false, multiTenant = true)
+@Model(idStrategy = IdStrategy.DISTRIBUTED_LONG, versionLock = true, copyable = false, multiTenant = true,
+        searchName = {"toAddresses", "subject"})
 @Index(indexName = "idx_mail_send_tenant_status", fields = {"tenantId", "status"})
 @Index(indexName = "idx_mail_send_sent_at", fields = {"sentAt"})
 @Index(indexName = "idx_mail_send_status_updated", fields = {"status", "updatedTime"})

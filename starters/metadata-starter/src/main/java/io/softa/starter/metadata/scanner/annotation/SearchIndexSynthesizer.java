@@ -165,7 +165,8 @@ public final class SearchIndexSynthesizer {
      * it yields nothing here.
      *
      * <p>Non-STRING and dynamic members are dropped rather than rejected. {@code ModelManager}
-     * asserts STRING for the explicit branch, but not for the implicit {@code name} one, so this
+     * admits STRING and MULTI_STRING for the explicit branch — a MULTI_STRING member is searched
+     * but gets no derived index here — and checks nothing for the implicit {@code name} one, so this
      * filter is load-bearing: a model with a non-text field called {@code name} is a real shape.
      */
     private static List<FieldSpec> resolveSearchFields(ModelSpec model) {

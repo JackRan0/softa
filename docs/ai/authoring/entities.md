@@ -168,9 +168,16 @@ Stack as many as you need — no wrapper.
   `MULTI_STRING` field and cannot be combined with `unique = true` — violations
   fail at boot with the model named. Declare them only on columns users
   actually search: a trigram GIN index has real write-amplification cost.
-- You rarely declare `SEARCH` yourself: one `SEARCH` index per
+- `@Model(searchName)` members must be `STRING` or `MULTI_STRING` (stored as
+  delimited text, so the search box's `CONTAINS` is a substring match on it).
+  With no declaration a model is searched by a field named `name`, else by
+  `id` — and an `id` search matches a typed whole number exactly and anything
+  else matches nothing (a `LIKE` on a BIGINT is refused by PostgreSQL). A model
+  people will look things up in should declare its text columns.
+- You rarely declare `SEARCH` yourself: one `SEARCH` index per `STRING`
   `@Model(searchName)` member (fallback: a `STRING` field named `name`) is
   **derived automatically** at scan time, named `idx_<table>_<column>_search`.
+  A `MULTI_STRING` member is searched but gets no derived index.
   Declaring an explicit non-BTREE `method` on a column opts that column out of
   the derivation; a plain BTREE declaration does not (it cannot serve the
   search box, so the derived index still appears next to it). On PostgreSQL
