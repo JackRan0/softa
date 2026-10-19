@@ -175,6 +175,74 @@ class RelationSubQueryRowScopeTest {
         assertThat(rows.getFirst().get(TO_ONE_FIELD)).isEqualTo(Map.of("id", 2L, "name", "Lee"));
     }
 
+    // ─────────────────────── XToOne: a dotted field of the request ───────────────────────
+
+    /** Expand {@code relatedId} carrying {@code cascaded} — `relatedId.x` from the request, or a declared one. */
+    private List<Map<String, Object>> expandWithCascaded(String related, String cascadedName, String relatedField) {
+        MetaField field = field(FieldType.MANY_TO_ONE, related);
+        modelManager.when(() -> ModelManager.getModelField(MAIN, TO_ONE_FIELD)).thenReturn(field);
+        MetaField cascaded = mock(MetaField.class);
+        when(cascaded.getFieldName()).thenReturn(cascadedName);
+        when(cascaded.getModelName()).thenReturn(MAIN);
+        when(cascaded.getDependentFields()).thenReturn(List.of(TO_ONE_FIELD, relatedField));
+        XToOneGroupProcessor processor = new XToOneGroupProcessor(field, AccessType.READ, mainQuery(TO_ONE_FIELD, null));
+        processor.addCascadedField(cascaded);
+        List<Map<String, Object>> rows = new ArrayList<>(List.of(row(1L, TO_ONE_FIELD, 2L)));
+        processor.batchProcessOutputRows(rows);
+        return rows;
+    }
+
+    @Test
+    void toOne_dottedFieldPastTheLabel_appliesTheRange() {
+        tables.put(ANCHORED, List.of(row(2L, "name", "Lee", "dateOfBirth", "2000-11-30")));
+
+        List<Map<String, Object>> rows = expandWithCascaded(ANCHORED, TO_ONE_FIELD + ".dateOfBirth", "dateOfBirth");
+
+        verify(permissionService).appendScopeAccessFilters(eq(ANCHORED), any(Filters.class));
+        verify(permissionService, never()).appendScopeAccessFiltersIgnoringRowScope(eq(ANCHORED), any(Filters.class));
+        assertThat(rows.getFirst().get(TO_ONE_FIELD + ".dateOfBirth")).isEqualTo("2000-11-30");
+    }
+
+    @Test
+    void toOne_dottedFieldOntoARowOutsideTheRange_isLeftEmpty() {
+        // The scoped read returns nothing (the row is out of range); the label read returns the row.
+        when(jdbcService.selectByFilter(eq(ANCHORED), any(FlexQuery.class))).thenAnswer(i -> {
+            FlexQuery q = i.getArgument(1);
+            return q.getFields().contains("dateOfBirth")
+                    ? new ArrayList<>()
+                    : copyOf(List.of(row(2L, "name", "Lee")));
+        });
+
+        List<Map<String, Object>> rows = expandWithCascaded(ANCHORED, TO_ONE_FIELD + ".dateOfBirth", "dateOfBirth");
+
+        ArgumentCaptor<FlexQuery> label = ArgumentCaptor.forClass(FlexQuery.class);
+        verify(jdbcService, atLeastOnce()).selectByFilter(eq(ANCHORED), label.capture());
+        assertThat(label.getAllValues().getLast().getFields()).containsExactlyInAnyOrder("id", "name");
+        assertThat(rows.getFirst().get(TO_ONE_FIELD + ".dateOfBirth")).isNull();
+        // The reference itself is still shown, by its label.
+        assertThat(String.valueOf(rows.getFirst().get(TO_ONE_FIELD))).contains("Lee");
+    }
+
+    @Test
+    void toOne_dottedFieldOnTheLabel_readsAcrossTheRange() {
+        tables.put(ANCHORED, List.of(row(2L, "name", "Lee")));
+
+        expandWithCascaded(ANCHORED, TO_ONE_FIELD + ".name", "name");
+
+        verify(permissionService).appendScopeAccessFiltersIgnoringRowScope(eq(ANCHORED), any(Filters.class));
+        verify(permissionService, never()).appendScopeAccessFilters(eq(ANCHORED), any(Filters.class));
+    }
+
+    @Test
+    void toOne_declaredCascadedField_readsAcrossTheRange() {
+        tables.put(ANCHORED, List.of(row(2L, "name", "Lee", "code", "E2")));
+
+        expandWithCascaded(ANCHORED, "relatedCode", "code");
+
+        verify(permissionService).appendScopeAccessFiltersIgnoringRowScope(eq(ANCHORED), any(Filters.class));
+        verify(permissionService, never()).appendScopeAccessFilters(eq(ANCHORED), any(Filters.class));
+    }
+
     // ───────────────────────────── OneToMany ─────────────────────────────
 
 
