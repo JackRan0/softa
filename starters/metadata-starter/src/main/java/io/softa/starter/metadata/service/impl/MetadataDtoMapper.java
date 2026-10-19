@@ -67,16 +67,22 @@ public final class MetadataDtoMapper {
         dto.setVersionLock(metaModel.isVersionLock());
         dto.setCopyable(metaModel.isCopyable());
         dto.setProjection(metaModel.isProjection());
-        // By field name, ignoring case, so a client listing the model's fields gets one stable order
-        // however the model was written or grown. The registry holds them unordered.
+        // By label, ignoring case — the name a person reads — so a client listing the model's fields
+        // shows them alphabetically however the model was written or grown; a field without a label
+        // goes by its name. The registry holds them unordered.
         List<MetaField> fields = ModelManager.getModelFields(modelName).stream()
-                .sorted(Comparator.comparing(MetaField::getFieldName, String.CASE_INSENSITIVE_ORDER)
+                .sorted(Comparator.comparing(MetadataDtoMapper::sortName, String.CASE_INSENSITIVE_ORDER)
                         .thenComparing(MetaField::getFieldName))
                 .toList();
         Map<String, MetaFieldDTO> fieldMap = new LinkedHashMap<>();
         fields.forEach(field -> fieldMap.put(field.getFieldName(), toFieldDTO(field)));
         dto.setModelFields(fieldMap);
         return dto;
+    }
+
+    private static String sortName(MetaField field) {
+        String label = field.getLabel();
+        return label == null || label.isBlank() ? field.getFieldName() : label;
     }
 
     private MetadataDtoMapper() { }
