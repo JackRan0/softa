@@ -1,8 +1,9 @@
 package io.softa.starter.metadata.service.impl;
 
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
@@ -66,11 +67,22 @@ public final class MetadataDtoMapper {
         dto.setVersionLock(metaModel.isVersionLock());
         dto.setCopyable(metaModel.isCopyable());
         dto.setProjection(metaModel.isProjection());
-        List<MetaField> fields = ModelManager.getModelFields(modelName);
-        Map<String, MetaFieldDTO> fieldMap = fields.stream()
-                .collect(Collectors.toMap(MetaField::getFieldName, MetadataDtoMapper::toFieldDTO));
+        // By label, ignoring case — the name a person reads — so a client listing the model's fields
+        // shows them alphabetically however the model was written or grown; a field without a label
+        // goes by its name. The registry holds them unordered.
+        List<MetaField> fields = ModelManager.getModelFields(modelName).stream()
+                .sorted(Comparator.comparing(MetadataDtoMapper::sortName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(MetaField::getFieldName))
+                .toList();
+        Map<String, MetaFieldDTO> fieldMap = new LinkedHashMap<>();
+        fields.forEach(field -> fieldMap.put(field.getFieldName(), toFieldDTO(field)));
         dto.setModelFields(fieldMap);
         return dto;
+    }
+
+    private static String sortName(MetaField field) {
+        String label = field.getLabel();
+        return label == null || label.isBlank() ? field.getFieldName() : label;
     }
 
     private MetadataDtoMapper() { }
