@@ -533,6 +533,25 @@ public interface ModelService<K extends Serializable> {
     List<Map<String, Object>> searchListIgnoringRowScope(String modelName, FlexQuery flexQuery);
 
     /**
+     * {@link #searchList} for a relation expansion that reads more of the related rows than their
+     * labels — a sub-query, or a non-display expansion of a to-many field.
+     *
+     * <p><b>Framework machinery only</b>, like {@link #searchListIgnoringRowScope}. The caller's row range
+     * applies unless the related model has none of its own
+     * ({@link io.softa.framework.orm.service.PermissionService#hasOwnRowScope}): an owned child is crossed
+     * into, because it is as visible as the parent row it hangs off; anything else is read as a direct
+     * read would read it. A sub-query names its own fields, filters and nested sub-queries, so crossing
+     * the range for it would hand out any field of any row the caller is merely shown a reference to.
+     *
+     * <p>A label is not such a read and keeps crossing the range — see {@link #searchName}.
+     *
+     * @param modelName the related model
+     * @param flexQuery a {@link FlexQuery} object defining fields, filters, sorting, etc.
+     * @return the related rows the caller may read
+     */
+    List<Map<String, Object>> searchRelatedRows(String modelName, FlexQuery flexQuery);
+
+    /**
      * Name search within the caller's row range: the display fields plus {@code displayName}.
      * <p>This is what a picker lists candidates through, so it applies the row range like
      * {@link #searchList}. If the result set exceeds {@code MAX_BATCH_SIZE}, an error is logged but no
@@ -545,6 +564,8 @@ public interface ModelService<K extends Serializable> {
     List<Map<String, Object>> searchName(String modelName, FlexQuery flexQuery);
 
     /**
+     * Performs a non-paginated query based on FlexQuery.
+     * <p>If the result set exceeds {@code MAX_BATCH_SIZE}, an error is logged but no exception is thrown.</p>
      * {@link #searchName} without the caller's row range — the field guards still apply.
      *
      * <p><b>Framework machinery only</b>, for the same reason as {@link #searchListIgnoringRowScope}: the
