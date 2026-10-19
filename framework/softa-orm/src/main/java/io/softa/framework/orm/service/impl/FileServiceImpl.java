@@ -51,12 +51,16 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
     private OSSProperties ossProperties;
 
     /**
-     * Generate an OSS key for the file
-     * ModelName is used as the prefix of the OSS key, to store files in different directories
-     * Set the UUID as a part of the OSS key to avoid conflicts between files with the same name
+     * Generate an OSS key for the file: {@code [subDir/][tenantId/]modelName/<uuid>.<ext>}.
+     *
+     * <p>The file's own name is not part of the key, only its extension. Embedded, it made the key as
+     * long as whatever the user's file was called, and a scanned document's name easily pushed it past
+     * {@code FileRecord.ossKey}: the upload failed, and the message quoted the tenant id and the storage
+     * path. The name lives on {@code FileRecord.fileName}, and download and preview URLs hand it to the
+     * browser in {@code Content-Disposition}, so a downloaded file is still saved under it.
      *
      * @param modelName the name of the corresponding business model
-     * @param fileName the name of the file
+     * @param fileName the name of the file, read for its extension only
      * @return the generated OSS key
      */
     public String generateOssKey(String modelName, String fileName) {
@@ -78,9 +82,25 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         } else {
             key.append(FileConstant.DEFAULT_SUBFOLDER).append("/");
         }
-        // Set the UUID as a part of the OSS key
-        key.append(IDGenerator.generateStringId()).append("/").append(fileName);
+        // A generated name, so files with the same name do not collide
+        key.append(IDGenerator.generateStringId()).append(extensionOf(fileName));
         return key.toString();
+    }
+
+    /**
+     * The extension of {@code fileName}, dot included, or empty when it has none. Only a short run of
+     * letters and digits counts: anything else after the last dot is part of the name, not a type.
+     */
+    static String extensionOf(String fileName) {
+        if (StringUtils.isBlank(fileName)) {
+            return "";
+        }
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0 || dot == fileName.length() - 1) {
+            return "";
+        }
+        String extension = fileName.substring(dot + 1);
+        return extension.length() <= 10 && StringUtils.isAlphanumeric(extension) ? "." + extension : "";
     }
 
     /**
