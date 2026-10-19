@@ -32,10 +32,8 @@ import io.softa.framework.orm.enums.OnDelete;
  * <pre>
  * viewStateKey         table|Order|/sales/order|          (view kind | model | route | tab)
  * modelName            Order
- * columnOrder          ["orderNo","customer","orderDate","amount","status","customerId.creditLimit"]
- * hiddenColumns        ["remark"]
- * addedColumns         ["customerId.creditLimit"]
- * freezeColumnIndex    1
+ * columns              [{"id":"orderNo","frozen":true},{"id":"customer"},{"id":"amount"},
+ *                       {"id":"customerId.creditLimit"}]
  * exportFields         ["orderNo","customer","amount"]
  * exportObjectFields   {"lines":["product","quantity","price"]}   (keyed by the collection field)
  * viewSettings         {"sidePanelCollapsed":true}
@@ -90,29 +88,17 @@ public class UserListViewPreference extends AuditableModel {
     @Field(label = "Model", required = true, length = 64)
     private String modelName;
 
-    /** Column ids in display order, as a JSON array. Empty means the list's own order. */
-    @Field(label = "Column Order", fieldType = FieldType.TEXT)
-    private String columnOrder;
-
-    /** Column ids the person hid, as a JSON array. */
-    @Field(label = "Hidden Columns", fieldType = FieldType.TEXT)
-    private String hiddenColumns;
-
     /**
-     * Columns the person added that the list does not declare, as a JSON array of field paths: a field
-     * of the list's model ({@code ipaPosition}) or one level into a one-to-one record
-     * ({@code employeeProfileId.passNumber}). Says only which ones; {@link #columnOrder} says where.
+     * The columns the person shows, left to right, as a JSON array of objects: {@code id}, and
+     * {@code frozen} only when true. Null means not arranged: the list shows its own columns.
      *
-     * <p>Kept apart from the order because the order alone cannot tell an added column from a stale
-     * one: a reader that keeps only the columns the list declares would otherwise drop every column
-     * the person added, the next time the list opens.
+     * <p>Once saved it is the list's columns for this person, whatever the page declares later: a
+     * column the page adds is not shown until they tick it, and one it stops declaring stays while
+     * the field does. Freezing is marked on the columns rather than counted, so a frozen column that
+     * goes does not pull the next one in.
      */
-    @Field(label = "Added Columns", fieldType = FieldType.TEXT)
-    private String addedColumns;
-
-    /** How many leading columns are frozen. */
-    @Field(label = "Freeze Column Index")
-    private Integer freezeColumnIndex;
+    @Field(label = "Columns", fieldType = FieldType.TEXT)
+    private String columns;
 
     /** Dynamic Export fields in export order, as a JSON array. */
     @Field(label = "Export Fields", fieldType = FieldType.TEXT)

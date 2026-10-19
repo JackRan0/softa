@@ -14,6 +14,7 @@ import org.mockito.MockedStatic;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.starter.user.dto.UserListViewPreferenceDTO;
+import io.softa.starter.user.dto.UserListViewPreferenceDTO.Column;
 import io.softa.starter.user.entity.UserListViewPreference;
 
 import io.softa.framework.base.context.Context;
@@ -60,6 +61,7 @@ class UserListViewPreferenceServiceImplTest {
         field(EMPLOYEE, "employeeProfileId", FieldType.ONE_TO_ONE, PROFILE, null);
         field(EMPLOYEE, "departmentId", FieldType.MANY_TO_ONE, "Department", null);
         field(EMPLOYEE, "ipaPosition", FieldType.STRING, null, List.of("SG"));
+        field(EMPLOYEE, "salary", FieldType.BIG_DECIMAL, null, null);
         field(PROFILE, "passNumber", FieldType.STRING, null, null);
         field(PROFILE, "idNumber", FieldType.STRING, null, null);
         field(PROFILE, "kiwiSaverStatus", FieldType.STRING, null, List.of("NZ"));
@@ -86,14 +88,12 @@ class UserListViewPreferenceServiceImplTest {
     @Test
     void dropsTheFieldsTheReaderMayNotReadAndKeepsTheOrderOfTheRest() {
         UserListViewPreferenceDTO dto = arrangement();
-        dto.setColumnOrder(List.of("fullName", "salary", "code"));
-        dto.setHiddenColumns(List.of("salary"));
+        dto.setColumns(columns("fullName", "salary", "code"));
         dto.setExportFields(List.of("salary", "fullName", "code"));
 
         UserListViewPreferenceDTO out = service.readable(dto);
 
-        assertThat(out.getColumnOrder()).containsExactly("fullName", "code");
-        assertThat(out.getHiddenColumns()).isEmpty();
+        assertThat(ids(out)).containsExactly("fullName", "code");
         assertThat(out.getExportFields()).containsExactly("fullName", "code");
     }
 
@@ -123,7 +123,7 @@ class UserListViewPreferenceServiceImplTest {
         // Null means "not part of this save", so the export dialog's save cannot wipe the columns.
         UserListViewPreferenceDTO out = service.readable(arrangement());
 
-        assertThat(out.getColumnOrder()).isNull();
+        assertThat(out.getColumns()).isNull();
         assertThat(out.getExportFields()).isNull();
         assertThat(out.getExportObjectFields()).isNull();
     }
@@ -161,17 +161,13 @@ class UserListViewPreferenceServiceImplTest {
     }
 
     @Test
-    void anAddedColumnOneLevelIntoAOneToOneRecordIsCheckedAgainstThatRecordsModel() {
+    void aColumnOneLevelIntoAOneToOneRecordIsCheckedAgainstThatRecordsModel() {
         // The list's model knows nothing of the profile's sensitive sets: checked against Employee
         // alone, employeeProfileId.idNumber would pass because no Employee field of that name exists.
         UserListViewPreferenceDTO dto = arrangement();
-        dto.setAddedColumns(List.of("employeeProfileId.passNumber", "employeeProfileId.idNumber"));
-        dto.setColumnOrder(List.of("fullName", "employeeProfileId.passNumber", "employeeProfileId.idNumber"));
+        dto.setColumns(columns("fullName", "employeeProfileId.passNumber", "employeeProfileId.idNumber"));
 
-        UserListViewPreferenceDTO out = service.readable(dto);
-
-        assertThat(out.getAddedColumns()).containsExactly("employeeProfileId.passNumber");
-        assertThat(out.getColumnOrder()).containsExactly("fullName", "employeeProfileId.passNumber");
+        assertThat(ids(service.readable(dto))).containsExactly("fullName", "employeeProfileId.passNumber");
     }
 
     @Test
@@ -185,28 +181,27 @@ class UserListViewPreferenceServiceImplTest {
     }
 
     @Test
-    void aPathThroughAnythingButOneOneToOneLinkNamesNoColumn() {
+    void anIdTheMetadataCannotJudgeIsLeftForTheListToJudge() {
+        // A cascaded path the page declares, a pivot column, a field since removed: the list shows a
+        // column only where it can still render one. Dropping them here would hide a declared column.
         UserListViewPreferenceDTO dto = arrangement();
-        dto.setAddedColumns(List.of(
-                "departmentId.name",                          // many-to-one: not this feature's
-                "employeeProfileId.passNumber.length",        // two levels
-                "employeeProfileId.retired",                  // a field the record no longer has
-                "retiredField"));                             // a field the list no longer has
+        dto.setColumns(columns("departmentId.name", "pivot:2026", "employeeProfileId.retired", "retiredField"));
 
-        assertThat(service.readable(dto).getAddedColumns()).isEmpty();
+        assertThat(ids(service.readable(dto)))
+                .containsExactly("departmentId.name", "pivot:2026", "employeeProfileId.retired", "retiredField");
     }
 
     @Test
     void aColumnOnlyOtherCountriesUseIsNotTheCallers() {
         UserListViewPreferenceDTO dto = arrangement();
-        dto.setAddedColumns(List.of("ipaPosition", "employeeProfileId.kiwiSaverStatus"));
+        dto.setColumns(columns("ipaPosition", "employeeProfileId.kiwiSaverStatus"));
 
-        assertThat(asCallerIn(Set.of("NZ"), () -> service.readable(copy(dto)).getAddedColumns()))
+        assertThat(asCallerIn(Set.of("NZ"), () -> ids(service.readable(copy(dto)))))
                 .containsExactly("employeeProfileId.kiwiSaverStatus");
-        assertThat(asCallerIn(Set.of("SG", "NZ"), () -> service.readable(copy(dto)).getAddedColumns()))
+        assertThat(asCallerIn(Set.of("SG", "NZ"), () -> ids(service.readable(copy(dto)))))
                 .containsExactly("ipaPosition", "employeeProfileId.kiwiSaverStatus");
         // Countries unknown: not narrowed, the same reading the value lists make.
-        assertThat(asCallerIn(null, () -> service.readable(copy(dto)).getAddedColumns()))
+        assertThat(asCallerIn(null, () -> ids(service.readable(copy(dto)))))
                 .containsExactly("ipaPosition", "employeeProfileId.kiwiSaverStatus");
     }
 
@@ -239,21 +234,32 @@ class UserListViewPreferenceServiceImplTest {
     }
 
     @Test
-    void keepsUnseenEntriesOfEveryColumnListButOnlyForThePartsBeingSaved() {
+    void anUnseenColumnGoesBackAsItWasStoredFrozenIncluded() {
         UserListViewPreferenceDTO stored = arrangement();
-        stored.setColumnOrder(List.of("fullName", "kiwi"));
-        stored.setHiddenColumns(List.of("kiwi"));
-        stored.setAddedColumns(List.of("kiwi"));
+        stored.setColumns(List.of(column("fullName", true), column("kiwi", true), column("code", false)));
         UserListViewPreferenceDTO incoming = arrangement();
-        incoming.setColumnOrder(List.of("fullName", "passNo"));
-        incoming.setAddedColumns(List.of("passNo"));
+        incoming.setColumns(List.of(column("fullName", true), column("code", false), column("passNo", false)));
 
         UserListViewPreferenceServiceImpl.keepUnseen(incoming, stored, Set.of("kiwi")::contains);
 
-        assertThat(incoming.getColumnOrder()).containsExactly("fullName", "kiwi", "passNo");
-        assertThat(incoming.getAddedColumns()).containsExactly("passNo", "kiwi");
-        // Not sent, not touched: the stored hidden list stays as it is.
-        assertThat(incoming.getHiddenColumns()).isNull();
+        assertThat(ids(incoming)).containsExactly("fullName", "kiwi", "code", "passNo");
+        assertThat(incoming.getColumns().get(1).getFrozen()).isTrue();
+        // Not sent, not touched: the export fields stay as stored.
+        assertThat(incoming.getExportFields()).isNull();
+    }
+
+    @Test
+    void columnsAreKeptInCanonicalForm() {
+        List<Column> sent = new ArrayList<>(List.of(column("code", true), column("fullName", false), column("code", false)));
+
+        List<Column> out = UserListViewPreferenceServiceImpl.normalized(sent);
+
+        assertThat(out).extracting(Column::getId).containsExactly("code", "fullName");
+        assertThat(out.get(0).getFrozen()).isTrue();
+        // False is not stored: a flag is true or absent.
+        assertThat(out.get(1).getFrozen()).isNull();
+        assertThatThrownBy(() -> UserListViewPreferenceServiceImpl.normalized(List.of(column(" ", false))))
+                .isInstanceOf(BusinessException.class);
     }
 
     @Test
@@ -289,8 +295,23 @@ class UserListViewPreferenceServiceImplTest {
 
     private static UserListViewPreferenceDTO copy(UserListViewPreferenceDTO dto) {
         UserListViewPreferenceDTO out = arrangement();
-        out.setAddedColumns(dto.getAddedColumns());
+        out.setColumns(dto.getColumns());
         return out;
+    }
+
+    private static Column column(String id, boolean frozen) {
+        Column column = new Column();
+        column.setId(id);
+        column.setFrozen(frozen ? Boolean.TRUE : null);
+        return column;
+    }
+
+    private static List<Column> columns(String... ids) {
+        return java.util.Arrays.stream(ids).map(id -> column(id, false)).toList();
+    }
+
+    private static List<String> ids(UserListViewPreferenceDTO dto) {
+        return dto.getColumns().stream().map(Column::getId).toList();
     }
 
     private static List<String> without(Collection<String> names, Set<String> blocked) {
@@ -303,7 +324,7 @@ class UserListViewPreferenceServiceImplTest {
         // of the other part would undo that other save.
         UserListViewPreference stored = new UserListViewPreference();
         stored.setId(7L);
-        stored.setColumnOrder("[\"code\"]");
+        stored.setColumns("[{\"id\":\"code\"}]");
         stored.setViewSettings("{\"sidePanelCollapsed\":true,\"density\":\"compact\"}");
         UserListViewPreferenceDTO incoming = new UserListViewPreferenceDTO();
         incoming.setModelName(EMPLOYEE);
@@ -332,14 +353,14 @@ class UserListViewPreferenceServiceImplTest {
         UserListViewPreference row = new UserListViewPreference();
         row.setViewStateKey("table|Employee|/e|");
         row.setModelName(EMPLOYEE);
-        row.setColumnOrder("[\"code\"");
-        row.setHiddenColumns("[\"remark\"]");
+        row.setColumns("[{\"id\":\"code\"");
+        row.setExportFields("[\"remark\"]");
         row.setViewSettings("{not json");
 
         UserListViewPreferenceDTO dto = UserListViewPreferenceServiceImpl.toDto(row);
 
-        assertThat(dto.getColumnOrder()).isNull();
+        assertThat(dto.getColumns()).isNull();
         assertThat(dto.getViewSettings()).isNull();
-        assertThat(dto.getHiddenColumns()).containsExactly("remark");
+        assertThat(dto.getExportFields()).containsExactly("remark");
     }
 }

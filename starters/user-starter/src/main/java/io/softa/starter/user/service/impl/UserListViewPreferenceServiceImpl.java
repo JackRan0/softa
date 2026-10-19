@@ -2,10 +2,12 @@ package io.softa.starter.user.service.impl;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -25,6 +27,7 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.user.dto.UserListViewPreferenceDTO;
+import io.softa.starter.user.dto.UserListViewPreferenceDTO.Column;
 import io.softa.starter.user.entity.UserListViewPreference;
 import io.softa.starter.user.service.UserListViewPreferenceService;
 
@@ -45,6 +48,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
 
     private static final String MODEL = "UserListViewPreference";
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
+    private static final TypeReference<List<Column>> COLUMN_LIST = new TypeReference<>() {};
     private static final TypeReference<Map<String, List<String>>> STRING_LIST_MAP = new TypeReference<>() {};
     private static final TypeReference<Map<String, Object>> OBJECT_MAP = new TypeReference<>() {};
 
@@ -130,10 +134,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             Map<String, Object> cleared = new LinkedHashMap<>();
             cleared.put("id", row.getId());
             if (columns) {
-                cleared.put("columnOrder", null);
-                cleared.put("hiddenColumns", null);
-                cleared.put("addedColumns", null);
-                cleared.put("freezeColumnIndex", null);
+                cleared.put("columns", null);
             }
             if (export) {
                 cleared.put("exportFields", null);
@@ -143,10 +144,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
                 cleared.put("viewSettings", null);
             }
             if (columns) {
-                row.setColumnOrder(null);
-                row.setHiddenColumns(null);
-                row.setAddedColumns(null);
-                row.setFreezeColumnIndex(null);
+                row.setColumns(null);
             }
             if (export) {
                 row.setExportFields(null);
@@ -185,10 +183,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", existing.getId());
         row.put("modelName", patch.getModelName());
-        if (incoming.getColumnOrder() != null) row.put("columnOrder", patch.getColumnOrder());
-        if (incoming.getHiddenColumns() != null) row.put("hiddenColumns", patch.getHiddenColumns());
-        if (incoming.getAddedColumns() != null) row.put("addedColumns", patch.getAddedColumns());
-        if (incoming.getFreezeColumnIndex() != null) row.put("freezeColumnIndex", patch.getFreezeColumnIndex());
+        if (incoming.getColumns() != null) row.put("columns", patch.getColumns());
         if (incoming.getExportFields() != null) row.put("exportFields", patch.getExportFields());
         if (incoming.getExportObjectFields() != null) row.put("exportObjectFields", patch.getExportObjectFields());
         if (incoming.getViewSettings() != null) row.put("viewSettings", patch.getViewSettings());
@@ -198,10 +193,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
     /** {@code row} with the parts {@code incoming} carries laid over it; the parts it omits kept. */
     private static UserListViewPreference applied(UserListViewPreference row, UserListViewPreferenceDTO incoming) {
         row.setModelName(incoming.getModelName());
-        if (incoming.getColumnOrder() != null) row.setColumnOrder(JsonUtils.objectToString(incoming.getColumnOrder()));
-        if (incoming.getHiddenColumns() != null) row.setHiddenColumns(JsonUtils.objectToString(incoming.getHiddenColumns()));
-        if (incoming.getAddedColumns() != null) row.setAddedColumns(JsonUtils.objectToString(incoming.getAddedColumns()));
-        if (incoming.getFreezeColumnIndex() != null) row.setFreezeColumnIndex(Math.max(0, incoming.getFreezeColumnIndex()));
+        if (incoming.getColumns() != null) row.setColumns(JsonUtils.objectToString(incoming.getColumns()));
         if (incoming.getExportFields() != null) row.setExportFields(JsonUtils.objectToString(incoming.getExportFields()));
         if (incoming.getExportObjectFields() != null) {
             row.setExportObjectFields(JsonUtils.objectToString(incoming.getExportObjectFields()));
@@ -213,8 +205,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
     }
 
     private static boolean isEmpty(UserListViewPreference row) {
-        return row.getColumnOrder() == null && row.getHiddenColumns() == null && row.getAddedColumns() == null
-                && row.getFreezeColumnIndex() == null
+        return row.getColumns() == null
                 && row.getExportFields() == null && row.getExportObjectFields() == null
                 && row.getViewSettings() == null;
     }
@@ -234,9 +225,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         if (model == null || !ModelManager.existModel(model)) {
             return dto;
         }
-        dto.setColumnOrder(visibleColumns(model, dto.getColumnOrder()));
-        dto.setHiddenColumns(visibleColumns(model, dto.getHiddenColumns()));
-        dto.setAddedColumns(visibleAdded(model, dto.getAddedColumns()));
+        dto.setColumns(visibleColumns(model, dto.getColumns()));
         dto.setExportFields(exportable(model, dto.getExportFields()));
         Map<String, List<String>> objects = dto.getExportObjectFields();
         if (objects != null) {
@@ -323,34 +312,29 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
     }
 
     /**
-     * The column ids of the order or the hidden list the caller may see. A plain id that is not a field
-     * is kept as it is — a list can have columns of its own (a pivot column, say) that only the list
-     * can judge — and a plain field id goes through the readability check as one batch.
+     * The columns less those the caller may not see right now. Only what the metadata can judge is
+     * dropped: a field of the model the caller may not read or whose countries are not theirs, and a
+     * field one level into a one-to-one record the same way. Any other id — a column of the list's
+     * own such as a pivot column, a cascaded path the page declares, a field since removed — is kept
+     * as it is for the list to judge: it shows a column only where it can still render one.
      */
-    private List<String> visibleColumns(String model, List<String> ids) {
-        if (ids == null) {
+    private List<Column> visibleColumns(String model, List<Column> columns) {
+        if (columns == null) {
             return null;
         }
-        List<String> plain = ids.stream().filter(id -> id.indexOf('.') < 0).toList();
+        List<String> plain = columns.stream().map(Column::getId).filter(id -> id.indexOf('.') < 0).toList();
         Set<String> readable = Set.copyOf(readableOf(model, plain));
-        List<String> out = new ArrayList<>(ids.size());
-        for (String id : ids) {
+        List<Column> out = new ArrayList<>(columns.size());
+        for (Column column : columns) {
+            String id = column.getId();
             if (id.indexOf('.') >= 0) {
-                if (stateOf(model, id) == PathState.VISIBLE) out.add(id);
+                if (stateOf(model, id) != PathState.UNSEEN) out.add(column);
                 continue;
             }
             MetaField field = ModelManager.getModelFieldOrNull(model, id);
-            if (readable.contains(id) && (field == null || inMyCountries(field))) out.add(id);
+            if (field == null || (readable.contains(id) && inMyCountries(field))) out.add(column);
         }
         return out;
-    }
-
-    /** Added columns are always field paths, so each must still name a field the caller may see. */
-    private List<String> visibleAdded(String model, List<String> paths) {
-        if (paths == null) {
-            return null;
-        }
-        return paths.stream().filter(path -> stateOf(model, path) == PathState.VISIBLE).toList();
     }
 
     /** Whether a stored column is still a column, just not one the caller can see right now. */
@@ -386,14 +370,9 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
      * see; only the second is kept. A column that no longer exists is neither, and goes.
      */
     static void keepUnseen(UserListViewPreferenceDTO incoming, UserListViewPreferenceDTO stored, Predicate<String> unseen) {
-        if (incoming.getColumnOrder() != null) {
-            incoming.setColumnOrder(reinserted(stored.getColumnOrder(), incoming.getColumnOrder(), unseen));
-        }
-        if (incoming.getHiddenColumns() != null) {
-            incoming.setHiddenColumns(kept(stored.getHiddenColumns(), incoming.getHiddenColumns(), unseen));
-        }
-        if (incoming.getAddedColumns() != null) {
-            incoming.setAddedColumns(kept(stored.getAddedColumns(), incoming.getAddedColumns(), unseen));
+        if (incoming.getColumns() != null) {
+            // Put back as stored, frozen or not: it is the column the person last arranged.
+            incoming.setColumns(reinserted(stored.getColumns(), incoming.getColumns(), Column::getId, unseen));
         }
         // An export field is a column of the sheet: one the caller cannot see now keeps its place too.
         if (incoming.getExportFields() != null) {
@@ -407,33 +386,31 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
      * order, so a run of unseen columns keeps its own order.
      */
     static List<String> reinserted(List<String> stored, List<String> incoming, Predicate<String> unseen) {
-        List<String> out = new ArrayList<>(incoming);
+        return reinserted(stored, incoming, Function.identity(), unseen);
+    }
+
+    /** {@link #reinserted(List, List, Predicate)} for entries named by {@code idOf}. */
+    static <T> List<T> reinserted(List<T> stored, List<T> incoming, Function<T, String> idOf, Predicate<String> unseen) {
+        List<T> out = new ArrayList<>(incoming);
         if (stored == null) {
             return out;
         }
+        List<String> ids = new ArrayList<>(incoming.stream().map(idOf).toList());
         for (int i = 0; i < stored.size(); i++) {
-            String id = stored.get(i);
-            if (out.contains(id) || !unseen.test(id)) {
+            String id = idOf.apply(stored.get(i));
+            if (ids.contains(id) || !unseen.test(id)) {
                 continue;
             }
             int at = 0;
             for (int j = i - 1; j >= 0; j--) {
-                int k = out.indexOf(stored.get(j));
+                int k = ids.indexOf(idOf.apply(stored.get(j)));
                 if (k >= 0) {
                     at = k + 1;
                     break;
                 }
             }
-            out.add(at, id);
-        }
-        return out;
-    }
-
-    /** {@code incoming} plus the unseen stored entries it does not hold. */
-    static List<String> kept(List<String> stored, List<String> incoming, Predicate<String> unseen) {
-        List<String> out = new ArrayList<>(incoming);
-        if (stored != null) {
-            stored.stream().filter(id -> !out.contains(id) && unseen.test(id)).forEach(out::add);
+            out.add(at, stored.get(i));
+            ids.add(at, id);
         }
         return out;
     }
@@ -472,9 +449,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
 
     /** Refuse what no real list produces, so a row cannot be used to store anything else. */
     private static UserListViewPreferenceDTO bounded(UserListViewPreferenceDTO dto) {
-        checkNames(dto.getColumnOrder());
-        checkNames(dto.getHiddenColumns());
-        checkNames(dto.getAddedColumns());
+        dto.setColumns(normalized(dto.getColumns()));
         checkNames(dto.getExportFields());
         if (dto.getViewSettings() != null) {
             dto.getViewSettings().keySet().forEach(UserListViewPreferenceServiceImpl::checkName);
@@ -489,6 +464,29 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             });
         }
         return dto;
+    }
+
+    /** The columns checked and in canonical form: each id once (the first wins), {@code frozen} true or absent. */
+    static List<Column> normalized(List<Column> columns) {
+        if (columns == null) {
+            return null;
+        }
+        if (columns.size() > MAX_NAMES) {
+            throw new BusinessException("Too many fields in the arrangement.");
+        }
+        Set<String> seen = new HashSet<>();
+        List<Column> out = new ArrayList<>(columns.size());
+        for (Column column : columns) {
+            checkName(column == null ? null : column.getId());
+            if (!seen.add(column.getId())) {
+                continue;
+            }
+            Column clean = new Column();
+            clean.setId(column.getId());
+            clean.setFrozen(Boolean.TRUE.equals(column.getFrozen()) ? Boolean.TRUE : null);
+            out.add(clean);
+        }
+        return out;
     }
 
     private static void checkNames(List<String> names) {
@@ -511,10 +509,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         UserListViewPreferenceDTO dto = new UserListViewPreferenceDTO();
         dto.setViewStateKey(row.getViewStateKey());
         dto.setModelName(row.getModelName());
-        dto.setColumnOrder(parseList(row.getColumnOrder()));
-        dto.setHiddenColumns(parseList(row.getHiddenColumns()));
-        dto.setAddedColumns(parseList(row.getAddedColumns()));
-        dto.setFreezeColumnIndex(row.getFreezeColumnIndex());
+        dto.setColumns(parsed(row.getColumns(), COLUMN_LIST));
         dto.setExportFields(parseList(row.getExportFields()));
         dto.setExportObjectFields(parsed(row.getExportObjectFields(), STRING_LIST_MAP));
         dto.setViewSettings(parsed(row.getViewSettings(), OBJECT_MAP));

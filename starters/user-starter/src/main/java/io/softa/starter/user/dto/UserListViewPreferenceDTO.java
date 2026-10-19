@@ -3,6 +3,7 @@ package io.softa.starter.user.dto;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
 /**
@@ -18,17 +19,12 @@ public class UserListViewPreferenceDTO {
 
     private String modelName;
 
-    private List<String> columnOrder;
-
-    private List<String> hiddenColumns;
-
     /**
-     * Columns the person added that the list does not declare — field paths, at most one level into a
-     * one-to-one record. Which ones only; {@link #columnOrder} carries their place.
+     * The columns the person shows, left to right. Once saved it is the list's columns for them: a
+     * column the page adds later is not shown until they tick it, and one the page stops declaring
+     * stays while the field does.
      */
-    private List<String> addedColumns;
-
-    private Integer freezeColumnIndex;
+    private List<Column> columns;
 
     private List<String> exportFields;
 
@@ -41,4 +37,18 @@ public class UserListViewPreferenceDTO {
      * carrying the others.
      */
     private Map<String, Object> viewSettings;
+
+    /** One shown column. */
+    @Data
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class Column {
+
+        /** A field of the list's model ({@code code}), one level into a one-to-one record
+         *  ({@code employeeProfileId.passType}), or a column of the list's own such as a pivot column. */
+        private String id;
+
+        /** True when frozen, otherwise absent. The list freezes up to the last frozen column it still
+         *  shows, so a frozen column that goes does not pull the next one in. */
+        private Boolean frozen;
+    }
 }
