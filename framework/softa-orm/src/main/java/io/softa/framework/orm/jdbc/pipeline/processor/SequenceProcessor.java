@@ -83,7 +83,8 @@ public class SequenceProcessor extends BaseProcessor {
             if (isBlank(value)) {
                 blanks.add(row);
             } else {
-                claimed.add(value.toString());
+                // Trimmed as the string processor will store it, later in this same create.
+                claimed.add(value.toString().trim());
             }
         }
         if (metaField.isReadonly() && blanks.size() < rows.size()) {

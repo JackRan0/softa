@@ -158,7 +158,11 @@ public class CompanyAbbreviationResolver {
         return ContextHolder.callWith(system, () -> modelService.searchList(model, query));
     }
 
+    /**
+     * Trimmed: a company being created is numbered before its own fields are trimmed, so its
+     * abbreviation arrives here as typed.
+     */
     private static String text(Object value) {
-        return value instanceof CharSequence cs && !StringUtils.isBlank(cs) ? cs.toString() : null;
+        return value instanceof CharSequence cs && !StringUtils.isBlank(cs) ? cs.toString().trim() : null;
     }
 }

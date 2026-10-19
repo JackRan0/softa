@@ -104,6 +104,13 @@ class CompanyAbbreviationResolverTest {
     }
 
     @Test
+    @DisplayName("an abbreviation typed with spaces around it is used trimmed, as it will be stored")
+    void selfPathTrimmed() {
+        List<String> out = resolve(COMPANY, List.of(row("abbreviation", " ZK ")));
+        assertThat(out).containsExactly("ZK");
+    }
+
+    @Test
     @DisplayName("one hop: the company id is on the record; one query for the whole batch")
     void oneHop() {
         rows(COMPANY, List.of(row("id", 9001L, "abbreviation", "ZK"), row("id", 9002L, "abbreviation", "HF")));

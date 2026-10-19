@@ -187,8 +187,9 @@ class SequenceProcessorTest {
     @Test
     void batch_oneBlankBesideAHandTypedValue_stillTellsTheServiceAboutIt() {
         // A single blank would normally take the next() fast path, but next() cannot see the value
-        // typed into the other row — it is not in the table yet. The batch path carries it.
-        Map<String, Object> given = row("ZK1000030");
+        // typed into the other row — it is not in the table yet. The batch path carries it, trimmed
+        // as it will be stored.
+        Map<String, Object> given = row(" ZK1000030 ");
         Map<String, Object> blank = row(null);
         when(sequenceService.nextBatch(eq(CODE), anyList(), anyCollection())).thenReturn(List.of("ZK1000031"));
         new SequenceProcessor(stringField(false), AccessType.CREATE, sequenceService)
