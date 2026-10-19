@@ -60,6 +60,7 @@ hops through `profileId` first.
 | `UserAuthProvider` | Social identity link | `userId`, `provider` (`APPLE`/`GOOGLE`/`TIKTOK`/`X`/`LINKEDIN`), `providerUserId` |
 | `UserLoginHistory` | Login audit | `userId`, `loginMethod`, `ipAddress`, `userAgent`, `location`, `status` |
 | `UserAuthFailure` | Failed-auth audit | `userId`, `failureReason`, `ipAddress`, `userAgent` |
+| `UserListViewPreference` | One person's arrangement of one list (see [List arrangements](#list-arrangements)) | `userId`, `viewStateKey`, `modelName`, `columns`, `exportFields`, `exportObjectFields`, `viewSettings` |
 
 ## Authentication & security
 
@@ -168,6 +169,63 @@ employees whose `employeeProfileId.employmentType` is not Contractor). It narrow
 on the model and nothing else: with permission-starter each role answers for itself, so a condition on
 one role never narrows what another role grants. The role wizard saves menus, data scopes (with their
 conditions) and sensitive field sets as separate fields of `WizardSaveDTO`, each replacing the stored rows.
+
+## List arrangements
+
+`UserListViewPreference` keeps what a person did to a list — its columns, the columns they added,
+their Dynamic Export fields and the list's other view state — on their account, one row per
+membership and list. The list is named by the client's view-state key (`viewStateKey`), which the
+server compares and never parses. The client builds it as `<view kind>|<model>|<route>|<tab>` —
+the kind of view (`table`, `card`, `board`), the model it lists, the page's path as the browser has
+it, and the active tab of a tabbed page (empty when there is none, so the key ends in `|`):
+
+| `viewStateKey` | The list |
+|---|---|
+| `table\|Order\|/sales/order\|` | The order list, a page without tabs |
+| `table\|Order\|/sales/order\|pending` | The same page's "pending" tab — its own row |
+| `table\|Order\|/sales/order\|shipped` | Its "shipped" tab — another row |
+| `card\|Order\|/sales/order\|` | The same orders shown as cards — another row |
+| `board\|Task\|/projects/task\|` | A kanban board of tasks |
+| `table\|OrderLine\|/sales/order/42\|` | A list inside the page of order 42: the path carries the id, so order 43's page keeps an arrangement of its own |
+
+| Part | Holds |
+|---|---|
+| `columns` | The columns the person shows, left to right: `[{"id":"fullName","frozen":true},{"id":"code"},{"id":"employeeProfileId.passType"}]`. An id is a field of the list's model, a field one level into a one-to-one record, or a column of the list's own (a pivot column, a cascaded path the page declares); `frozen` is present only when true |
+| `exportFields` / `exportObjectFields` | Dynamic Export fields in order, and each related object's, keyed by its collection field |
+| `viewSettings` | Other view state (`sidePanelCollapsed` …), saved key by key; a key sent as `null` is removed |
+
+`UserListViewPreferenceController` (`/UserListViewPreference/*`) has only three endpoints —
+`getMyPreference`, `saveMyPreference`, `resetMyPreference` (`part = columns | export | settings`,
+all when omitted) — and acts on the caller's own row only. The host registers them in
+`permission.authenticated-bypass-patterns`. Every generic model endpoint (`/UserListViewPreference/searchPage`,
+`updateOne`, `deleteByIds` …) is declared by the controller too, and refused: left to the generic
+`/{modelName}/...` they would serve anyone's row to an admin's permission bypass.
+Endpoints that take the model as a parameter rather than in the path — Dynamic Export
+(`/export/dynamicExport?modelName=…`) and, with es-starter, the change log (`/ChangeLog/*`) — are
+not covered: a caller who holds read or export on the model, an admin through the bypass, can still
+read others' arrangements there, though not change them.
+
+**A saved name is never a grant.** Every read and save drops what the caller may not see now: a
+field of the list's model by the model's sensitive sets, a related object's field by that object's
+model, and a dotted path in two steps — the one-to-one field by the list's model, the leaf by the
+record's model and the caller's countries. A column id the metadata cannot judge — a
+cascaded path, a column of the list's own such as a pivot column, a field since removed — is kept as
+it is for the list to judge: it shows a column only where it can still render one. In the export lists
+a path that is not one level into a one-to-one record is dropped, as is a field the metadata no longer has.
+
+**Once saved, the columns are the person's.** Whatever the page declares later does not change them:
+a column the page adds is not shown until the person ticks it, and one it stops declaring stays while
+the field does. Freezing is marked on the columns, not counted, so a frozen column that goes does not
+pull the next one in. Without saved columns, or after a reset, the list shows its own.
+
+**Not seeing is not deleting.** A column — or an export field — the caller cannot see *right now* (a
+sensitive set withdrawn, a country no longer theirs) is not erased by their next save: it is put back
+after the nearest one it followed, so it returns to its place when they can see it again.
+
+**A save writes only the parts it carries**, and a reset only the parts it clears: the side tree and
+the columns of one page save at once, and writing the whole row back would undo the other's save.
+
+Limits: 500 names per list (columns included), 128 characters per name, 4000 characters of `viewSettings`.
 
 ## Programmatic API
 
