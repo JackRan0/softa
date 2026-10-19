@@ -25,18 +25,19 @@ class MetadataDtoMapperTest {
     }
 
     @Test
-    void listsTheFieldsInTheOrderTheyWereCatalogued() {
+    void listsTheFieldsByNameIgnoringCase() {
         MetaModel model = Mockito.mock(MetaModel.class);
         Mockito.when(model.getModelName()).thenReturn("Customer");
         // The registry hands them back in no particular order.
         List<MetaField> fields = List.of(
-                field(30L, "email"), field(null, "draft"), field(10L, "code"), field(20L, "name"));
+                field(30L, "email"), field(null, "draft"), field(10L, "code"), field(20L, "confirmResult"),
+                field(40L, "confirmationStatus"));
         try (MockedStatic<ModelManager> manager = Mockito.mockStatic(ModelManager.class)) {
             manager.when(() -> ModelManager.getModel("Customer")).thenReturn(model);
             manager.when(() -> ModelManager.getModelFields("Customer")).thenReturn(fields);
 
             assertThat(MetadataDtoMapper.toModelDTO("Customer").getModelFields().keySet())
-                    .containsExactly("code", "name", "email", "draft");
+                    .containsExactly("code", "confirmationStatus", "confirmResult", "draft", "email");
         }
     }
 }

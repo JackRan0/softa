@@ -67,11 +67,11 @@ public final class MetadataDtoMapper {
         dto.setVersionLock(metaModel.isVersionLock());
         dto.setCopyable(metaModel.isCopyable());
         dto.setProjection(metaModel.isProjection());
-        // In the order the fields were catalogued — the order a model declares them, with fields added
-        // since following on — so a client listing the model's fields shows them the way it is written.
-        // The registry holds them unordered.
+        // By field name, ignoring case, so a client listing the model's fields gets one stable order
+        // however the model was written or grown. The registry holds them unordered.
         List<MetaField> fields = ModelManager.getModelFields(modelName).stream()
-                .sorted(Comparator.comparing(MetaField::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .sorted(Comparator.comparing(MetaField::getFieldName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(MetaField::getFieldName))
                 .toList();
         Map<String, MetaFieldDTO> fieldMap = new LinkedHashMap<>();
         fields.forEach(field -> fieldMap.put(field.getFieldName(), toFieldDTO(field)));
