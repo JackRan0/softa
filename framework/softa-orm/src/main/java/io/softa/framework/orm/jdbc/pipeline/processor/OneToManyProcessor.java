@@ -348,7 +348,9 @@ public class OneToManyProcessor extends BaseProcessor {
         applyAcrossTimeline(relatedFlexQuery);
         // Count is automatically added during the groupBy operation
         relatedFlexQuery.setGroupBy(metaField.getRelatedField());
-        List<Map<String, Object>> countRows = ReflectTool.searchListIgnoringRowScope(metaField.getRelatedModel(), relatedFlexQuery);
+        // Counted as the rows would be read: the subQuery's filters are the caller's, and a count over rows
+        // outside their range would answer questions about them one filter at a time.
+        List<Map<String, Object>> countRows = ReflectTool.searchRelatedRows(metaField.getRelatedModel(), relatedFlexQuery);
         // COUNT(*) comes back from MySQL JDBC as Long. The previous
         // `(Integer)` cast threw ClassCastException on rows whose count
         // exceeded int width or whose JDBC driver typed BIGINT explicitly.
@@ -374,7 +376,7 @@ public class OneToManyProcessor extends BaseProcessor {
         relatedFlexQuery.setConvertType(ConvertType.REFERENCE);
         relatedFlexQuery.select(metaField.getRelatedField());
         relatedFlexQuery.setKeepIdField(metaField.getRelatedField());
-        return ReflectTool.searchName(metaField.getRelatedModel(), relatedFlexQuery);
+        return ReflectTool.searchNameIgnoringRowScope(metaField.getRelatedModel(), relatedFlexQuery);
     }
 
     /** Lifts the as-of clamp when the sub query asked for every slice. See {@link SubQuery#getAcrossTimeline()}. */
@@ -427,7 +429,9 @@ public class OneToManyProcessor extends BaseProcessor {
         // When get the related model rows of OneToMany field, the `relatedField` field of the related model is only
         // needed to get the ID for GroupBy, which might be a ManyToOne field defined in the related model.
         relatedFlexQuery.setKeepIdField(metaField.getRelatedField());
-        return ReflectTool.searchListIgnoringRowScope(metaField.getRelatedModel(), relatedFlexQuery);
+        // More than labels — the subQuery's fields, or every field: the caller's row range applies unless the
+        // related model is an owned child, visible through the parent row being expanded.
+        return ReflectTool.searchRelatedRows(metaField.getRelatedModel(), relatedFlexQuery);
     }
 
     /**

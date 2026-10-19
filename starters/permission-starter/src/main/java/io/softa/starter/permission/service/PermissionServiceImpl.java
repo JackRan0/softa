@@ -17,6 +17,7 @@ import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.FilterType;
 import io.softa.framework.orm.enums.LogicOperator;
+import io.softa.framework.orm.enums.OnDelete;
 import io.softa.framework.orm.meta.MetaField;
 import org.apache.commons.lang3.StringUtils;
 
@@ -45,10 +46,12 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -686,6 +689,37 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>True for whatever would bound the model's rows before {@link #scopeWithoutGrant} reaches for an
+     * owner: a forward anchor, a declared scope, the company axis, or a rule some role of the caller holds
+     * for it. What is left is a model reachable only through the row that owns it — exactly the shape
+     * whose direct read either follows that owner or fails closed — and a relation expansion is already
+     * standing on that owner's row.
+     *
+     * <p>An anchored child is not lost by answering true: read under the range, a one-to-many child of a
+     * granted model still follows its owner ({@link #followOwner}), so the sub-rows of a row the caller
+     * sees come back, and those of a row they do not, do not.
+     *
+     * <p>False where the range would add nothing — no bound context, a bypass, full data access — so the
+     * expansion is not routed through a scope computation it does not need.
+     */
+    @Override
+    public boolean hasOwnRowScope(String model) {
+        if (shouldBypass()) return false;
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.hasFullDataAccess(pi)) return false;
+        if (model == null || !ModelManager.existModel(model)) return true;
+        if (hasForwardAnchor(model) || declaredScope(model) != null || companyAnchorOf(model) != null) {
+            return true;
+        }
+        for (Grant g : grantsOf(pi)) {
+            if (hasExplicitRules(g, model)) return true;
+        }
+        return false;
+    }
+
+    /**
      * The caller's grants, one per role — or the unions read as one role. The same instances for the
      * whole request, so what is remembered per grant ({@link RequestMemo}) is found again.
      */
@@ -796,8 +830,8 @@ public class PermissionServiceImpl implements PermissionService {
      *
      * <p>Fail-closed is the default, and every branch below is an argument against it:
      * <ol>
-     *   <li><b>Owned by a granted model</b> → follow that owner; see {@link #findReferencer} and
-     *       {@link #followOwner}.</li>
+     *   <li><b>Owned by a granted model</b> → follow its owners; see {@link #findReferencers} and
+     *       {@link #followOwners}.</li>
      *   <li><b>Has a forward anchor</b> → real business data, which someone was supposed to grant. Closed.</li>
      *   <li><b>A country value domain</b> → the rows are a dropdown's own domain; see
      *       {@link #isCountryValueDomain}. Readable.</li>
@@ -808,7 +842,7 @@ public class PermissionServiceImpl implements PermissionService {
      * <p><b>The ownership edge is tested first, and the order is the whole point.</b> On a one-to-many
      * child the two tests read the SAME column: {@code EmpAttachment.employeeId} is both what makes
      * {@code SELF} applicable — so {@code hasForwardAnchor} answers true — and the back-reference
-     * {@link #followOwner} would follow. Asking about the anchor first therefore rejected every
+     * {@link #followOwners} would follow. Asking about the anchor first therefore rejected every
      * one-to-many child of a granted model as "business data nobody granted", and that is every such
      * child there is: a parent cannot hold N ids, so the FK lives on the child by necessity. The
      * follow-the-owner branch could only ever run for a one-to-one child, whose FK sits on the parent
@@ -819,13 +853,15 @@ public class PermissionServiceImpl implements PermissionService {
      * and letting it jump the queue would open a business table merely because something points at it.
      * The two owned kinds are safe there precisely because they are bounded by the parent's own scope.
      *
-     * <p>Cross-model display expansion never arrives here — it bypasses everything upstream via
-     * {@code skipPermissionCheck}.
+     * <p>A relation expansion arrives here only when it reads more than labels of a model with a row
+     * range of its own (see {@link #hasOwnRowScope}); a label lookup crosses the range upstream, through
+     * {@code ModelService.searchListIgnoringRowScope}.
      */
     private Filters scopeWithoutGrant(String model, Grant g) {
-        Referencer ref = findReferencer(model, g);
+        List<Referencer> refs = findReferencers(model, g);
+        Referencer ref = refs.isEmpty() ? null : refs.getFirst();
         if (ref != null && ref.kind() != Kind.SHARED) {
-            return followOwner(ref, g);
+            return followOwners(refs, g);
         }
         if (hasForwardAnchor(model)) {
             return ScopeRuleCompiler.matchNone();
@@ -902,40 +938,51 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     /**
-     * Row-scope for a child the caller reaches through a model they were granted.
+     * Row-scope for a child the caller reaches through models they were granted.
      *
      * <p>Both owned kinds re-enter scope for the parent, so the parent's own row-scope is applied
      * (parent strict ⇒ child strict) — nothing is widened, the child simply inherits the visibility
-     * of the row that owns it.
+     * of the rows that own it. With several owners a child row is in range when an in-range row of
+     * any of them owns it: the union, which does not depend on the order the owners were found in.
      */
-    private Filters followOwner(Referencer ref, Grant g) {
-        // The owner's rows under the SAME grant: a child is visible through the role that can see its
-        // owner, not through whichever of the caller's roles happens to.
-        Filters ownerScope = grantScope(g, ref.parentModel());
-        Filters owners = ownerScope == null ? new Filters() : ownerScope;
-        return switch (ref.kind()) {
-            // Both callers hand over ownership edges only; a shared reference bounds nothing.
-            case SHARED -> throw new IllegalArgumentException(
-                    "A shared reference is not an ownership edge: " + ref);
-            // ONE_TO_ONE owned child → the FK sits on the OWNER and holds the child's id,
-            // so the visible child ids are the FK values of in-scope owner rows.
-            case OWNED_ONE_TO_ONE -> {
-                List<Serializable> visible = unscoped(() ->
-                        modelService.getRelatedIds(ref.parentModel(), owners, ref.fkField()));
-                yield visible.isEmpty()
-                        ? ScopeRuleCompiler.matchNone()
-                        : Filters.of(ModelConstant.ID, Operator.IN, visible);
+    private Filters followOwners(List<Referencer> refs, Grant g) {
+        Set<Serializable> visibleIds = new LinkedHashSet<>();
+        List<Filters> backRefFilters = new ArrayList<>();
+        for (Referencer ref : refs) {
+            // The owner's rows under the SAME grant: a child is visible through the role that can see
+            // its owner, not through whichever of the caller's roles happens to.
+            Filters ownerScope = grantScope(g, ref.parentModel());
+            Filters owners = ownerScope == null ? new Filters() : ownerScope;
+            switch (ref.kind()) {
+                // Both callers hand over ownership edges only; a shared reference bounds nothing.
+                case SHARED -> throw new IllegalArgumentException(
+                        "A shared reference is not an ownership edge: " + ref);
+                // ONE_TO_ONE owned child → the FK sits on the OWNER and holds the child's id,
+                // so the visible child ids are the FK values of in-scope owner rows.
+                case OWNED_ONE_TO_ONE -> visibleIds.addAll(unscoped(() ->
+                        modelService.getRelatedIds(ref.parentModel(), owners, ref.fkField())));
+                // ONE_TO_MANY child → the FK sits on the CHILD and holds the parent's id, so we
+                // constrain that back-reference column against the in-scope parent ids instead
+                // of the child's own id.
+                case CHILD_BY_BACKREF -> {
+                    List<?> parents = unscoped(() -> modelService.getIds(ref.parentModel(), owners));
+                    if (!parents.isEmpty()) {
+                        backRefFilters.add(Filters.of(ref.fkField(), Operator.IN, parents));
+                    }
+                }
             }
-            // ONE_TO_MANY child → the FK sits on the CHILD and holds the parent's id, so we
-            // constrain that back-reference column against the in-scope parent ids instead
-            // of the child's own id.
-            case CHILD_BY_BACKREF -> {
-                List<?> parents = unscoped(() -> modelService.getIds(ref.parentModel(), owners));
-                yield parents.isEmpty()
-                        ? ScopeRuleCompiler.matchNone()
-                        : Filters.of(ref.fkField(), Operator.IN, parents);
-            }
-        };
+        }
+        if (!visibleIds.isEmpty()) {
+            backRefFilters.add(Filters.of(ModelConstant.ID, Operator.IN, new ArrayList<>(visibleIds)));
+        }
+        if (backRefFilters.isEmpty()) {
+            return ScopeRuleCompiler.matchNone();
+        }
+        Filters union = backRefFilters.getFirst();
+        for (int i = 1; i < backRefFilters.size(); i++) {
+            union = Filters.or(union, backRefFilters.get(i));
+        }
+        return union;
     }
 
     /**
@@ -1601,10 +1648,10 @@ public class PermissionServiceImpl implements PermissionService {
         if (hasExplicitRules(g, model)) {
             return grantScope(g, model);
         }
-        Referencer ref = findReferencer(model, g);
-        Kind kind = ref == null ? null : ref.kind();
+        List<Referencer> refs = findReferencers(model, g);
+        Kind kind = refs.isEmpty() ? null : refs.getFirst().kind();
         if (kind == Kind.OWNED_ONE_TO_ONE) {
-            return followOwner(ref, g);
+            return followOwners(refs, g);
         }
         if (kind == Kind.SHARED && !hasForwardAnchor(model)) {
             return null;
@@ -1684,9 +1731,9 @@ public class PermissionServiceImpl implements PermissionService {
      *
      * <p>No read that names rows by {@code id} is exempt — the scope does not look at the caller's
      * filters at all. Display expansion — the one legitimate by-id read of rows outside the grant, so
-     * that a referenced row's label is not blanked — never reaches here: {@code
-     * DataPipelineProxy.processReadData} carries {@code @SkipPermissionCheck}, so {@code shouldBypass()}
-     * returns first. Everything else that names an id stays bounded: otherwise a caller could add
+     * that a referenced row's label is not blanked — never reaches here: it reads through {@code
+     * ModelService.searchListIgnoringRowScope}, which leaves the row range out. Everything else that
+     * names an id stays bounded: otherwise a caller could add
      * {@code ["id", "&gt;", 0]} to a {@code searchList} body and read an ungranted company whole, and
      * {@link #checkIdsAccess} — which counts its targets back with a filter naming {@code id} — would
      * let any holder of the delete permission remove a row of a company they were never granted.
@@ -1754,7 +1801,7 @@ public class PermissionServiceImpl implements PermissionService {
      *
      * <p>Without it they fail closed, and invisibly: {@code IdType} is only ever referenced from
      * {@code EmployeeProfile}, which is reached through {@code Employee} rather than granted in its own
-     * right, so {@link #findReferencer} — which scans the GRANTED models — finds nothing and the read
+     * right, so {@link #findReferencers} — which scans the GRANTED models — finds nothing and the read
      * returns zero rows. On screen that is an ID Type dropdown reading "No options available", with the
      * data present and the country filter correct.
      *
@@ -1798,7 +1845,7 @@ public class PermissionServiceImpl implements PermissionService {
     /** A model has a forward scope anchor when some NON-universal ScopeType applies
      *  (a dept / employee / … field the contributors can filter on). A model where only
      *  the universal types apply is structurally unscopable on its own — it is reached
-     *  through a parent instead (see {@link #findReferencer}). */
+     *  through a parent instead (see {@link #findReferencers}). */
     private boolean hasForwardAnchor(String model) {
         for (ScopeType type : applicability.applicableFor(model)) {
             if (!UNIVERSAL_SCOPE_TYPES.contains(type)) {
@@ -1813,10 +1860,12 @@ public class PermissionServiceImpl implements PermissionService {
      * derived purely from metadata (no hard-coded model names): scan the granted
      * models' relation fields for one pointing at {@code childModel}.
      * <ul>
-     *   <li>a {@code ONE_TO_ONE} owner → follow that owner's row-scope
+     *   <li>{@code ONE_TO_ONE} owners → follow those owners' row-scope
      *       ({@link Kind#OWNED_ONE_TO_ONE}); the FK lives on the PARENT and holds the
-     *       child's id;</li>
-     *   <li>a {@code ONE_TO_MANY} parent → follow that parent's row-scope
+     *       child's id. A referrer whose FK is {@code onDelete = CASCADE} is not an owner: its
+     *       row is deleted with the child, so it hangs off the child (a report row over a
+     *       person, a credential over a profile) and granting it in full must not open the child;</li>
+     *   <li>{@code ONE_TO_MANY} parents → follow those parents' row-scope
      *       ({@link Kind#CHILD_BY_BACKREF}); the FK lives on the CHILD
      *       ({@code relatedField}) and holds the parent's id — the inverse direction,
      *       so the two cannot share one filter shape;</li>
@@ -1824,8 +1873,13 @@ public class PermissionServiceImpl implements PermissionService {
      *       ({@link Kind#SHARED});</li>
      *   <li>failing all three, a {@code MANY_TO_ONE} referrer on an <b>owned child</b> of a granted
      *       model → also shared ({@link #sharedThroughOwnedChild});</li>
-     *   <li>none → {@code null} (not reachable from any grant → stays fail-closed).</li>
+     *   <li>none → empty (not reachable from any grant → stays fail-closed).</li>
      * </ul>
+     *
+     * <p>Every owner of the winning kind is returned, not the first one met: which granted model the
+     * scan reaches first is an accident of iteration order, and a child owned twice (a person's profile
+     * by the employee record and by a report over it) must resolve the same way however the grant
+     * happens to hold its models. {@link #followOwners} takes the union.
      *
      * <p>Both owned kinds match what the role wizard already promises: {@code
      * NavigationConfigOptionsController} deliberately does NOT surface OneToOne /
@@ -1836,11 +1890,13 @@ public class PermissionServiceImpl implements PermissionService {
      * tighter statement than a shared reference, so it wins when a model is reachable
      * both ways.
      */
-    private Referencer findReferencer(String childModel, Grant g) {
-        Referencer backRef = null;
+    private List<Referencer> findReferencers(String childModel, Grant g) {
+        List<Referencer> owners = new ArrayList<>();
+        List<Referencer> backRefs = new ArrayList<>();
         Referencer shared = null;
         List<String> ownedChildren = new ArrayList<>();
-        for (String granted : g.scopes().keySet()) {
+        // Sorted, so the answer never depends on the order the grant happens to hold its models in.
+        for (String granted : new TreeSet<>(g.scopes().keySet())) {
             if (!ModelManager.existModel(granted)) continue;
             for (MetaField f : ModelManager.getModelFields(granted)) {
                 String related = f.getRelatedModel();
@@ -1852,20 +1908,27 @@ public class PermissionServiceImpl implements PermissionService {
                     continue;
                 }
                 if (f.getFieldType() == FieldType.ONE_TO_ONE) {
-                    return new Referencer(granted, f.getFieldName(), Kind.OWNED_ONE_TO_ONE);
+                    // A row deleted along with the one it points at hangs off that row — a report row
+                    // or a credential over a person, say. It is a dependant of the child, not its owner,
+                    // and reading the dependant model in full must not open the child.
+                    if (f.getOnDelete() != OnDelete.CASCADE) {
+                        owners.add(new Referencer(granted, f.getFieldName(), Kind.OWNED_ONE_TO_ONE));
+                    }
+                    continue;
                 }
-                if (f.getFieldType() == FieldType.ONE_TO_MANY && backRef == null
-                        && StringUtils.isNotBlank(f.getRelatedField())) {
-                    backRef = new Referencer(granted, f.getRelatedField(), Kind.CHILD_BY_BACKREF);
+                if (f.getFieldType() == FieldType.ONE_TO_MANY && StringUtils.isNotBlank(f.getRelatedField())) {
+                    backRefs.add(new Referencer(granted, f.getRelatedField(), Kind.CHILD_BY_BACKREF));
                 }
                 if (f.getFieldType() == FieldType.MANY_TO_ONE && shared == null) {
                     shared = new Referencer(granted, f.getFieldName(), Kind.SHARED);
                 }
             }
         }
-        if (backRef != null) return backRef;
-        if (shared != null) return shared;
-        return sharedThroughOwnedChild(childModel, ownedChildren);
+        if (!owners.isEmpty()) return owners;
+        if (!backRefs.isEmpty()) return backRefs;
+        if (shared != null) return List.of(shared);
+        Referencer viaOwnedChild = sharedThroughOwnedChild(childModel, ownedChildren);
+        return viaOwnedChild == null ? List.of() : List.of(viaOwnedChild);
     }
 
     /**
