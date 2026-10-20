@@ -32,7 +32,10 @@ public final class ContentDisposition {
         if (StringUtils.isBlank(fileName)) {
             return type + ";";
         }
-        String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
+        // URLEncoder leaves '*' as it is, but RFC 5987 does not allow it in a value.
+        String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8)
+                .replace("+", "%20")
+                .replace("*", "%2A");
         return type + "; filename=\"" + asciiFallback(fileName) + "\"; filename*=UTF-8''" + encoded;
     }
 

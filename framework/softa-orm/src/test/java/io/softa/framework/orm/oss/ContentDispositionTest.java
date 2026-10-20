@@ -30,4 +30,10 @@ class ContentDispositionTest {
         assertThat(ContentDisposition.of(ContentDisposition.ATTACHMENT, " ")).isEqualTo("attachment;");
         assertThat(ContentDisposition.of(ContentDisposition.ATTACHMENT, null)).isEqualTo("attachment;");
     }
+
+    @Test
+    void encodesAStarWhichTheExtendedFormDoesNotAllow() {
+        assertThat(ContentDisposition.of(ContentDisposition.ATTACHMENT, "a*b.pdf"))
+                .endsWith("filename*=UTF-8''a%2Ab.pdf");
+    }
 }

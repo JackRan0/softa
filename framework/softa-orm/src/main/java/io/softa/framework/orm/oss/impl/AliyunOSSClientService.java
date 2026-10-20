@@ -29,7 +29,6 @@ import io.softa.framework.orm.oss.OssClientService;
 @AllArgsConstructor
 public class AliyunOSSClientService implements OssClientService {
 
-
     private OSS ossClient;
 
     // Signs the URLs the browser fetches — see AliyunOSSConfig#presignOss. Same instance as ossClient
