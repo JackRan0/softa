@@ -1,5 +1,6 @@
 package io.softa.starter.message.mail.service.impl;
 
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -82,7 +83,7 @@ public class MailDeliveryProcessor {
             // retry budget; fix the config, then requeue via the manual Retry action.
             log.error("MailDeliveryProcessor: config resolution failed for record id={} configId={}",
                     recordId, record.getServerConfigId(), e);
-            if (recordService.casStatus(recordId, expectedVersion, MailSendStatus.SENDING)) {
+            if (recordService.markSending(recordId, expectedVersion)) {
                 handleFailure(record, expectedVersion + 1, "CONFIG_NOT_RESOLVABLE",
                         "Config not resolvable: " + e.getMessage(), SmtpMailTransport.NAME);
             } else {
@@ -96,12 +97,14 @@ public class MailDeliveryProcessor {
 
     /**
      * Claim the record via CAS (PENDING/RETRY → SENDING) and deliver.
-     * Returns early on CAS miss (duplicate delivery) and funnels all failure
-     * modes through {@link #handleFailure} under {@code expectedVersion + 1}.
+     * Returns early on CAS miss (duplicate delivery) and funnels every failed
+     * send through {@link #handleFailure} under {@code expectedVersion + 1}.
+     * A send the server accepted is never a failure: if recording it as SENT
+     * fails, the record is left SENDING (see the catch below).
      */
     private void executeSend(MailSendRecord record, long expectedVersion,
                              MailSendServerConfig config) {
-        if (!recordService.casStatus(record.getId(), expectedVersion, MailSendStatus.SENDING)) {
+        if (!recordService.markSending(record.getId(), expectedVersion)) {
             log.debug("executeSend: CAS miss for id={} v={}, treating as duplicate",
                     record.getId(), expectedVersion);
             return;
@@ -117,22 +120,37 @@ public class MailDeliveryProcessor {
         }
 
         SmtpMailRequest request = buildRequest(rebuildDTO(record), config);
+        SmtpSendResult result;
+        int sendDurationMs;
         try {
-            SmtpSendResult result = smtpMailTransport.send(config, request);
-            if (result.isSuccess()) {
-                recordService.markSent(record.getId(), sendingVersion,
-                        result.getMessageId(), SmtpMailTransport.NAME);
-                if (metrics != null) metrics.sent("mail", SmtpMailTransport.NAME);
-            } else {
-                handleFailure(record, sendingVersion,
-                        result.getErrorCode(), result.getErrorMessage(), SmtpMailTransport.NAME);
-            }
+            long started = System.nanoTime();
+            result = smtpMailTransport.send(config, request);
+            sendDurationMs = (int) TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
         } catch (Exception e) {
             // Known SMTP failures arrive as SmtpSendResult with a code; anything
             // reaching this catch is unexpected — keep the stack in the log.
             log.error("MailDeliveryProcessor: unexpected send failure for record id={}",
                     record.getId(), e);
             handleFailure(record, sendingVersion, null, e.getMessage(), SmtpMailTransport.NAME);
+            return;
+        }
+        if (!result.isSuccess()) {
+            handleFailure(record, sendingVersion,
+                    result.getErrorCode(), result.getErrorMessage(), SmtpMailTransport.NAME);
+            return;
+        }
+        if (metrics != null) metrics.sent("mail", SmtpMailTransport.NAME);
+        try {
+            recordService.markSent(record.getId(), sendingVersion,
+                    result.getMessageId(), SmtpMailTransport.NAME, sendDurationMs);
+        } catch (RuntimeException e) {
+            // The server has accepted the mail, so this is not a send failure: routing
+            // it through handleFailure would schedule a retry and send the mail again.
+            // The record stays SENDING; the zombie sweeper revives it after
+            // stale-seconds, and that one re-send is the cost of at-least-once delivery.
+            log.error("MailDeliveryProcessor: mail delivered but recording it as sent failed; "
+                    + "record id={} stays SENDING (messageId={})",
+                    record.getId(), result.getMessageId(), e);
         }
     }
 

@@ -20,10 +20,14 @@ import io.softa.starter.message.config.MessageProperties;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
+import io.softa.starter.message.mail.smtp.SmtpMailTransport;
 import io.softa.starter.message.mq.TopicRoute;
 import io.softa.starter.message.mq.outbox.OutboxEntry;
 import io.softa.starter.message.mq.outbox.OutboxRecordWriter;
 import io.softa.starter.message.mq.outbox.OutboxService;
+import io.softa.starter.message.shared.ErrorCategory;
+import io.softa.starter.message.shared.retry.RetryProperties;
+import io.softa.starter.message.shared.retry.SendFailureHandler;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
@@ -41,6 +45,12 @@ import io.softa.starter.message.sms.service.SmsSendRecordService;
  * {@code next_retry_at = now}, and enqueue the matching retry outbox row in
  * the same transaction.
  * <p>
+ * Each revival counts as a retry, and the budget is checked here too: a record
+ * whose retries are already used up is dead-lettered instead of revived. An
+ * attempt that never finishes (a crash or hang on every try) never reaches the
+ * failure handler that normally enforces the budget, so without this check such
+ * a record would be revived every stale window, forever.
+ * <p>
  * It also reopens stale outbox {@code PUBLISHING} claims to {@code NEW}. Safety
  * comes from the framework {@code versionLock}; a concurrent legitimate
  * completion wins and this sweep skips the stale snapshot.
@@ -56,6 +66,9 @@ public class ZombieRecordSweeper {
     private static final int BATCH_LIMIT = 200;
     private static final String ZOMBIE_CODE = "ZOMBIE_RECOVERED";
     private static final String ZOMBIE_MESSAGE = "Revived after stale SENDING";
+    private static final String EXHAUSTED_CODE = "ZOMBIE_EXHAUSTED";
+    private static final String EXHAUSTED_MESSAGE =
+            "Stale SENDING with the retry budget used up; not revived again";
     private static final String OUTBOX_ZOMBIE_MESSAGE = "Revived after stale PUBLISHING";
 
     @Autowired
@@ -72,6 +85,12 @@ public class ZombieRecordSweeper {
 
     @Autowired
     private MessageProperties properties;
+
+    @Autowired
+    private RetryProperties retryProperties;
+
+    @Autowired
+    private SendFailureHandler sendFailureHandler;
 
     /**
      * The scan is {@code @CrossTenant} (one sweeper revives every tenant's
@@ -96,8 +115,16 @@ public class ZombieRecordSweeper {
         List<MailSendRecord> rows = mailSendRecordService.searchList(mailQuery(threshold));
         int revived = 0;
         for (MailSendRecord row : rows) {
+            int retries = attempts(row.getRetryCount());
+            if (retries >= retryProperties.getDefaultMaxAttempts()) {
+                inTenantContext(row.getTenantId(), () -> sendFailureHandler.deadLetter(
+                        "mail", SmtpMailTransport.NAME, row.getId(), version(row.getVersion()), retries,
+                        EXHAUSTED_CODE, EXHAUSTED_MESSAGE, ErrorCategory.UNKNOWN,
+                        mailSendRecordService::markDeadLetter));
+                continue;
+            }
             LocalDateTime retryAt = LocalDateTime.now();
-            boolean ok = reviveInTenantContext(row.getTenantId(),
+            boolean ok = inTenantContext(row.getTenantId(),
                     () -> outboxRecordWriter.transitionAndEnqueueAt(
                             () -> mailSendRecordService.markRetry(row.getId(), version(row.getVersion()),
                                     ZOMBIE_CODE, ZOMBIE_MESSAGE, retryAt),
@@ -111,8 +138,18 @@ public class ZombieRecordSweeper {
         List<SmsSendRecord> rows = smsSendRecordService.searchList(smsQuery(threshold));
         int revived = 0;
         for (SmsSendRecord row : rows) {
+            int retries = attempts(row.getRetryCount());
+            if (retries >= retryProperties.getDefaultMaxAttempts()) {
+                String provider = row.getProviderType() != null
+                        ? row.getProviderType().name().toLowerCase() : null;
+                inTenantContext(row.getTenantId(), () -> sendFailureHandler.deadLetter(
+                        "sms", provider, row.getId(), version(row.getVersion()), retries,
+                        EXHAUSTED_CODE, EXHAUSTED_MESSAGE, ErrorCategory.UNKNOWN,
+                        smsSendRecordService::markDeadLetter));
+                continue;
+            }
             LocalDateTime retryAt = LocalDateTime.now();
-            boolean ok = reviveInTenantContext(row.getTenantId(),
+            boolean ok = inTenantContext(row.getTenantId(),
                     () -> outboxRecordWriter.transitionAndEnqueueAt(
                             () -> smsSendRecordService.markRetry(row.getId(), version(row.getVersion()),
                                     ZOMBIE_CODE, ZOMBIE_MESSAGE, retryAt),
@@ -122,14 +159,14 @@ public class ZombieRecordSweeper {
         return revived;
     }
 
-    /** Run one revive inside the record's tenant context (see {@link #sweep()}). */
-    private boolean reviveInTenantContext(Long tenantId, BooleanSupplier revive) {
+    /** Run one revive or dead-letter inside the record's tenant context (see {@link #sweep()}). */
+    private boolean inTenantContext(Long tenantId, BooleanSupplier write) {
         Context ctx = ContextHolder.cloneContext();
         ctx.setTenantId(tenantId != null ? tenantId : TenantScopes.PLATFORM);
         ctx.setCrossTenant(false);
         ctx.setSkipPermissionCheck(true);
         boolean[] ok = new boolean[1];
-        ContextHolder.runWith(ctx, () -> ok[0] = revive.getAsBoolean());
+        ContextHolder.runWith(ctx, () -> ok[0] = write.getAsBoolean());
         return ok[0];
     }
 

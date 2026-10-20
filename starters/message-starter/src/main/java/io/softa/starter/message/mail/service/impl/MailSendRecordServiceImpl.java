@@ -20,7 +20,7 @@ import io.softa.starter.message.shared.AbstractCasSendRecordServiceImpl;
 /**
  * MailSendRecord service implementation.
  * <p>
- * The generic status-transition CAS (casStatus / markRetry / markFailed /
+ * The generic status-transition CAS (markSending / markRetry / markFailed /
  * markDeadLetter) is inherited from {@link AbstractCasSendRecordServiceImpl};
  * this class adds the mail-specific writes (sent / bounce / read-receipt) and
  * Message-ID lookups. All transitions use the framework {@code versionLock}
@@ -37,8 +37,8 @@ public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<
     private OutboxRecordWriter outboxRecordWriter;
 
     @Override
-    public boolean casStatus(Long id, long expectedVersion, MailSendStatus next) {
-        return transitionStatus(id, expectedVersion, next);
+    public boolean markSending(Long id, long expectedVersion) {
+        return claimForAttempt(id, expectedVersion, MailSendStatus.SENDING);
     }
 
     @Override
@@ -87,10 +87,11 @@ public class MailSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<
 
     @Override
     public void markSent(Long id, long expectedVersion,
-                         String messageId, String providerName) {
+                         String messageId, String providerName, int sendDurationMs) {
         Map<String, Object> patch = versionedPatch(id, expectedVersion);
         patch.put("status", MailSendStatus.SENT);
         patch.put("sentAt", LocalDateTime.now());
+        patch.put("sendDurationMs", sendDurationMs);
         patch.put("messageId", messageId);
         patch.put("errorCode", null);
         patch.put("errorMessage", null);

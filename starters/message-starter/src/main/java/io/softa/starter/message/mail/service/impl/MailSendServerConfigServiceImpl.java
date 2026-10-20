@@ -123,7 +123,8 @@ public class MailSendServerConfigServiceImpl extends EntityServiceImpl<MailSendS
     public boolean updateOne(MailSendServerConfig entity) {
         boolean result = super.updateOne(entity);
         if (result) {
-            // SmtpMailTransport is now stateless — only the Redis config cache needs eviction.
+            // Only the Redis config cache needs eviction: SmtpMailTransport keys its connection
+            // pools by the connection settings, so the edited config opens fresh ones on its next send.
             configCache.evictById(entity.getId());
         } else if (entity != null) {
             // The ORM silently drops writes to rows outside the caller's scope —

@@ -6,6 +6,8 @@ import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -52,10 +54,24 @@ public class OutboxRecordWriter {
     public boolean transitionAndEnqueueAt(BooleanSupplier transition, Long recordId,
                                           String aggregateType, TopicRoute route, LocalDateTime fireAt) {
         if (!transition.getAsBoolean()) {
+            rollBackLostTransition();
             return false;
         }
         outboxService.enqueueAt(aggregateType, recordId, route, payload(recordId), fireAt);
         return true;
+    }
+
+    /**
+     * A lost CAS arrives as a {@code VersionException} thrown inside the joined
+     * ModelService call, whose transaction proxy marks this transaction
+     * rollback-only even though the transition catches it. Nothing was written,
+     * so declare the rollback here: committing would otherwise fail with
+     * {@code UnexpectedRollbackException} instead of returning {@code false}.
+     */
+    private static void rollBackLostTransition() {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+        }
     }
 
     /** Build the outbox payload, carrying tenant / trace context for the consumer. */

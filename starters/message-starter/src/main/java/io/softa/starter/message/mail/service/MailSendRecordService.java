@@ -6,7 +6,6 @@ import java.util.Map;
 
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.message.mail.entity.MailSendRecord;
-import io.softa.starter.message.mail.enums.MailSendStatus;
 
 /**
  * CRUD service for outgoing mail records.
@@ -22,20 +21,19 @@ public interface MailSendRecordService extends EntityService<MailSendRecord, Lon
     Map<String, MailSendRecord> findByMessageIds(Collection<String> messageIds);
 
     /**
-     * Compare-and-set the record's status + version. Returns true iff the row
-     * was updated (current {@code version} matched {@code expectedVersion}).
-     * <p>
-     * Used to claim a record for a send attempt: the caller transitions
-     * PENDING/RETRY → SENDING; a losing concurrent attempt gets {@code false}
-     * and must treat its delivery as a duplicate.
+     * Claim a record for a send attempt: compare-and-set PENDING/RETRY → SENDING
+     * and stamp {@code attemptStartedAt}. Returns true iff the row was updated
+     * (current {@code version} matched {@code expectedVersion}); a losing
+     * concurrent attempt gets {@code false} and must treat its delivery as a
+     * duplicate.
      */
-    boolean casStatus(Long id, long expectedVersion, MailSendStatus next);
+    boolean markSending(Long id, long expectedVersion);
 
     /**
-     * Mark a record as terminally SENT with the SMTP Message-ID and transport name.
-     * Bumps version; no-op if version mismatches.
+     * Mark a record as terminally SENT with the SMTP Message-ID, transport name,
+     * and how long the SMTP call took. Bumps version; no-op if version mismatches.
      */
-    void markSent(Long id, long expectedVersion, String messageId, String providerName);
+    void markSent(Long id, long expectedVersion, String messageId, String providerName, int sendDurationMs);
 
     /**
      * Mark a record for retry (status=RETRY, retryCount++, nextRetryAt set,

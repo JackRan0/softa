@@ -2,7 +2,9 @@ package io.softa.starter.message.mail.smtp;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
+import java.util.Properties;
 import com.icegreen.greenmail.util.GreenMail;
 import com.icegreen.greenmail.util.GreenMailUtil;
 import com.icegreen.greenmail.util.ServerSetup;
@@ -40,6 +42,7 @@ class SmtpMailTransportTest {
     private static final String PASS = "secret";
 
     private GreenMail greenMail;
+    private MessageProperties properties;
     private SmtpMailTransport transport;
 
     @BeforeEach
@@ -48,15 +51,18 @@ class SmtpMailTransportTest {
         greenMail.start();
         greenMail.setUser(USER, USER, PASS);
 
+        properties = new MessageProperties();
         transport = new SmtpMailTransport();
-        ReflectionTestUtils.setField(transport, "messageProperties", new MessageProperties());
+        ReflectionTestUtils.setField(transport, "messageProperties", properties);
     }
 
     @AfterEach
     void tearDown() {
+        transport.closePooledConnections();
         greenMail.stop();
     }
 
+    /** An unsaved config: no id, so it always takes the single-use sender. */
     private MailSendServerConfig config() {
         MailSendServerConfig c = new MailSendServerConfig();
         c.setProtocol(SendProtocol.SMTP);
@@ -64,6 +70,13 @@ class SmtpMailTransportTest {
         c.setPort(greenMail.getSmtp().getPort());
         c.setUsername(USER);
         c.setPassword(PASS);
+        return c;
+    }
+
+    /** A saved config: its sends go through the connection pool keyed by its id. */
+    private MailSendServerConfig savedConfig() {
+        MailSendServerConfig c = config();
+        c.setId(1L);
         return c;
     }
 
@@ -171,6 +184,71 @@ class SmtpMailTransportTest {
         assertFalse(result.isSuccess());
         assertNotNull(result.getErrorCode());
         assertTrue(result.getErrorCode().startsWith("SMTP_"));
+    }
+
+    @Test
+    void pooledSendsDeliverEveryMessage() throws Exception {
+        MailSendServerConfig config = savedConfig();
+
+        for (int i = 1; i <= 3; i++) {
+            assertTrue(transport.send(config, request("Pooled " + i, "<p>" + i + "</p>", null)).isSuccess());
+        }
+
+        assertTrue(greenMail.waitForIncomingEmail(5000, 3));
+    }
+
+    @Test
+    void changedPasswordIsNotServedFromThePooledConnection() {
+        MailSendServerConfig config = savedConfig();
+        assertTrue(transport.send(config, request("Before", "<p>x</p>", null)).isSuccess());
+
+        // The pooled connection is already authenticated; reusing it would let the
+        // wrong password through. A changed config must open (and authenticate) anew.
+        config.setPassword("rotated-wrong");
+        SmtpSendResult result = transport.send(config, request("After", "<p>x</p>", null));
+
+        assertFalse(result.isSuccess());
+        assertEquals("SMTP_MailAuthenticationException", result.getErrorCode());
+    }
+
+    @Test
+    void changedServerIsNotServedFromThePooledConnection() {
+        MailSendServerConfig config = savedConfig();
+        assertTrue(transport.send(config, request("Before", "<p>x</p>", null)).isSuccess());
+
+        config.setPort(1);  // nothing listens on port 1
+        assertFalse(transport.send(config, request("After", "<p>x</p>", null)).isSuccess());
+    }
+
+    @Test
+    void evictionClosesIdleConnectionsAndSendsStillWork() throws Exception {
+        properties.getMail().getSmtpPool().setIdleTimeout(Duration.ZERO);
+        MailSendServerConfig config = savedConfig();
+        assertTrue(transport.send(config, request("One", "<p>1</p>", null)).isSuccess());
+
+        transport.evictIdleConnections();
+
+        assertTrue(transport.send(config, request("Two", "<p>2</p>", null)).isSuccess());
+        assertTrue(greenMail.waitForIncomingEmail(5000, 2));
+    }
+
+    @Test
+    void poolingDisabled_sendsWithSingleUseSender() throws Exception {
+        properties.getMail().getSmtpPool().setEnabled(false);
+
+        assertTrue(transport.send(savedConfig(), request("Plain", "<p>x</p>", null)).isSuccess());
+        assertTrue(greenMail.waitForIncomingEmail(5000, 1));
+    }
+
+    @Test
+    void smtpsConfigCarriesTimeoutsUnderItsOwnPrefix() {
+        MailSendServerConfig config = config();
+        config.setProtocol(SendProtocol.SMTPS);
+
+        Properties props = transport.buildSender(config).getJavaMailProperties();
+
+        assertEquals(5000L, props.get("mail.smtps.connectiontimeout"));
+        assertEquals(30000L, props.get("mail.smtps.timeout"));
     }
 
     private static boolean hasAttachment(MimeMessage msg, String fileName) throws Exception {

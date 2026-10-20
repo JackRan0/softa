@@ -108,19 +108,32 @@ public class SendFailureHandler {
                 log.error("{} send failed terminally [{}] for record id={}: [{}] {}",
                         channel, category, recordId, errorCode, errorMessage);
             }
-            case RetryDecision.DeadLetter d -> {
-                if (!tx.markDeadLetter().apply(recordId, expectedVersion, errorCode, errorMessage)) {
-                    logCasMiss(channel, recordId, "dead_letter");
-                    return;
-                }
-                // Archive into the unified dead-letter store for triage (source = SEND_EXHAUSTED).
-                deadLetterMessageService.archiveSendExhausted(
-                        channel, recordId, provider, errorCode, errorMessage, category, currentAttempts);
-                if (metrics != null) metrics.failed(channel, provider, "dead_letter");
-                log.error("{} send moved to dead-letter [{}] for record id={} after {} attempts: [{}] {}",
-                        channel, category, recordId, currentAttempts, errorCode, errorMessage);
-            }
+            case RetryDecision.DeadLetter d -> deadLetter(channel, provider, recordId, expectedVersion,
+                    currentAttempts, errorCode, errorMessage, category, tx.markDeadLetter());
         }
+    }
+
+    /**
+     * Move a record to DEAD_LETTER and, only if that CAS wins, archive it into the
+     * unified dead-letter store (source = SEND_EXHAUSTED) and count it. Shared by
+     * the retry decision above and by the zombie sweeper, which dead-letters a
+     * record that keeps getting stuck once its retry budget is spent.
+     *
+     * @return the CAS outcome; {@code false} means another update won and nothing was archived
+     */
+    public boolean deadLetter(String channel, String provider, Long recordId, long expectedVersion,
+                              int attempts, String errorCode, String errorMessage, ErrorCategory category,
+                              RecordTransitions.MarkTerminal markDeadLetter) {
+        if (!markDeadLetter.apply(recordId, expectedVersion, errorCode, errorMessage)) {
+            logCasMiss(channel, recordId, "dead_letter");
+            return false;
+        }
+        deadLetterMessageService.archiveSendExhausted(
+                channel, recordId, provider, errorCode, errorMessage, category, attempts);
+        if (metrics != null) metrics.failed(channel, provider, "dead_letter");
+        log.error("{} send moved to dead-letter [{}] for record id={} after {} attempts: [{}] {}",
+                channel, category, recordId, attempts, errorCode, errorMessage);
+        return true;
     }
 
     /** A superseded version means another worker already progressed the record — a safe no-op. */

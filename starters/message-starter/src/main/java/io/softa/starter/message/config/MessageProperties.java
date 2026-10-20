@@ -82,6 +82,7 @@ public class MessageProperties {
     public static class Mail {
         private final Fetch fetch = new Fetch();
         private final Transport transport = new Transport();
+        private final SmtpPool smtpPool = new SmtpPool();
 
         /**
          * Maximum accepted length (in characters) for a single outbound mail
@@ -109,6 +110,15 @@ public class MessageProperties {
          * locally, then disable.
          */
         private boolean debug = false;
+
+        /**
+         * Delivery consumers per instance on the Shared mail-send subscription:
+         * how many mails one instance sends in parallel. Each consumer holds its
+         * own SMTP connection, so stay within the server's limit on concurrent
+         * connections per account. Read by {@code MailSendConsumer} as
+         * {@code softa.message.mail.send-concurrency}.
+         */
+        private int sendConcurrency = 1;
     }
 
     @Data
@@ -174,9 +184,41 @@ public class MessageProperties {
         private int maxMimeParts = 100;
     }
 
+    /**
+     * Reuse of authenticated SMTP connections across sends, one small pool per
+     * {@code MailSendServerConfig}. Without it every mail pays a TCP connect, TLS
+     * handshake and AUTH exchange, which is most of a small mail's send time.
+     */
+    @Data
+    public static class SmtpPool {
+        /** Reuse connections; {@code false} opens and closes one connection per send. */
+        private boolean enabled = true;
+
+        /**
+         * An idle connection older than this is closed instead of reused. Keep it
+         * well below the idle cut-off of any NAT or load balancer on the path to
+         * the SMTP server (typically minutes): a connection one of those dropped
+         * silently would only answer the reuse probe with a read timeout.
+         */
+        private Duration idleTimeout = Duration.ofSeconds(30);
+
+        /**
+         * Close a connection after it has carried this many messages. Some servers
+         * cap messages per session; closing first avoids a failed send, and the
+         * retry it would cost, when the cap is hit.
+         */
+        private int maxMessagesPerConnection = 100;
+    }
+
     @Data
     public static class Sms {
         private final Transport transport = new Transport();
+
+        /**
+         * Delivery consumers per instance on the Shared sms-send subscription.
+         * Read by {@code SmsSendConsumer} as {@code softa.message.sms.send-concurrency}.
+         */
+        private int sendConcurrency = 1;
     }
 
     /**

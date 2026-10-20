@@ -1,6 +1,7 @@
 package io.softa.starter.message.sms.message;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarListener;
@@ -19,6 +20,11 @@ import io.softa.starter.message.sms.service.impl.SmsDeliveryProcessor;
  * Duplicate broker deliveries are safely rejected by the CAS claim in
  * {@link SmsDeliveryProcessor#process(Long)}.
  * <p>
+ * Shared subscription with {@code softa.message.sms.send-concurrency} consumers
+ * per instance — see {@code MailSendConsumer} for why parallel consumers cannot
+ * send a record twice, and for the one-time stop-then-start switch from the
+ * former Exclusive subscription.
+ * <p>
  * Only activated when {@code mq.topics.sms-send.topic} is configured.
  */
 @Slf4j
@@ -30,7 +36,9 @@ public class SmsSendConsumer {
     private SmsDeliveryProcessor deliveryProcessor;
 
     @PulsarListener(topics = "${mq.topics.sms-send.topic}",
-                    subscriptionName = "${mq.topics.sms-send.sub:sms-send-sub}")
+                    subscriptionName = "${mq.topics.sms-send.sub:sms-send-sub}",
+                    subscriptionType = SubscriptionType.Shared,
+                    concurrency = "${softa.message.sms.send-concurrency:1}")
     public void onSend(OutboxMessage message) {
         OutboxContextSupport.runWithContext(message, () -> {
             log.debug("Processing SMS delivery: recordId={} traceId={}",

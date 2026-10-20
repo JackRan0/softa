@@ -1,5 +1,6 @@
 package io.softa.starter.message;
 
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarListener;
 import org.springframework.stereotype.Component;
@@ -7,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MailRequestMessage;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.starter.message.mail.dto.SendMailDTO;
@@ -26,6 +28,12 @@ import io.softa.starter.message.shared.TenantScopes;
  * consumer restores {@code message.tenantId()} before accepting the send, so a {@code TENANT}-scoped
  * render reaches that tenant's own template and the send record lands in the tenant's books. A
  * {@code PLATFORM}-scoped message renders from the platform tier regardless of the restored context.
+ *
+ * <p>The subscription is Shared, like the mail-send one: every instance takes requests off the
+ * topic. That changes who handles a request, not how often — each message still reaches one
+ * consumer, and only a redelivery (a crash before the ack) can accept it twice, exactly as under the
+ * former Exclusive subscription. The one-time switch needs a stop-then-start release; see
+ * {@code MailSendConsumer}.
  */
 @Slf4j
 @Component
@@ -42,7 +50,8 @@ public class MailRequestConsumer {
     }
 
     @PulsarListener(topics = "${mq.topics.mail-request.topic}",
-            subscriptionName = "${mq.topics.mail-request.sub}")
+            subscriptionName = "${mq.topics.mail-request.sub}",
+            subscriptionType = SubscriptionType.Shared)
     public void onMessage(MailRequestMessage message) {
         if (message == null || message.to() == null || message.to().isEmpty()
                 || message.templateCode() == null || message.templateCode().isBlank()) {
@@ -74,7 +83,19 @@ public class MailRequestConsumer {
             // mistake.
             ctx.setTenantId(TenantScopes.PLATFORM);
         }
-        ContextHolder.runWith(ctx, () -> messageService.sendMail(mail));
+        try {
+            ContextHolder.runWith(ctx, () -> messageService.sendMail(mail));
+        } catch (BusinessException e) {
+            // A rejected request (unknown template, exhausted quota, invalid address, no SMTP
+            // server) is final: it never became a send record, and a redelivery could only be
+            // rejected the same way — forever, since this listener has no dead-letter policy. Log
+            // it and let the message be acknowledged. Infrastructure failures are not
+            // BusinessExceptions; they still propagate, so Pulsar redelivers them.
+            log.error("Rejected mail-request dropped: template '{}' to {} recipient(s), tenantId={}, "
+                    + "scope={}: {}", message.templateCode(), message.to().size(), message.tenantId(),
+                    message.scope(), e.getMessage());
+            return;
+        }
         log.debug("Delivered mail-request → template '{}' to {} recipient(s), tenantId={}, scope={}",
                 message.templateCode(), message.to().size(), message.tenantId(), message.scope());
     }

@@ -1,7 +1,11 @@
 package io.softa.starter.message.mail.smtp;
 
 import java.io.UnsupportedEncodingException;
+import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import jakarta.annotation.PreDestroy;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -24,24 +29,26 @@ import io.softa.starter.message.mail.enums.MailPriority;
 /**
  * SMTP transport backed by Jakarta Mail via {@link JavaMailSenderImpl}.
  * <p>
- * Stateless by design: each {@link #send} constructs a fresh
- * {@link JavaMailSenderImpl} from the supplied {@link MailSendServerConfig}.
- * Construction is microsecond-cheap (a handful of setters and HashMap puts);
- * the real cost is the TLS handshake and AUTH paid on every send because the
- * underlying {@code Session} is single-use. Adding a Session/Transport cache
- * to amortize that cost is a future optimization — when it lands, that's the
- * time to introduce a tunable for the pool size.
+ * Authenticated connections are reused across sends, one small pool per
+ * {@link MailSendServerConfig} ({@code PooledSmtpSender}), so a run of mails
+ * through one server pays the TCP connect, TLS handshake and AUTH once rather
+ * than per message. {@code softa.message.mail.smtp-pool.enabled=false} goes
+ * back to a fresh, single-use sender per send.
  * <p>
- * The transport holds no instance state to invalidate:
- * {@link io.softa.starter.message.mail.support.MailConfigCache} (Redis) is the
- * single source of cached config, so config-change eviction only needs to hit
- * that one cache.
+ * The pools need no eviction hook on config writes: each is keyed by the
+ * settings its connections were opened with, so an edited config opens fresh
+ * connections on its next send, on every instance.
+ * {@link io.softa.starter.message.mail.support.MailConfigCache} (Redis) stays
+ * the single source of cached config.
  */
 @Slf4j
 @Component
 public class SmtpMailTransport {
 
     public static final String NAME = "smtp";
+
+    /** One pool per server config id, replaced when that config's connection settings change. */
+    private final Map<Long, PooledSmtpSender> pools = new ConcurrentHashMap<>();
 
     @Autowired(required = false)
     private FileService fileService;
@@ -51,7 +58,7 @@ public class SmtpMailTransport {
 
     public SmtpSendResult send(MailSendServerConfig config, SmtpMailRequest request) {
         try {
-            JavaMailSenderImpl sender = buildSender(config);
+            JavaMailSenderImpl sender = senderFor(config);
             MimeMessage message = sender.createMimeMessage();
             MimeMessageHelper helper = buildHelper(message, request);
             populate(helper, message, request);
@@ -64,30 +71,78 @@ public class SmtpMailTransport {
     }
 
     /**
-     * Build a configured {@link JavaMailSenderImpl} from {@code config}.
+     * Build a configured, single-use {@link JavaMailSenderImpl} from {@code config}.
      * Public so {@code MailSendServerConfigServiceImpl.testConnectivity} can
-     * reuse the exact same construction path as the live send path.
+     * reuse the exact same construction path as the live send path; it stays
+     * unpooled, so a connectivity test always opens and authenticates a real
+     * connection.
      */
     public JavaMailSenderImpl buildSender(MailSendServerConfig config) {
-        JavaMailSenderImpl sender = new JavaMailSenderImpl();
+        return configure(new JavaMailSenderImpl(), config);
+    }
+
+    /**
+     * The pooled sender for {@code config}, or a fresh single-use one when
+     * pooling is off or the config is unsaved (no id to key a pool by).
+     */
+    private JavaMailSenderImpl senderFor(MailSendServerConfig config) {
+        MessageProperties.SmtpPool settings = messageProperties.getMail().getSmtpPool();
+        if (!settings.isEnabled() || config.getId() == null) {
+            return buildSender(config);
+        }
+        PooledSmtpSender.Key key = PooledSmtpSender.Key.of(config);
+        PooledSmtpSender[] replaced = new PooledSmtpSender[1];
+        PooledSmtpSender sender = pools.compute(config.getId(), (id, current) -> {
+            if (current != null && current.key().equals(key)) {
+                return current;
+            }
+            replaced[0] = current;
+            return configure(new PooledSmtpSender(key, settings.getIdleTimeout(),
+                    settings.getMaxMessagesPerConnection()), config);
+        });
+        if (replaced[0] != null) {
+            // Outside compute(): closing sends QUIT over the network.
+            replaced[0].shutdown();
+        }
+        return sender;
+    }
+
+    /** Close pooled connections idle past {@code softa.message.mail.smtp-pool.idle-timeout}. */
+    @Scheduled(fixedDelay = 30, timeUnit = TimeUnit.SECONDS)
+    public void evictIdleConnections() {
+        pools.values().forEach(PooledSmtpSender::evictIdle);
+    }
+
+    @PreDestroy
+    public void closePooledConnections() {
+        pools.values().forEach(PooledSmtpSender::shutdown);
+        pools.clear();
+    }
+
+    private <S extends JavaMailSenderImpl> S configure(S sender, MailSendServerConfig config) {
         sender.setHost(config.getHost());
         sender.setPort(config.getPort());
         sender.setUsername(config.getUsername());
 
+        String protocol = config.getProtocol().getCode().toLowerCase();
         Properties props = sender.getJavaMailProperties();
-        props.put("mail.transport.protocol", config.getProtocol().getCode().toLowerCase());
+        props.put("mail.transport.protocol", protocol);
         props.put("mail.smtp.auth", true);
         props.put("mail.smtp.starttls.enable", Boolean.TRUE.equals(config.getStarttlsEnabled()));
         props.put("mail.smtp.ssl.enable", Boolean.TRUE.equals(config.getSslEnabled()));
 
         // Global transport timeouts: per-config tunability was YAGNI, see
-        // MessageProperties.Transport Javadoc.
+        // MessageProperties.Transport Javadoc. Jakarta Mail reads them under the
+        // protocol's own prefix: an SMTPS transport ignores mail.smtp.* and,
+        // without mail.smtps.*, would wait on the server with no timeout at all.
+        // The read timeout is also what bounds the NOOP probe of a pooled connection.
+        String prefix = "mail." + protocol + ".";
         long connTimeoutMs = messageProperties.getMail().getTransport()
                 .getConnectionTimeout().toMillis();
         long readTimeoutMs = messageProperties.getMail().getTransport()
                 .getReadTimeout().toMillis();
-        props.put("mail.smtp.connectiontimeout", connTimeoutMs);
-        props.put("mail.smtp.timeout", readTimeoutMs);
+        props.put(prefix + "connectiontimeout", connTimeoutMs);
+        props.put(prefix + "timeout", readTimeoutMs);
 
         if (messageProperties.getMail().isDebug()) {
             // softa.message.mail.debug=true — JavaMail writes the AUTH exchange to stdout, so

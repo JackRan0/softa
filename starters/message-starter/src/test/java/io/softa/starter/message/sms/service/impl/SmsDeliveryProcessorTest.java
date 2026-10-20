@@ -20,11 +20,14 @@ import io.softa.starter.message.sms.support.SmsAdapterFactory;
 import io.softa.starter.message.sms.support.SmsProviderDispatcher;
 import io.softa.starter.message.sms.support.adapter.SmsProviderAdapter;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -85,7 +88,7 @@ class SmsDeliveryProcessorTest {
     }
 
     private void claimAndResolve() {
-        when(recordService.casStatus(7L, 0L, SmsSendStatus.SENDING)).thenReturn(true);
+        when(recordService.markSending(7L, 0L)).thenReturn(true);
         when(dispatcher.resolveProviderById(20L)).thenReturn(config());
     }
 
@@ -99,7 +102,7 @@ class SmsDeliveryProcessorTest {
 
         processor.process(1L);
 
-        verify(recordService, never()).casStatus(anyLong(), anyLong(), any());
+        verify(recordService, never()).markSending(anyLong(), anyLong());
         verifyNoInteractions(dispatcher, adapterFactory, sendFailureHandler);
     }
 
@@ -109,26 +112,26 @@ class SmsDeliveryProcessorTest {
 
         processor.process(1L);
 
-        verify(recordService, never()).casStatus(anyLong(), anyLong(), any());
+        verify(recordService, never()).markSending(anyLong(), anyLong());
         verifyNoInteractions(dispatcher, adapterFactory, sendFailureHandler);
     }
 
     @Test
     void casMiss_isTreatedAsDuplicate_noProviderLookup() {
         when(recordService.getById(7L)).thenReturn(Optional.of(record(7L, SmsSendStatus.PENDING, 0L)));
-        when(recordService.casStatus(7L, 0L, SmsSendStatus.SENDING)).thenReturn(false);
+        when(recordService.markSending(7L, 0L)).thenReturn(false);
 
         processor.process(7L);
 
         verify(dispatcher, never()).resolveProviderById(anyLong());
-        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), anyLong(), any());
+        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), anyLong(), any(), anyInt());
         verifyNoInteractions(adapterFactory, sendFailureHandler);
     }
 
     @Test
     void configNotResolvable_afterClaim_fails() {
         when(recordService.getById(7L)).thenReturn(Optional.of(record(7L, SmsSendStatus.PENDING, 0L)));
-        when(recordService.casStatus(7L, 0L, SmsSendStatus.SENDING)).thenReturn(true);
+        when(recordService.markSending(7L, 0L)).thenReturn(true);
         when(dispatcher.resolveProviderById(20L)).thenThrow(new RuntimeException("provider gone"));
 
         processor.process(7L);
@@ -164,7 +167,7 @@ class SmsDeliveryProcessorTest {
 
         processor.process(7L);
 
-        verify(recordService).markSent(7L, 1L, "SID-1", 20L, SmsProvider.TWILIO);
+        verify(recordService).markSent(eq(7L), eq(1L), eq("SID-1"), eq(20L), eq(SmsProvider.TWILIO), anyInt());
         verify(metrics).sent("sms", "twilio");
         verifyNoInteractions(sendFailureHandler);
     }
@@ -183,7 +186,7 @@ class SmsDeliveryProcessorTest {
         verify(sendFailureHandler).handle(eq("sms"), eq("twilio"), eq(TopicRoute.SMS_SEND), eq("SmsSendRecord"),
                 eq(7L), eq(1L), eq(0), eq("REJECTED"), eq("invalid number"),
                 any(SendFailureHandler.RecordTransitions.class));
-        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), anyLong(), any());
+        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), anyLong(), any(), anyInt());
     }
 
     @Test
@@ -214,6 +217,24 @@ class SmsDeliveryProcessorTest {
         verify(sendFailureHandler).handle(eq("sms"), eq("twilio"), eq(TopicRoute.SMS_SEND), eq("SmsSendRecord"),
                 eq(7L), eq(1L), eq(0), isNull(), eq("Provider returned failure"),
                 any(SendFailureHandler.RecordTransitions.class));
-        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), anyLong(), any());
+        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), anyLong(), any(), anyInt());
+    }
+
+    @Test
+    void recordingSentFails_isNotASendFailure() {
+        when(recordService.getById(7L)).thenReturn(Optional.of(record(7L, SmsSendStatus.PENDING, 0L)));
+        claimAndResolve();
+        allowQuota();
+        when(adapterFactory.getAdapter(SmsProvider.TWILIO)).thenReturn(adapter);
+        when(adapter.send(any(), any(SmsAdapterRequest.class))).thenReturn(SmsSendResult.success("SID-1"));
+        doThrow(new RuntimeException("lock wait timeout")).when(recordService)
+                .markSent(eq(7L), eq(1L), eq("SID-1"), eq(20L), eq(SmsProvider.TWILIO), anyInt());
+
+        // The provider accepted the message: nothing is retried and the error does not
+        // escape to the consumer — the record simply stays SENDING.
+        assertDoesNotThrow(() -> processor.process(7L));
+
+        verifyNoInteractions(sendFailureHandler);
+        verify(metrics).sent("sms", "twilio");
     }
 }

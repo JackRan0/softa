@@ -5,7 +5,6 @@ import java.time.LocalDateTime;
 import io.softa.framework.orm.service.EntityService;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
 import io.softa.starter.message.sms.enums.SmsProvider;
-import io.softa.starter.message.sms.enums.SmsSendStatus;
 
 /**
  * CRUD service for SMS send records.
@@ -13,18 +12,19 @@ import io.softa.starter.message.sms.enums.SmsSendStatus;
 public interface SmsSendRecordService extends EntityService<SmsSendRecord, Long> {
 
     /**
-     * CAS a record's status + bump version. Used to claim a record for a
-     * send attempt; losing concurrent claims get {@code false}.
+     * Claim a record for a send attempt: CAS PENDING/RETRY → SENDING, bump
+     * version and stamp {@code attemptStartedAt}. Losing concurrent claims get
+     * {@code false}.
      */
-    boolean casStatus(Long id, long expectedVersion, SmsSendStatus next);
+    boolean markSending(Long id, long expectedVersion);
 
     /**
-     * Mark a record SENT with the provider's external message id, and preserve
-     * the selected provider identity ({@code provider_config_id} +
-     * {@code provider_type}).
+     * Mark a record SENT with the provider's external message id and how long
+     * the provider call took, and preserve the selected provider identity
+     * ({@code provider_config_id} + {@code provider_type}).
      */
     void markSent(Long id, long expectedVersion, String providerMessageId,
-                  Long providerConfigId, SmsProvider providerType);
+                  Long providerConfigId, SmsProvider providerType, int sendDurationMs);
 
     /** Mark a record for retry; bumps retryCount and sets nextRetryAt. */
     boolean markRetry(Long id, long expectedVersion, String errorCode, String errorMessage,

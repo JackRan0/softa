@@ -4,6 +4,7 @@ import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.pulsar.core.ProducerBuilderCustomizer;
 import org.springframework.pulsar.core.PulsarTemplate;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,15 @@ import io.softa.starter.message.mq.TopicRoute;
 @Slf4j
 @Component
 public class PulsarMqProducer implements MqProducer {
+
+    /**
+     * Every outbox message travels as its own broker entry. The delivery
+     * subscriptions are Shared, and a Shared subscription hands a whole entry to
+     * one consumer: with batching on, a publisher burst of claims would land on a
+     * single consumer and be sent one by one. A constant, so the template's
+     * producer cache keeps hitting the same producer per topic.
+     */
+    private static final ProducerBuilderCustomizer<Object> UNBATCHED = builder -> builder.enableBatching(false);
 
     private final MqTopicsProperties topics;
 
@@ -43,6 +53,7 @@ public class PulsarMqProducer implements MqProducer {
         String topic = resolveTopicOrThrow(route);
         return pulsarTemplate.newMessage(payload)
                 .withTopic(topic)
+                .withProducerCustomizer(UNBATCHED)
                 .sendAsync()
                 .thenApply(id -> null);
     }

@@ -91,6 +91,15 @@ public class SmsSendRecord extends AuditableModel {
     @Field(description = "Timestamp when the message was accepted by the provider")
     private LocalDateTime sentAt;
 
+    @Field(description = "When the latest delivery attempt started: a consumer claimed the record (status → "
+            + "Sending). The attempt's queue wait is this minus the publishedAt of the outbox row that "
+            + "delivered it.")
+    private LocalDateTime attemptStartedAt;
+
+    @Field(label = "Send Duration (ms)", description = "How long the provider API call of the successful "
+            + "attempt took, in milliseconds. Null until the record is sent.")
+    private Integer sendDurationMs;
+
     @Field(description = "Delivery status reported by the provider")
     private SmsDeliveryStatus deliveryStatus;
 

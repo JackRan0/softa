@@ -56,16 +56,17 @@ public class SmsSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<S
     }
 
     @Override
-    public boolean casStatus(Long id, long expectedVersion, SmsSendStatus next) {
-        return transitionStatus(id, expectedVersion, next);
+    public boolean markSending(Long id, long expectedVersion) {
+        return claimForAttempt(id, expectedVersion, SmsSendStatus.SENDING);
     }
 
     @Override
     public void markSent(Long id, long expectedVersion, String providerMessageId,
-                         Long providerConfigId, SmsProvider providerType) {
+                         Long providerConfigId, SmsProvider providerType, int sendDurationMs) {
         Map<String, Object> patch = versionedPatch(id, expectedVersion);
         patch.put("status", SmsSendStatus.SENT);
         patch.put("sentAt", LocalDateTime.now());
+        patch.put("sendDurationMs", sendDurationMs);
         patch.put("providerMessageId", providerMessageId);
         if (providerConfigId != null) {
             patch.put("providerConfigId", providerConfigId);

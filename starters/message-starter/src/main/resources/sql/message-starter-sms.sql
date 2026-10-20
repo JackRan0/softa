@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS sms_send_record
     error_code                 VARCHAR(100)          COMMENT 'Provider-specific error code on failure',
     provider_message_id        VARCHAR(255)          COMMENT 'External message ID from SMS provider',
     sent_at                    DATETIME              COMMENT 'Timestamp when sent',
+    attempt_started_at         DATETIME              COMMENT 'When the latest delivery attempt started (claimed as Sending)',
+    send_duration_ms           INT                   COMMENT 'Milliseconds the provider call of the successful attempt took',
     delivery_status            VARCHAR(20)  DEFAULT 'Unknown' COMMENT 'Unknown/Delivered/Undelivered/Failed',
     delivery_status_updated_at DATETIME              COMMENT 'Last delivery status update time',
     created_time               DATETIME              COMMENT 'Created time',
