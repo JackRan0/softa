@@ -70,12 +70,13 @@ public class OutboxPublisher {
      * Claim a batch of due rows through versionLock, then process them outside
      * the scan path.
      * <p>
-     * Each claim is dispatched as a non-blocking {@code sendAsync()} so the
-     * Pulsar producer's automatic batching ({@code batchingMaxMessages /
-     * batchingMaxBytes / batchingMaxPublishDelayMicros}) can aggregate the
-     * full claim batch into a single broker round-trip. Sequential
-     * {@code sendAsync().join()} would defeat that batching by forcing one
-     * message per outbound network call.
+     * Each claim is dispatched as a non-blocking {@code sendAsync()}, so the
+     * whole claim batch is in flight at once instead of paying one broker
+     * round-trip per message, as sequential {@code sendAsync().join()} would.
+     * The messages are deliberately not batched into one broker entry (see
+     * {@code PulsarMqProducer}): the Shared delivery subscriptions hand out
+     * whole entries, and one-message entries are what spread a burst across
+     * consumers.
      * <p>
      * The aggregate {@code allOf().get(timeout)} bounds wall-clock time per
      * poll; a stuck broker won't pile up scheduler invocations. Rows whose

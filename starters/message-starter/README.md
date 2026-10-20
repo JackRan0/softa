@@ -199,6 +199,27 @@ If no broker topic is configured, outbox rows stay in `NEW` state and are retrie
 by the publisher on every poll — nothing is lost; sends just queue up until an
 operator supplies a topic. Spring `@Async` is **not** used.
 
+The mail-send and sms-send subscriptions are **Shared**: every instance consumes,
+each with `softa.message.{mail,sms}.send-concurrency` consumers (default 1), so
+one slow SMTP or provider call no longer holds up every message behind it.
+Parallel consumers cannot send a record twice: two deliveries of the same record
+race for the CAS claim in step 3, and only one wins. Outbox messages are published
+unbatched, because a Shared subscription hands a whole broker entry to one
+consumer and a batched burst would land on a single consumer. The mail-request
+subscription (templated mail requested over MQ, accepted by `MailRequestConsumer`)
+is Shared too, with one consumer per instance — accepting a request is quick. A
+request the starter rejects — unknown template, exhausted quota, invalid address,
+no SMTP server; any `BusinessException` — is logged at ERROR and acknowledged:
+it never became a send record, and a redelivery could only be rejected again.
+Infrastructure failures still propagate and are redelivered.
+
+> **Upgrading from an Exclusive subscription** (message-starter before this
+> change): Pulsar refuses a Shared consumer while an Exclusive one is still
+> attached to the same subscription, and the listener's default startup policy
+> then fails the boot. Release this change stop-then-start — let the old
+> instances disconnect before the new ones subscribe — rather than rolling.
+> Later releases can roll normally.
+
 ### Broker topics
 
 Only the channel topics you actually use need to be declared. Initial delivery
@@ -251,6 +272,7 @@ softa:
         recipients: ops@example.com # comma-separated; empty = no alert mail
     mail:
       debug: false                  # Jakarta Mail protocol debug — never enable in prod (leaks AUTH)
+      send-concurrency: 1           # parallel mail-send consumers per instance (each holds an SMTP connection)
       fetch:
         batch-limit: 100            # max messages per cron tick per (config, folder)
         lease-timeout: 1h           # abandoned IMAP watermark lease takeover
@@ -262,7 +284,12 @@ softa:
       transport:
         connection-timeout: 5s      # SMTP/IMAP/POP3 connect timeout
         read-timeout: 30s           # SMTP/IMAP/POP3 read timeout
+      smtp-pool:
+        enabled: true               # reuse authenticated SMTP connections across sends
+        idle-timeout: 30s           # idle connections older than this are closed, not reused
+        max-messages-per-connection: 100
     sms:
+      send-concurrency: 1           # parallel sms-send consumers per instance
       transport:
         connection-timeout: 5s      # HTTPS RestClient connect timeout
         read-timeout: 30s           # HTTPS RestClient read timeout
@@ -953,6 +980,31 @@ families:
 `softa.message.failed{outcome=dead_letter}` is emitted by `SendFailureHandler`
 when a send record transitions to DEAD_LETTER.
 
+### Delivery timing
+
+Delivery is asynchronous, so its latency is read from persisted timestamps, not
+in-process timers. A send record has one outbox row per attempt — the first
+send, each retry, a sweeper revival, a manual retry — joined on
+`aggregate_type` + `aggregate_id`:
+
+| Moment | Column |
+|---|---|
+| Accepted | record `created_time` (same transaction as the first outbox row) |
+| Published to the broker | `message_outbox.published_at` |
+| Retry scheduled for | `message_outbox.next_attempt_at` (null on the first row) |
+| Attempt started (consumer claim) | record `attempt_started_at` — latest attempt |
+| Provider accepted | record `sent_at` |
+| Provider call length | record `send_duration_ms` — the successful attempt |
+
+For the attempt that succeeded: queue wait = `attempt_started_at` − the latest
+outbox row's `published_at`; provider time = `send_duration_ms`; end to end =
+`sent_at` − `created_time`. A failed attempt ends at the record's
+`updated_time`, so its length is `updated_time` − `attempt_started_at` until the
+next claim overwrites it. `created_time` is taken inside the accepting
+transaction, so a long caller transaction shows up as publish delay. MySQL
+`DATETIME` columns hold whole seconds (PostgreSQL `TIMESTAMP` keeps
+microseconds); `send_duration_ms` is exact to the millisecond on both.
+
 ### Inbound delivery status
 
 Mail bounce and read-receipt status is derived from **inbound mail** on the
@@ -985,6 +1037,21 @@ and a retry outbox row is written in the same transaction. Stale outbox
 `PUBLISHING` claims are reopened to `NEW`. This covers JVM crashes between
 claiming a record and finishing the provider/broker call.
 
+Each revival counts as a retry and is held to the same budget as a failed send:
+a stuck record whose `retry_count` has reached
+`softa.message.retry.default-max-attempts` is moved to `DEAD_LETTER` (error code
+`ZOMBIE_EXHAUSTED`, archived to `dead_letter_message`) instead of being revived.
+An attempt that never finishes — a crash or hang on every try — never reaches the
+failure handler, so without this check it would be revived every stale window,
+forever.
+
+It also covers a send the provider accepted but whose `SENT` write failed (a
+database error right after the call). That is not a send failure, so it is never
+handed to the retry policy: the record stays `SENDING`, the delivery processor
+logs it at ERROR with the record id and the provider message id, and the sweep
+re-sends it once after the stale window — the price of at-least-once delivery —
+or dead-letters it if its retry budget is already spent.
+
 Disable via `softa.message.zombie.enabled=false` on read-only replicas.
 
 ### Sensitive field encryption
@@ -1002,9 +1069,21 @@ store plaintext.
 ### Mail transport
 
 Mail sending is SMTP-only. `MailSendServerConfig` is the complete outgoing
-server configuration; `SmtpMailTransport` is stateless and builds a fresh
-Jakarta Mail sender per send, so config changes only need the Redis config
-cache evicted (automatic on update/delete).
+server configuration. `SmtpMailTransport` keeps authenticated connections open
+between sends, one small pool per server config, so a run of mails through one
+server pays the TCP connect, TLS handshake and AUTH once instead of per message.
+An idle connection is probed with `NOOP` before reuse. A connection that saw a
+failure, carried `max-messages-per-connection` messages, or sat idle past
+`idle-timeout` is closed instead. Keep `idle-timeout` below the idle cut-off of
+any NAT or load balancer in front of the SMTP server: a connection dropped
+silently would only answer the probe with a read timeout.
+
+Each pool is keyed by the settings its connections were opened with, so an
+edited config (new host, rotated password) opens fresh connections on its next
+send, and config changes still only need the Redis config cache evicted
+(automatic on update/delete). `softa.message.mail.smtp-pool.enabled=false`
+goes back to one connection per send. Connectivity tests always open a new
+connection.
 
 ### Mail classification rules
 

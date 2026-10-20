@@ -1,5 +1,6 @@
 package io.softa.starter.message.sms.service.impl;
 
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -73,7 +74,7 @@ public class SmsDeliveryProcessor {
         }
         long expectedVersion = record.getVersion() != null ? record.getVersion() : 0L;
 
-        if (!recordService.casStatus(record.getId(), expectedVersion, SmsSendStatus.SENDING)) {
+        if (!recordService.markSending(record.getId(), expectedVersion)) {
             log.debug("SmsDeliveryProcessor: CAS miss for id={} v={}, treating as duplicate",
                     record.getId(), expectedVersion);
             return;
@@ -97,12 +98,21 @@ public class SmsDeliveryProcessor {
         }
         SendSmsDTO dto = rebuildDTO(record);
         AttemptResult r = trySend(dto, config, record.getPhoneNumber());
-        if (r.success()) {
-            recordService.markSent(record.getId(), sendingVersion, r.providerMessageId(),
-                    config.getId(), config.getProviderType());
-            if (metrics != null) metrics.sent("sms", providerName(config));
-        } else {
+        if (!r.success()) {
             handleFailure(record, sendingVersion, r.errorCode(), r.errorMessage(), config);
+            return;
+        }
+        if (metrics != null) metrics.sent("sms", providerName(config));
+        try {
+            recordService.markSent(record.getId(), sendingVersion, r.providerMessageId(),
+                    config.getId(), config.getProviderType(), r.sendDurationMs());
+        } catch (RuntimeException e) {
+            // Mirror of MailDeliveryProcessor: the provider has accepted the message, so
+            // this is not a send failure. The record stays SENDING until the zombie
+            // sweeper revives it after stale-seconds — the one re-send at-least-once costs.
+            log.error("SmsDeliveryProcessor: SMS accepted by the provider but recording it as sent "
+                    + "failed; record id={} stays SENDING (providerMessageId={})",
+                    record.getId(), r.providerMessageId(), e);
         }
     }
 
@@ -111,25 +121,27 @@ public class SmsDeliveryProcessor {
                 config.getDailySendLimit(), config.getRateLimitPerMinute());
         if (!quota.ok()) {
             return new AttemptResult(false, null, "QUOTA_EXCEEDED",
-                    "Rate limit: " + quota.name());
+                    "Rate limit: " + quota.name(), 0);
         }
         try {
             SmsProviderAdapter adapter = adapterFactory.getAdapter(config.getProviderType());
+            long started = System.nanoTime();
             SmsSendResult result = adapter.send(config, SmsAdapterRequest.from(dto, phoneNumber));
+            int sendDurationMs = (int) TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
             if (result != null && result.isSuccess()) {
-                return new AttemptResult(true, result.getProviderMessageId(), null, null);
+                return new AttemptResult(true, result.getProviderMessageId(), null, null, sendDurationMs);
             }
             String code = result != null ? result.getErrorCode() : null;
             String msg = result != null && result.getErrorMessage() != null
                     ? result.getErrorMessage()
                     : "Provider returned failure";
-            return new AttemptResult(false, null, code, msg);
+            return new AttemptResult(false, null, code, msg, sendDurationMs);
         } catch (Exception e) {
             // Known provider failures return a coded result above; anything reaching
             // this catch is unexpected — keep the stack in the log.
             log.error("SmsDeliveryProcessor: unexpected provider failure for phone={}",
                     phoneNumber, e);
-            return new AttemptResult(false, null, null, e.getMessage());
+            return new AttemptResult(false, null, null, e.getMessage(), 0);
         }
     }
 
@@ -164,5 +176,5 @@ public class SmsDeliveryProcessor {
 
     /** Internal result holder for a single provider attempt. */
     private record AttemptResult(boolean success, String providerMessageId,
-                                 String errorCode, String errorMessage) {}
+                                 String errorCode, String errorMessage, int sendDurationMs) {}
 }

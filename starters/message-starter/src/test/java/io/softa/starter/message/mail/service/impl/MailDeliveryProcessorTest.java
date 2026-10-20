@@ -19,11 +19,14 @@ import io.softa.starter.message.shared.RateLimiter;
 import io.softa.starter.message.shared.metrics.MessageMetrics;
 import io.softa.starter.message.shared.retry.SendFailureHandler;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -93,7 +96,7 @@ class MailDeliveryProcessorTest {
 
         processor.process(1L);
 
-        verify(recordService, never()).casStatus(anyLong(), anyLong(), any());
+        verify(recordService, never()).markSending(anyLong(), anyLong());
         verifyNoInteractions(dispatcher, smtpMailTransport, sendFailureHandler);
     }
 
@@ -103,7 +106,7 @@ class MailDeliveryProcessorTest {
 
         processor.process(1L);
 
-        verify(recordService, never()).casStatus(anyLong(), anyLong(), any());
+        verify(recordService, never()).markSending(anyLong(), anyLong());
         verifyNoInteractions(dispatcher, smtpMailTransport, sendFailureHandler);
     }
 
@@ -111,7 +114,7 @@ class MailDeliveryProcessorTest {
     void configNotResolvable_claimsThenFails() {
         when(recordService.getById(5L)).thenReturn(Optional.of(record(5L, MailSendStatus.PENDING, 0L)));
         when(dispatcher.resolveSendById(10L)).thenThrow(new RuntimeException("config gone"));
-        when(recordService.casStatus(5L, 0L, MailSendStatus.SENDING)).thenReturn(true);
+        when(recordService.markSending(5L, 0L)).thenReturn(true);
 
         processor.process(5L);
 
@@ -126,7 +129,7 @@ class MailDeliveryProcessorTest {
     void configNotResolvable_butClaimLost_doesNotFail() {
         when(recordService.getById(5L)).thenReturn(Optional.of(record(5L, MailSendStatus.PENDING, 0L)));
         when(dispatcher.resolveSendById(10L)).thenThrow(new RuntimeException("config gone"));
-        when(recordService.casStatus(5L, 0L, MailSendStatus.SENDING)).thenReturn(false);
+        when(recordService.markSending(5L, 0L)).thenReturn(false);
 
         processor.process(5L);
 
@@ -138,12 +141,12 @@ class MailDeliveryProcessorTest {
     void casMiss_isTreatedAsDuplicate_noSend() {
         when(recordService.getById(5L)).thenReturn(Optional.of(record(5L, MailSendStatus.PENDING, 0L)));
         when(dispatcher.resolveSendById(10L)).thenReturn(config());
-        when(recordService.casStatus(5L, 0L, MailSendStatus.SENDING)).thenReturn(false);
+        when(recordService.markSending(5L, 0L)).thenReturn(false);
 
         processor.process(5L);
 
         verify(smtpMailTransport, never()).send(any(), any());
-        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), any());
+        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), any(), anyInt());
         verifyNoInteractions(sendFailureHandler);
     }
 
@@ -151,7 +154,7 @@ class MailDeliveryProcessorTest {
     void quotaExceeded_failsWithoutSending() {
         when(recordService.getById(5L)).thenReturn(Optional.of(record(5L, MailSendStatus.PENDING, 0L)));
         when(dispatcher.resolveSendById(10L)).thenReturn(config());
-        when(recordService.casStatus(5L, 0L, MailSendStatus.SENDING)).thenReturn(true);
+        when(recordService.markSending(5L, 0L)).thenReturn(true);
         when(rateLimiter.tryAcquire(eq("mail"), eq(10L), any(), any()))
                 .thenReturn(RateLimiter.Outcome.MINUTE_EXCEEDED);
 
@@ -167,13 +170,13 @@ class MailDeliveryProcessorTest {
     void success_marksSentAndCountsMetric() {
         when(recordService.getById(5L)).thenReturn(Optional.of(record(5L, MailSendStatus.PENDING, 0L)));
         when(dispatcher.resolveSendById(10L)).thenReturn(config());
-        when(recordService.casStatus(5L, 0L, MailSendStatus.SENDING)).thenReturn(true);
+        when(recordService.markSending(5L, 0L)).thenReturn(true);
         allowQuota();
         when(smtpMailTransport.send(any(), any(SmtpMailRequest.class))).thenReturn(SmtpSendResult.success("MSG-1"));
 
         processor.process(5L);
 
-        verify(recordService).markSent(5L, 1L, "MSG-1", SmtpMailTransport.NAME);
+        verify(recordService).markSent(eq(5L), eq(1L), eq("MSG-1"), eq(SmtpMailTransport.NAME), anyInt());
         verify(metrics).sent("mail", SmtpMailTransport.NAME);
         verifyNoInteractions(sendFailureHandler);
     }
@@ -182,7 +185,7 @@ class MailDeliveryProcessorTest {
     void providerFailureResult_isHandledAsFailure() {
         when(recordService.getById(5L)).thenReturn(Optional.of(record(5L, MailSendStatus.PENDING, 0L)));
         when(dispatcher.resolveSendById(10L)).thenReturn(config());
-        when(recordService.casStatus(5L, 0L, MailSendStatus.SENDING)).thenReturn(true);
+        when(recordService.markSending(5L, 0L)).thenReturn(true);
         allowQuota();
         when(smtpMailTransport.send(any(), any(SmtpMailRequest.class)))
                 .thenReturn(SmtpSendResult.failure("SMTP_550", "mailbox unavailable"));
@@ -192,14 +195,14 @@ class MailDeliveryProcessorTest {
         verify(sendFailureHandler).handle(eq("mail"), eq(SmtpMailTransport.NAME), eq(TopicRoute.MAIL_SEND),
                 eq("MailSendRecord"), eq(5L), eq(1L), eq(0), eq("SMTP_550"), eq("mailbox unavailable"),
                 any(SendFailureHandler.RecordTransitions.class));
-        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), any());
+        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), any(), anyInt());
     }
 
     @Test
     void transportThrows_isHandledAsFailure() {
         when(recordService.getById(5L)).thenReturn(Optional.of(record(5L, MailSendStatus.PENDING, 0L)));
         when(dispatcher.resolveSendById(10L)).thenReturn(config());
-        when(recordService.casStatus(5L, 0L, MailSendStatus.SENDING)).thenReturn(true);
+        when(recordService.markSending(5L, 0L)).thenReturn(true);
         allowQuota();
         when(smtpMailTransport.send(any(), any(SmtpMailRequest.class)))
                 .thenThrow(new RuntimeException("connection reset"));
@@ -209,6 +212,24 @@ class MailDeliveryProcessorTest {
         verify(sendFailureHandler).handle(eq("mail"), eq(SmtpMailTransport.NAME), eq(TopicRoute.MAIL_SEND),
                 eq("MailSendRecord"), eq(5L), eq(1L), eq(0), isNull(), eq("connection reset"),
                 any(SendFailureHandler.RecordTransitions.class));
-        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), any());
+        verify(recordService, never()).markSent(anyLong(), anyLong(), any(), any(), anyInt());
+    }
+
+    @Test
+    void recordingSentFails_isNotASendFailure() {
+        when(recordService.getById(5L)).thenReturn(Optional.of(record(5L, MailSendStatus.PENDING, 0L)));
+        when(dispatcher.resolveSendById(10L)).thenReturn(config());
+        when(recordService.markSending(5L, 0L)).thenReturn(true);
+        allowQuota();
+        when(smtpMailTransport.send(any(), any(SmtpMailRequest.class))).thenReturn(SmtpSendResult.success("MSG-1"));
+        doThrow(new RuntimeException("lock wait timeout")).when(recordService)
+                .markSent(eq(5L), eq(1L), eq("MSG-1"), eq(SmtpMailTransport.NAME), anyInt());
+
+        // The server accepted the mail: no retry is scheduled (that would send it again),
+        // and the error does not escape to the consumer — the record simply stays SENDING.
+        assertDoesNotThrow(() -> processor.process(5L));
+
+        verifyNoInteractions(sendFailureHandler);
+        verify(metrics).sent("mail", SmtpMailTransport.NAME);
     }
 }

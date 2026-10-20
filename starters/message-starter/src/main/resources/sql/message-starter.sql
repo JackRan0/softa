@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS mail_send_record
     error_code       VARCHAR(100)          COMMENT 'Provider-specific error code on failure',
     error_message    TEXT                  COMMENT 'Error detail on failure',
     sent_at          DATETIME              COMMENT 'Timestamp accepted by SMTP server',
+    attempt_started_at DATETIME            COMMENT 'When the latest delivery attempt started (claimed as Sending)',
+    send_duration_ms INT                   COMMENT 'Milliseconds the SMTP call of the successful attempt took',
     message_id       VARCHAR(255)          COMMENT 'SMTP Message-ID header',
     created_time     DATETIME              COMMENT 'Created time',
     updated_time     DATETIME              COMMENT 'Updated time',

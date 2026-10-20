@@ -236,6 +236,8 @@ CREATE TABLE IF NOT EXISTS mail_send_record (
     error_code VARCHAR(100),
     error_message VARCHAR(1000),
     sent_at TIMESTAMP,
+    attempt_started_at TIMESTAMP,
+    send_duration_ms INT,
     message_id VARCHAR(255),
     read_receipt_requested BOOLEAN,
     priority VARCHAR(64),
@@ -265,6 +267,8 @@ COMMENT ON COLUMN mail_send_record.next_retry_at IS 'Earliest time at which the 
 COMMENT ON COLUMN mail_send_record.error_code IS 'Provider-specific error code on failure';
 COMMENT ON COLUMN mail_send_record.error_message IS 'Error message on failure';
 COMMENT ON COLUMN mail_send_record.sent_at IS 'Timestamp when the email was accepted by the SMTP server';
+COMMENT ON COLUMN mail_send_record.attempt_started_at IS 'When the latest delivery attempt started (claimed as Sending)';
+COMMENT ON COLUMN mail_send_record.send_duration_ms IS 'Milliseconds the SMTP call of the successful attempt took';
 COMMENT ON COLUMN mail_send_record.message_id IS 'SMTP Message-ID header value';
 COMMENT ON COLUMN mail_send_record.read_receipt_requested IS 'Whether a read receipt was requested for this email';
 COMMENT ON COLUMN mail_send_record.priority IS 'Priority level used when sending: HIGH / NORMAL / LOW';
@@ -491,6 +495,8 @@ CREATE TABLE IF NOT EXISTS sms_send_record (
     error_code VARCHAR(100),
     provider_message_id VARCHAR(255),
     sent_at TIMESTAMP,
+    attempt_started_at TIMESTAMP,
+    send_duration_ms INT,
     delivery_status VARCHAR(64),
     delivery_status_updated_at TIMESTAMP,
     created_time TIMESTAMP,
@@ -517,6 +523,8 @@ COMMENT ON COLUMN sms_send_record.error_message IS 'Error message on failure';
 COMMENT ON COLUMN sms_send_record.error_code IS 'Provider-specific error code on failure (e.g. Twilio 21211, Aliyun isv.BUSINESS_LIMIT_CONTROL)';
 COMMENT ON COLUMN sms_send_record.provider_message_id IS 'External message ID from the SMS provider';
 COMMENT ON COLUMN sms_send_record.sent_at IS 'Timestamp when the message was accepted by the provider';
+COMMENT ON COLUMN sms_send_record.attempt_started_at IS 'When the latest delivery attempt started (claimed as Sending)';
+COMMENT ON COLUMN sms_send_record.send_duration_ms IS 'Milliseconds the provider call of the successful attempt took';
 COMMENT ON COLUMN sms_send_record.delivery_status IS 'Delivery status reported by the provider';
 COMMENT ON COLUMN sms_send_record.delivery_status_updated_at IS 'Last delivery status update time';
 CREATE INDEX IF NOT EXISTS idx_sms_send_tenant_status ON sms_send_record (tenant_id, status);

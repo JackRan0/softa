@@ -25,12 +25,15 @@ public abstract class AbstractCasSendRecordServiceImpl<E extends AbstractModel>
         extends EntityServiceImpl<E, Long> {
 
     /**
-     * Transition the status column under the framework optimistic lock. Returns
-     * {@code false} when the version was superseded.
+     * Claim the record for a delivery attempt under the framework optimistic
+     * lock: move it to the channel's sending status and stamp
+     * {@code attemptStartedAt}. Returns {@code false} when the version was
+     * superseded, i.e. another delivery of the same record claimed it first.
      */
-    protected boolean transitionStatus(Long id, long expectedVersion, Object status) {
+    protected boolean claimForAttempt(Long id, long expectedVersion, Object sendingStatus) {
         Map<String, Object> patch = versionedPatch(id, expectedVersion);
-        patch.put("status", status);
+        patch.put("status", sendingStatus);
+        patch.put("attemptStartedAt", LocalDateTime.now());
         return updateVersioned(patch);
     }
 
