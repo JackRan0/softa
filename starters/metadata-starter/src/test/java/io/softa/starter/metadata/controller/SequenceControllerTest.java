@@ -31,7 +31,8 @@ class SequenceControllerTest {
     private final SysSequenceService sysSequenceService = Mockito.mock(SysSequenceService.class);
     private final SequenceServiceImpl sequenceServiceImpl = Mockito.mock(SequenceServiceImpl.class);
     private final SequenceController controller =
-            new SequenceController(sequenceService, sysSequenceService, sequenceServiceImpl);
+            new SequenceController(sequenceService, sysSequenceService, sequenceServiceImpl,
+                    Mockito.mock(io.softa.starter.metadata.sequence.ManualCodeChecker.class));
 
     private void stubMode(String code, SequenceMode mode) {
         SysSequence config = new SysSequence();

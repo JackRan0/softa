@@ -456,6 +456,17 @@ private String employeeNo;
   sequence guarantees allocation order, the index guarantees uniqueness.
 - Duplicating a row never copies the number; the copy gets a fresh one on
   insert.
+- Without `readonly`, a value **typed by hand** is accepted, and checked at the
+  write root on every path (forms, import, the model API): no spaces inside,
+  unique **ignoring case** (the duplicate message is the field's unique index
+  `message`), then the sequence's own **Manual Entry** rule (`SysSequence.manualEntry`):
+  `Any`, `SameAsAutoGeneration` (the template's shape — company abbreviation,
+  literals, as many digits), `LengthAndCharacters`, or `Pattern`. Only a new or
+  changed value is checked; sending the stored value back passes. System writes
+  (`skipPermissionCheck`, e.g. seeding) are not checked. A form can ask
+  `POST /Sequence/checkManualCode` on blur for the same answer.
+- Import matching by such a field (`uniqueConstraints = ["code"]`) ignores case:
+  `zk1000021` updates the record stored as `ZK1000021`, which keeps its spelling.
 
 ### Rename a field or model
 **Declare the rename** with `renamedFrom` — don't just change the name. Without

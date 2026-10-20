@@ -18,14 +18,16 @@ import io.softa.framework.orm.sequence.SequenceService;
  * <ul>
  *   <li>{@code accessType == CREATE} (sequence allocation only happens on insert)</li>
  *   <li>{@code metaField.isAutoSequence() == true} (binding declared by sys_sequence row)</li>
- *   <li>The corresponding row's value is null/blank (caller-provided values are trusted)</li>
+ *   <li>The corresponding row's value is null/blank (a typed value is kept here; the write validators
+ *       check it at the write root)</li>
  * </ul>
  *
  * <p>Pairing with {@code readonly} switches to strict system numbering: a
  * caller-provided value is rejected here (readonly's promise, enforced before
  * the fill), and the filled value passes the downstream readonly check via the
  * autoSequence exemption in {@code BaseProcessor.checkReadonly}. Without
- * {@code readonly}, caller values are trusted (import-friendly).
+ * {@code readonly}, a caller value is kept (import-friendly); the metadata
+ * starter's write validator checks it against the sequence's Manual Entry rule.
  *
  * <p>The sequence code is reconstructed at construction time from
  * {@code modelName + "." + fieldName} per the v1 naming convention; the actual

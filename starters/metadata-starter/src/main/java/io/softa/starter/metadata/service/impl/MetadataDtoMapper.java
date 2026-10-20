@@ -38,6 +38,7 @@ public final class MetadataDtoMapper {
         fieldDTO.setComputed(metaField.isComputed());
         fieldDTO.setDynamic(metaField.isDynamic());
         fieldDTO.setEncrypted(metaField.isEncrypted());
+        fieldDTO.setAutoSequence(metaField.isAutoSequence());
         fieldDTO.setOptionSetCode(metaField.getOptionSetCode());
         fieldDTO.setRelatedModel(metaField.getRelatedModel());
         fieldDTO.setRelatedField(metaField.getRelatedField());

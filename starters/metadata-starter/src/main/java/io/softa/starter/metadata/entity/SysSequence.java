@@ -7,6 +7,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.metadata.enums.ResetCadence;
 import io.softa.starter.metadata.enums.SequenceMode;
+import io.softa.starter.metadata.sequence.ManualEntryRule;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -108,6 +109,14 @@ public class SysSequence extends AuditableModel {
 
     @Field(label = "Allocation Mode", required = true)
     private SequenceMode mode;
+
+    /**
+     * How a code typed by hand into the numbered field is checked; null checks as {@code Any}.
+     * Generated codes are not checked against it.
+     */
+    @Field(label = "Manual Entry",
+            description = "Rules for codes typed in by hand. Auto-generated codes are not checked.")
+    private ManualEntryRule manualEntry;
 
     @Field(length = 256)
     private String description;
