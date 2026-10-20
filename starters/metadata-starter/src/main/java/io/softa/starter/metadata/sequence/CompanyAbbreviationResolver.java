@@ -24,6 +24,7 @@ import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
@@ -49,6 +50,10 @@ import io.softa.framework.orm.service.ModelService;
 public class CompanyAbbreviationResolver {
 
     static final String ABBREVIATION_FIELD = "abbreviation";
+    private static final String NAME_FIELD = "name";
+    private static final String ACTIVE_FIELD = "active";
+    /** A blank abbreviation passes {@code IS SET}; a few candidates leave room to skip one. */
+    private static final int SAMPLE_CANDIDATES = 20;
 
     /** Lookups are chunked so an {@code IN} list stays within what every supported database accepts. */
     private static final int LOOKUP_CHUNK = 500;
@@ -109,6 +114,39 @@ public class CompanyAbbreviationResolver {
         return follow(ModelConstant.COMPANY_MODEL, ABBREVIATION_FIELD, ids).stream()
                 .map(CompanyAbbreviationResolver::text)
                 .toList();
+    }
+
+    /**
+     * What {@code {companyAbbr}} renders for a model, shown by a template preview: whether the model
+     * has a company at all — the same path lookup numbering uses, so the preview cannot disagree with
+     * what is generated — and a sample company to render it with: the newest active company that has
+     * an abbreviation.
+     *
+     * <p>The sample is read without permission checks, like the numbering itself: someone allowed to
+     * edit a numbering rule sees how it renders whether or not they may read companies, and only a
+     * company's name and abbreviation are returned.
+     *
+     * @param modelName the model the sequence numbers
+     */
+    public CompanyAbbrPreview previewFor(String modelName) {
+        if (!companyHasAbbreviation() || pathOf(modelName).isEmpty()) {
+            return CompanyAbbrPreview.notApplicable();
+        }
+        FlexQuery query = new FlexQuery(List.of(NAME_FIELD, ABBREVIATION_FIELD),
+                new Filters().eq(ACTIVE_FIELD, true).isSet(ABBREVIATION_FIELD));
+        query.setOrders(Orders.ofDesc(ModelConstant.CREATED_TIME));
+        query.setLimitSize(SAMPLE_CANDIDATES);
+        Context system = ContextHolder.getContext().copy();
+        system.setSkipPermissionCheck(true);
+        List<Map<String, Object>> companies =
+                ContextHolder.callWith(system, () -> modelService.searchList(ModelConstant.COMPANY_MODEL, query));
+        for (Map<String, Object> company : companies) {
+            String abbreviation = text(company.get(ABBREVIATION_FIELD));
+            if (abbreviation != null) {
+                return new CompanyAbbrPreview(true, text(company.get(NAME_FIELD)), abbreviation);
+            }
+        }
+        return new CompanyAbbrPreview(true, null, null);
     }
 
     /** The first non-empty answer of the ordered resolvers, cached per model — it never changes for a model. */

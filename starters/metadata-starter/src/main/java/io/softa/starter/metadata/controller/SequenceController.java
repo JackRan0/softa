@@ -8,7 +8,10 @@ import io.softa.framework.orm.sequence.SequenceService;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.metadata.entity.SysSequence;
 import io.softa.starter.metadata.enums.SequenceMode;
+import io.softa.starter.metadata.sequence.CompanyAbbrPreview;
+import io.softa.starter.metadata.sequence.CompanyAbbreviationResolver;
 import io.softa.starter.metadata.service.SysSequenceService;
+import io.softa.starter.metadata.service.impl.SequenceServiceImpl;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Sequence-specific actions that do not fit the generic CRUD shape.
- * Exposes {@code next}, {@code nextBatch}, and {@code peek} over HTTP for
- * admin/runtime use cases.
+ * Exposes {@code next}, {@code nextBatch}, {@code peek} and
+ * {@code companyAbbrPreview} over HTTP for admin/runtime use cases.
  *
  * <p>NO_GAP sequences are rejected here: the no-gap guarantee requires the
  * counter UPDATE to share the business transaction, and an HTTP allocation
@@ -43,6 +46,7 @@ public class SequenceController {
 
     private final SequenceService sequenceService;
     private final SysSequenceService sysSequenceService;
+    private final CompanyAbbreviationResolver companyAbbreviationResolver;
 
     @Operation(summary = "next", description = """
             Allocate and return the next sequence value for the given code.
@@ -83,6 +87,19 @@ public class SequenceController {
     public ApiResponse<SequencePreview> peek(@RequestParam("code") String code) {
         Assert.notBlank(code, "code must not be blank");
         return ApiResponse.success(sequenceService.peek(code));
+    }
+
+    @Operation(summary = "companyAbbrPreview", description = """
+            What the {companyAbbr} token renders for the given sequence, for a
+            template preview: whether the numbered model has a company at all
+            (when not, the token is always empty), and a sample company — the
+            newest active one with an abbreviation — to render it with.
+            Read-only.
+            """)
+    @PostMapping("/companyAbbrPreview")
+    public ApiResponse<CompanyAbbrPreview> companyAbbrPreview(@RequestParam("code") String code) {
+        Assert.notBlank(code, "code must not be blank");
+        return ApiResponse.success(companyAbbreviationResolver.previewFor(SequenceServiceImpl.modelOf(code)));
     }
 
     /**

@@ -191,4 +191,32 @@ class CompanyAbbreviationResolverTest {
         assertThat(out).containsExactly((String) null);
         verify(modelService, never()).searchList(anyString(), any(FlexQuery.class));
     }
+
+    // ---- preview ------------------------------------------------------------
+
+    private CompanyAbbrPreview preview(String model) {
+        return ContextHolder.callWith(new Context(), () -> resolver.previewFor(model));
+    }
+
+    @Test
+    @DisplayName("preview: a model with a company gets the first sample that has an abbreviation")
+    void previewWithSample() {
+        rows(COMPANY, List.of(row("name", "Blank Pte Ltd", "abbreviation", " "),
+                row("name", "ZingKey Pte Ltd", "abbreviation", "ZK")));
+        assertThat(preview("EmpAddress")).isEqualTo(new CompanyAbbrPreview(true, "ZingKey Pte Ltd", "ZK"));
+    }
+
+    @Test
+    @DisplayName("preview: a model with a company but no abbreviation anywhere applies, with no sample")
+    void previewWithoutSample() {
+        rows(COMPANY, List.of());
+        assertThat(preview("Department")).isEqualTo(new CompanyAbbrPreview(true, null, null));
+    }
+
+    @Test
+    @DisplayName("preview: a model with no company does not apply, and no company is read")
+    void previewNotApplicable() {
+        assertThat(preview("JobGrade")).isEqualTo(new CompanyAbbrPreview(false, null, null));
+        verify(modelService, never()).searchList(anyString(), any(FlexQuery.class));
+    }
 }

@@ -243,7 +243,7 @@ public class SequenceServiceImpl implements SequenceService {
     }
 
     /** The model a sequence numbers: its code is {@code "<ModelName>.<fieldName>"}. */
-    static String modelOf(String code) {
+    public static String modelOf(String code) {
         int dot = code.lastIndexOf('.');
         return dot > 0 ? code.substring(0, dot) : code;
     }

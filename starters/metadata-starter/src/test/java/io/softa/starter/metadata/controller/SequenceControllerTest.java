@@ -8,6 +8,8 @@ import org.mockito.Mockito;
 import io.softa.framework.orm.sequence.SequenceService;
 import io.softa.starter.metadata.entity.SysSequence;
 import io.softa.starter.metadata.enums.SequenceMode;
+import io.softa.starter.metadata.sequence.CompanyAbbrPreview;
+import io.softa.starter.metadata.sequence.CompanyAbbreviationResolver;
 import io.softa.starter.metadata.service.SysSequenceService;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,7 +28,9 @@ class SequenceControllerTest {
 
     private final SequenceService sequenceService = Mockito.mock(SequenceService.class);
     private final SysSequenceService sysSequenceService = Mockito.mock(SysSequenceService.class);
-    private final SequenceController controller = new SequenceController(sequenceService, sysSequenceService);
+    private final CompanyAbbreviationResolver companyAbbreviationResolver = Mockito.mock(CompanyAbbreviationResolver.class);
+    private final SequenceController controller =
+            new SequenceController(sequenceService, sysSequenceService, companyAbbreviationResolver);
 
     private void stubMode(String code, SequenceMode mode) {
         SysSequence config = new SysSequence();
@@ -68,5 +72,13 @@ class SequenceControllerTest {
 
         assertDoesNotThrow(() -> controller.nextBatch("Audit.eventNo", 100));
         assertThrows(RuntimeException.class, () -> controller.nextBatch("Audit.eventNo", 101));
+    }
+
+    @Test
+    void companyAbbrPreview_asksAboutTheModelTheSequenceNumbers() {
+        CompanyAbbrPreview preview = new CompanyAbbrPreview(true, "ZingKey Pte Ltd", "ZK");
+        when(companyAbbreviationResolver.previewFor("EmpAddress")).thenReturn(preview);
+
+        assertEquals(preview, controller.companyAbbrPreview("EmpAddress.code").getData());
     }
 }
