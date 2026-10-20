@@ -8,8 +8,7 @@ import io.softa.framework.orm.sequence.SequenceService;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.metadata.entity.SysSequence;
 import io.softa.starter.metadata.enums.SequenceMode;
-import io.softa.starter.metadata.sequence.CompanyAbbrPreview;
-import io.softa.starter.metadata.sequence.CompanyAbbreviationResolver;
+import io.softa.starter.metadata.sequence.SequenceTemplatePreview;
 import io.softa.starter.metadata.service.SysSequenceService;
 import io.softa.starter.metadata.service.impl.SequenceServiceImpl;
 import io.swagger.v3.oas.annotations.Operation;
@@ -23,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Sequence-specific actions that do not fit the generic CRUD shape.
  * Exposes {@code next}, {@code nextBatch}, {@code peek} and
- * {@code companyAbbrPreview} over HTTP for admin/runtime use cases.
+ * {@code templatePreview} over HTTP for admin/runtime use cases.
  *
  * <p>NO_GAP sequences are rejected here: the no-gap guarantee requires the
  * counter UPDATE to share the business transaction, and an HTTP allocation
@@ -46,7 +45,7 @@ public class SequenceController {
 
     private final SequenceService sequenceService;
     private final SysSequenceService sysSequenceService;
-    private final CompanyAbbreviationResolver companyAbbreviationResolver;
+    private final SequenceServiceImpl sequenceServiceImpl;
 
     @Operation(summary = "next", description = """
             Allocate and return the next sequence value for the given code.
@@ -89,17 +88,18 @@ public class SequenceController {
         return ApiResponse.success(sequenceService.peek(code));
     }
 
-    @Operation(summary = "companyAbbrPreview", description = """
-            What the {companyAbbr} token renders for the given sequence, for a
-            template preview: whether the numbered model has a company at all
-            (when not, the token is always empty), and a sample company — the
-            newest active one with an abbreviation — to render it with.
-            Read-only.
+    @Operation(summary = "templatePreview", description = """
+            What a template preview needs from the server for the given
+            sequence: whether the next allocation continues the stored counter
+            (else it starts over at the start value), the stored counter, and
+            what the {companyAbbr} token renders — whether the numbered model
+            has a company at all, and a sample company. Read-only, nothing is
+            allocated.
             """)
-    @PostMapping("/companyAbbrPreview")
-    public ApiResponse<CompanyAbbrPreview> companyAbbrPreview(@RequestParam("code") String code) {
+    @PostMapping("/templatePreview")
+    public ApiResponse<SequenceTemplatePreview> templatePreview(@RequestParam("code") String code) {
         Assert.notBlank(code, "code must not be blank");
-        return ApiResponse.success(companyAbbreviationResolver.previewFor(SequenceServiceImpl.modelOf(code)));
+        return ApiResponse.success(sequenceServiceImpl.templatePreview(code));
     }
 
     /**

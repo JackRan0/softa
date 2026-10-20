@@ -1,5 +1,17 @@
 package io.softa.starter.metadata.service.impl;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
+import io.softa.starter.metadata.sequence.SequenceTemplatePreview;
+
+import io.softa.starter.metadata.sequence.CompanyAbbrPreview;
+
+import io.softa.framework.orm.domain.FlexQuery;
+
+import java.util.Optional;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -176,5 +188,42 @@ class SequenceServiceImplTest {
         config("E{seq:4}", 29);
         takenInTable.add("e0030");
         assertThat(ContextHolder.callWith(new Context(), () -> service.next(CODE))).isEqualTo("E0031");
+    }
+
+    // ---- template preview ---------------------------------------------------
+
+    private void stored(Long current, String lastResetKey, ResetCadence cadence) {
+        SysSequence row = new SysSequence();
+        row.setCode(CODE);
+        row.setCurrentValue(current);
+        row.setLastResetKey(lastResetKey);
+        row.setResetCadence(cadence);
+        when(sysSequenceService.searchOne(any(FlexQuery.class))).thenReturn(Optional.of(row));
+        when(abbreviations.previewFor("Employee")).thenReturn(new CompanyAbbrPreview(true, "ZingKey Pte Ltd", "ZK"));
+    }
+
+    @Test
+    @DisplayName("preview: a used counter in the current period continues")
+    void previewContinues() {
+        stored(1_000_009L, "", ResetCadence.NONE);
+        SequenceTemplatePreview p = service.templatePreview(CODE);
+        assertEquals(new SequenceTemplatePreview(true, 1_000_009L,
+                new CompanyAbbrPreview(true, "ZingKey Pte Ltd", "ZK")), p);
+    }
+
+    @Test
+    @DisplayName("preview: a counter never used (null last reset key) starts over, as allocation does")
+    void previewFreshCounterStartsOver() {
+        stored(0L, null, ResetCadence.NONE);
+        assertFalse(service.templatePreview(CODE).continuesCounter());
+    }
+
+    @Test
+    @DisplayName("preview: a counter from an earlier reset period starts over")
+    void previewNewPeriodStartsOver() {
+        stored(42L, "1999", ResetCadence.YEARLY);
+        SequenceTemplatePreview p = service.templatePreview(CODE);
+        assertFalse(p.continuesCounter());
+        assertEquals(42L, p.currentValue());
     }
 }

@@ -9,7 +9,8 @@ import io.softa.framework.orm.sequence.SequenceService;
 import io.softa.starter.metadata.entity.SysSequence;
 import io.softa.starter.metadata.enums.SequenceMode;
 import io.softa.starter.metadata.sequence.CompanyAbbrPreview;
-import io.softa.starter.metadata.sequence.CompanyAbbreviationResolver;
+import io.softa.starter.metadata.sequence.SequenceTemplatePreview;
+import io.softa.starter.metadata.service.impl.SequenceServiceImpl;
 import io.softa.starter.metadata.service.SysSequenceService;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -28,9 +29,9 @@ class SequenceControllerTest {
 
     private final SequenceService sequenceService = Mockito.mock(SequenceService.class);
     private final SysSequenceService sysSequenceService = Mockito.mock(SysSequenceService.class);
-    private final CompanyAbbreviationResolver companyAbbreviationResolver = Mockito.mock(CompanyAbbreviationResolver.class);
+    private final SequenceServiceImpl sequenceServiceImpl = Mockito.mock(SequenceServiceImpl.class);
     private final SequenceController controller =
-            new SequenceController(sequenceService, sysSequenceService, companyAbbreviationResolver);
+            new SequenceController(sequenceService, sysSequenceService, sequenceServiceImpl);
 
     private void stubMode(String code, SequenceMode mode) {
         SysSequence config = new SysSequence();
@@ -75,10 +76,11 @@ class SequenceControllerTest {
     }
 
     @Test
-    void companyAbbrPreview_asksAboutTheModelTheSequenceNumbers() {
-        CompanyAbbrPreview preview = new CompanyAbbrPreview(true, "ZingKey Pte Ltd", "ZK");
-        when(companyAbbreviationResolver.previewFor("EmpAddress")).thenReturn(preview);
+    void templatePreview_isServedForAnyMode() {
+        SequenceTemplatePreview preview = new SequenceTemplatePreview(true, 1_000_009L,
+                new CompanyAbbrPreview(true, "ZingKey Pte Ltd", "ZK"));
+        when(sequenceServiceImpl.templatePreview("Employee.code")).thenReturn(preview);
 
-        assertEquals(preview, controller.companyAbbrPreview("EmpAddress.code").getData());
+        assertEquals(preview, controller.templatePreview("Employee.code").getData());
     }
 }

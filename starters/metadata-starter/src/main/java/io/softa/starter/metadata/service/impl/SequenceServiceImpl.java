@@ -28,6 +28,7 @@ import io.softa.starter.metadata.sequence.dialect.SequenceDialectFactory;
 import io.softa.starter.metadata.service.SysSequenceService;
 import io.softa.starter.metadata.sequence.CompanyAbbreviationResolver;
 import io.softa.starter.metadata.sequence.SequenceCodeOccupancy;
+import io.softa.starter.metadata.sequence.SequenceTemplatePreview;
 import io.softa.starter.metadata.sequence.TemplateRenderer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -213,6 +214,22 @@ public class SequenceServiceImpl implements SequenceService {
         }
         String rendered = templateRenderer.render(row.getTemplate(), preview, now, code);
         return new SequencePreview(code, rendered, preview, "Preview only, not reserved");
+    }
+
+    /**
+     * What a template preview needs from the server — see {@link SequenceTemplatePreview}. The counter
+     * rule is the one {@link #peek} and the allocation SQL apply; the row is read fresh, as in peek,
+     * because the cached config holds a stale counter.
+     */
+    public SequenceTemplatePreview templatePreview(String code) {
+        rejectCrossTenant(code);
+        SysSequence row = sysSequenceService
+                .searchOne(new FlexQuery(new Filters().eq(SysSequence::getCode, code)))
+                .orElseThrow(() -> new SequenceNotFoundException(code));
+        String currentKey = row.getResetCadence().computeKey(LocalDateTime.now());
+        long current = row.getCurrentValue() == null ? 0L : row.getCurrentValue();
+        return new SequenceTemplatePreview(currentKey.equals(row.getLastResetKey()), current,
+                companyAbbreviationResolver.previewFor(modelOf(code)));
     }
 
     /** Numbers a template is rendered with, and the moment its date tokens take their values from. */
