@@ -9,7 +9,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-**Softa** is a metadata-driven, open-source enterprise application development framework (Java 25, Spring Boot 4.1.0) with an integrated ERP system. It is published to Maven Central and GitHub Packages.
+**Softa** is a metadata-driven, open-source enterprise application development framework (Java 25, Spring Boot 4.1.1) with an integrated ERP system. It is published to Maven Central and GitHub Packages.
 
 ## Build & Test Commands
 
@@ -294,22 +294,22 @@ DRY · SOLID · KISS · YAGNI · Separation of Concerns · Composition over Inhe
 
 ## Technology Stack
 
-| Concern | Library/Version            |
-|---|----------------------------|
-| Framework | Spring Boot 4.1.0               |
-| Language | Java 25, Lombok 1.18.42    |
-| ORM | Spring Data (JDBC)         |
-| Databases | MySQL 9.6.0, PostgreSQL 42.7.10 |
-| Cache | Spring Data Redis          |
-| Search | Spring Data Elasticsearch  |
+| Concern | Library/Version                     |
+|---|-------------------------------------|
+| Framework | Spring Boot 4.1.1                   |
+| Language | Java 25, Lombok 1.18.42             |
+| ORM | Spring Data (JDBC)                  |
+| Databases | MySQL 9.6.0, PostgreSQL 42.7.10     |
+| Cache | Spring Data Redis                   |
+| Search | Spring Data Elasticsearch           |
 | Messaging | Apache Pulsar (Spring Boot Starter) |
-| Object Storage | MinIO 9.0.0, Aliyun OSS 3.18.5 |
-| ID Generation | CosID 3.0.5                |
-| Expression Engine | AviatorScript 5.4.3        |
-| Template Engine | Pebble                |
-| Parser Generation | ANTLR4 4.13.2              |
-| API Docs | SpringDoc OpenAPI 3.0.3    |
-| Testing | JUnit 5, Mockito 5.20.0, JMH 1.37 |
+| Object Storage | MinIO 9.0.0, Aliyun OSS 3.18.5      |
+| ID Generation | CosID 3.0.5                         |
+| Expression Engine | AviatorScript 5.4.3                 |
+| Template Engine | Pebble                              |
+| Parser Generation | ANTLR4 4.13.2                       |
+| API Docs | SpringDoc OpenAPI 3.0.3             |
+| Testing | JUnit 5, Mockito 5.20.0, JMH 1.37   |
 
 ## Infrastructure (Docker Compose)
 

@@ -8,11 +8,11 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
@@ -75,7 +75,8 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     private final JoinProofGuard proofGuard;
     /** Send limits for one-time codes. A reset link spends the same budget — see forgotPassword. */
     private final VerificationCodeGuard codeGuard;
-    private final String frontendBaseUrl;
+    /** Site origin every invitation / reset link is built on ({@code system.site-url}). */
+    private final SystemConfig systemConfig;
 
     public UserInvitationServiceImpl(UserAccountService accountService,
                                      UserIdentityService identityService,
@@ -83,14 +84,14 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
                                      @Autowired(required = false) TenantInfoService tenantInfoService,
                                      JoinProofGuard proofGuard,
                                      VerificationCodeGuard codeGuard,
-                                     @Value("${app.frontend-base-url:http://localhost:3000}") String frontendBaseUrl) {
+                                     SystemConfig systemConfig) {
         this.accountService = accountService;
         this.identityService = identityService;
         this.eventPublisher = eventPublisher;
         this.tenantInfoService = tenantInfoService;
         this.proofGuard = proofGuard;
         this.codeGuard = codeGuard;
-        this.frontendBaseUrl = frontendBaseUrl;
+        this.systemConfig = systemConfig;
     }
 
     /**
@@ -447,7 +448,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // sets a password and leaves the membership INVITED forever: the person appears to have
         // completed the flow and still cannot get in.
         String page = purpose == InvitationPurpose.PASSWORD_RESET ? "/set-password" : "/join";
-        String link = frontendBaseUrl.replaceAll("/+$", "") + page + "?token=" + rawToken;
+        String link = systemConfig.resolveSiteUrl() + page + "?token=" + rawToken;
         // Deliver to EVERY channel the account has, not just the email: an employee reachable
         // only by work mobile is a normal case, and one who has both should not depend on which
         // inbox they check first. Both carry the SAME link — it is one invitation, so accepting

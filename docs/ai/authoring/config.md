@@ -18,7 +18,8 @@ system:
   enable-multi-tenancy: false      # true for tenant-scoped apps; must match your @Model(multiTenant=true) usage
   enable-insert-id: true           # auto-set id on INSERT
   enable-change-log: true          # audit log (usually off in prod)
-  public-access-url: ${PUBLIC_ACCESS_URL:http://localhost}
+  site-url: ${SITE_URL:http://localhost:3000}   # public origin of the site (frontend); every user-facing link is built on it
+  api-url: ${API_URL:}                          # only for a split deployment; blank = same origin as site-url
   metadata:
     scanner-scope:                 # dev/test ONLY — leave empty/unset in prod (see entities.md)
       - "io\\.acme\\.myapp.*"
@@ -30,7 +31,8 @@ system:
 | `system.metadata.scanner-scope` | empty/unset | Regex list of packages the scanner reconciles at boot. Empty = manage nothing (prod-safe). See [entities.md](entities.md) |
 | `system.enable-multi-tenancy` | `false` | Enables tenant scope on `multiTenant` tables — keep consistent with your `@Model`s |
 | `system.default-language` | `en-US` | Default language for new tenants |
-| `system.public-access-url` | env-specific | Base URL for callback links / Open API |
+| `system.site-url` | env-specific | Public origin of the site (scheme + host, no path). Every user-facing deep link — invitation / join, set-password, document signing — is built on it; `SystemConfig#resolveSiteUrl()` fails fast when unset |
+| `system.api-url` | blank | Public origin of the API only when it differs from the site (split deployment); blank falls back to `site-url`. `SystemConfig#getApiRootUrl()` appends the servlet context path for callback / webhook URLs |
 
 ---
 

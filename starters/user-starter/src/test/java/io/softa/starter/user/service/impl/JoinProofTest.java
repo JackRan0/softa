@@ -25,6 +25,7 @@ import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserProfileService;
 
+import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -68,7 +69,7 @@ class JoinProofTest {
     private final LoginServiceImpl loginService = new LoginServiceImpl();
     private final UserInvitationServiceImpl realInvitationService = spy(new UserInvitationServiceImpl(
             accountService, identityService, mock(ApplicationEventPublisher.class), null, proofGuard,
-            mock(VerificationCodeGuard.class), "http://localhost"));
+            mock(VerificationCodeGuard.class), siteAt("http://localhost")));
 
     private final UserAccount revived = new UserAccount();
     private final UserIdentity ada = new UserIdentity();

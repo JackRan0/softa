@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -63,7 +64,7 @@ class UserInvitationTenantScopeTest {
         // tenantInfoService is null: it only supplies the company NAME shown on the /join screens,
         // and this test is about which tenant tier the mail is rendered under.
         service = spy(new UserInvitationServiceImpl(accountService, identityService, eventPublisher,
-                null, mock(JoinProofGuard.class), mock(VerificationCodeGuard.class), "https://app.example.test/"));
+                null, mock(JoinProofGuard.class), mock(VerificationCodeGuard.class), siteAt("https://app.example.test/")));
         // Stub the inherited ORM surface: this test is about which tier reaches the mail, not about
         // how the invitation row is stored.
         doReturn(List.<UserInvitation>of()).when(service).searchList(any(Filters.class));

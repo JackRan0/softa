@@ -19,6 +19,7 @@ import io.softa.starter.user.enums.InvitationStatus;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 
+import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -58,7 +59,7 @@ class UnbindAndReinviteTest {
     private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
     private final UserInvitationServiceImpl invitationService = spy(new UserInvitationServiceImpl(
             accountService, identityService, eventPublisher, null, mock(JoinProofGuard.class),
-            mock(VerificationCodeGuard.class), "http://localhost:3000"));
+            mock(VerificationCodeGuard.class), siteAt("http://localhost:3000")));
 
     private UserAccount given(AccountStatus status) {
         UserAccount account = new UserAccount();

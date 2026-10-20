@@ -8,7 +8,11 @@ system:
   enable-multi-tenancy: true
   enable-insert-id: true
   enable-change-log: true
-  public-access-url: http://localhost
+  # Public origins. site-url: where the frontend pages live (the Next dev server), the base of every
+  # user-facing deep link. api-url: this app's own origin, set only because it differs locally (port
+  # 80); a same-origin deployment leaves it blank and it falls back to site-url.
+  site-url: http://localhost:3000
+  api-url: http://localhost
   # Metadata annotation scanner scope (dev profile).
   # scanner-scope is a list of regex patterns full-matched against a class's
   # package name. The scanner reconciles annotation-derived metadata into sys_*

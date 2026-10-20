@@ -21,6 +21,7 @@ import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserInvitationService;
 
+import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -56,7 +57,7 @@ class JoinContactSpellingTest {
     private final JoinProofGuard proofGuard = mock(JoinProofGuard.class);
     private final UserInvitationServiceImpl realInvitationService = spy(new UserInvitationServiceImpl(
             accountService, identityService, mock(ApplicationEventPublisher.class), null, proofGuard,
-            mock(VerificationCodeGuard.class), "http://localhost"));
+            mock(VerificationCodeGuard.class), siteAt("http://localhost")));
 
     JoinContactSpellingTest() {
         ReflectionTestUtils.setField(profileService, "identityService", identityService);

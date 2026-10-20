@@ -193,7 +193,6 @@ public enum DbDataType {
     private final Integer type;
 
     /**
-     *{@inheritDoc }
      * @return The name of this {@code SQLType}.
      */
     public String getName() {

@@ -22,6 +22,7 @@ import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserInvitationService;
 import io.softa.starter.user.service.UserProfileService;
 
+import static io.softa.starter.user.TestSystemConfigs.siteAt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -203,7 +204,7 @@ class RevivedJoinTest {
     private UserInvitationServiceImpl realInvitationServiceFor(UserAccount account) {
         UserInvitationServiceImpl real = spy(new UserInvitationServiceImpl(
                 accountService, identityService, mock(ApplicationEventPublisher.class), null, proofGuard,
-                mock(VerificationCodeGuard.class), "http://localhost"));
+                mock(VerificationCodeGuard.class), siteAt("http://localhost")));
         UserInvitation invitation = new UserInvitation();
         invitation.setId(55L);
         invitation.setUserId(account.getId());
