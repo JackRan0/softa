@@ -118,4 +118,20 @@ class ChangeLogContextFieldsTest {
         // The log's copy keeps them.
         assertThat(read.get(1L)).containsKeys("holidayCalendarId", "name");
     }
+
+    @Test
+    void anUpdateWithNoContextToAddStillLeavesTheLogItsOriginals() {
+        // A child row written through its parent carries the FK, so every context column can already
+        // be among the fields the update reads — then there is nothing to take out, and the pipeline
+        // must still get a copy: the diff replaces what it is handed with the changed columns alone.
+        Map<Serializable, Map<String, Object>> read = new HashMap<>(Map.of(1L, new HashMap<>(Map.of(
+                "id", 1L, "startDay", "2026-06-16", "holidayCalendarId", 9L, "name", "lg"))));
+
+        Map<Serializable, Map<String, Object>> forPipeline = JdbcServiceImpl.originalsForPipeline(
+                read, Set.of(), Set.of("startDay", "holidayCalendarId", "name"));
+        // What the diff does with each original it is handed.
+        forPipeline.put(1L, new HashMap<>(Map.of("startDay", "2026-06-16")));
+
+        assertThat(read.get(1L)).containsKeys("holidayCalendarId", "name");
+    }
 }
