@@ -27,6 +27,7 @@ import io.softa.framework.base.constant.EnvConstant;
 import io.softa.framework.base.constant.TimeConstant;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.utils.DateUtils;
+import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.FilterType;
@@ -544,6 +545,11 @@ public final class FilterEvaluator {
         }
         if (value instanceof LocalDateTime dt) {
             return TimeConstant.DATETIME_FORMATTER.format(dt);
+        }
+        if (value instanceof Enum<?> e) {
+            // An option field written through an entity holds its enum, not its code; the code is what
+            // the rule names and what is stored, and the enum's own name ("SPOUSE") matches neither.
+            return JsonUtils.getMapper().convertValue(e, String.class);
         }
         return StringUtils.trim(String.valueOf(value));
     }

@@ -56,6 +56,26 @@ class FilterEvaluatorTest {
         assertThat(eval("[[\"country\", \"=\", \"\"]]", row("country", null))).isTrue();
     }
 
+    /** An option set the way an entity declares it: the code on a {@code @JsonValue} field, no toString. */
+    enum Relationship {
+        SPOUSE("Spouse"), CHILD("Child");
+
+        @com.fasterxml.jackson.annotation.JsonValue
+        private final String code;
+
+        Relationship(String code) {
+            this.code = code;
+        }
+    }
+
+    @Test
+    void anOptionWrittenThroughAnEntityComparesByItsCode() {
+        String rule = "[[\"reason\", \"=\", \"Spouse\"], \"AND\", [\"startDate\", \">\", \"{{ TODAY }}\"]]";
+        assertThat(eval(rule, row("reason", Relationship.SPOUSE, "startDate", LocalDate.of(2027, 1, 1)))).isTrue();
+        assertThat(eval(rule, row("reason", Relationship.CHILD, "startDate", LocalDate.of(2027, 1, 1)))).isFalse();
+        assertThat(eval("[[\"reason\", \"IN\", [\"Spouse\", \"Child\"]]]", row("reason", Relationship.CHILD))).isTrue();
+    }
+
     @Test
     void datesAreReadInTheFrameworkShapeAndInIso8601() {
         // the pipeline's type cast accepts both spellings, so a patch may carry either
