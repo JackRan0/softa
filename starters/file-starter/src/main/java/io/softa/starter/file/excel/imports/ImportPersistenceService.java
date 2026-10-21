@@ -2,6 +2,7 @@ package io.softa.starter.file.excel.imports;
 
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -41,11 +42,51 @@ public class ImportPersistenceService {
             return persistByRule(importTemplateDTO, rows);
         }
         // In skipException mode, fallback to row-level persistence so one bad row will not fail the whole import task.
+        // The retry starts from the rows as they were read. The write works on the rows in place — a nested
+        // one-to-one row is given the id it was inserted under, and its parent row is handed that id in place
+        // of the nested value — and the failed batch rolls those inserts back. Retried as left, every row
+        // would name a record that no longer exists: refused for a caller held to its row range, and written
+        // pointing at nothing for one who is not.
+        List<Map<String, Object>> asRead = copyRows(rows);
         try {
             return persistByRule(importTemplateDTO, rows);
         } catch (RuntimeException ex) {
+            importDataDTO.setRows(asRead);
             return persistRowByRow(importTemplateDTO, importDataDTO);
         }
+    }
+
+    /** A copy deep enough that a write on one leaves the other untouched: every nested map and list is new. */
+    static List<Map<String, Object>> copyRows(List<Map<String, Object>> rows) {
+        List<Map<String, Object>> copies = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            copies.add(copyMap(row));
+        }
+        return copies;
+    }
+
+    private static Map<String, Object> copyMap(Map<String, Object> source) {
+        if (source == null) {
+            return null;
+        }
+        Map<String, Object> copy = new LinkedHashMap<>(source.size());
+        source.forEach((key, value) -> copy.put(key, copyValue(value)));
+        return copy;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object copyValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return copyMap((Map<String, Object>) map);
+        }
+        if (value instanceof List<?> list) {
+            List<Object> copy = new ArrayList<>(list.size());
+            for (Object item : list) {
+                copy.add(copyValue(item));
+            }
+            return copy;
+        }
+        return value;
     }
 
     private CreateOrUpdateResult persistByRule(ImportTemplateDTO importTemplateDTO, List<Map<String, Object>> rows) {
