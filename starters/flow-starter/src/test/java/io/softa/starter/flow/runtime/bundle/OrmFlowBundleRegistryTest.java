@@ -5,10 +5,13 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.flow.api.CompiledFlowCapabilitySummary;
 import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.entity.FlowBundle;
@@ -35,8 +38,7 @@ class OrmFlowBundleRegistryTest {
     @BeforeEach
     void setUp() {
         stubService = new StubBundleService();
-        registry = new OrmFlowBundleRegistry(stubService);
-        registry.warmUpCache();
+        registry = new OrmFlowBundleRegistry(stubService, 60);
     }
 
     // ==================== FlowBundleMapper Tests ====================
@@ -205,7 +207,7 @@ class OrmFlowBundleRegistryTest {
     }
 
     @Test
-    void warmUpCache_loadsFromDatabase() {
+    void getActiveByDesignId_readsStoredBundlesWithoutPreload() {
         CompiledFlowDefinition def = sampleDefinition("preloaded", 1);
         def.setPublishedAt(LocalDateTime.now());
         FlowBundle entity = FlowBundleMapper.toEntity(def, null, null, DESIGN_A);
@@ -213,8 +215,7 @@ class OrmFlowBundleRegistryTest {
         entity.setDesignId(DESIGN_A);
         stubService.savedBundles.put(1L, entity);
 
-        OrmFlowBundleRegistry freshRegistry = new OrmFlowBundleRegistry(stubService);
-        freshRegistry.warmUpCache();
+        OrmFlowBundleRegistry freshRegistry = new OrmFlowBundleRegistry(stubService, 60);
 
         Optional<CompiledFlowDefinition> loaded = freshRegistry.getActiveByDesignId(DESIGN_A);
         assertTrue(loaded.isPresent());
@@ -298,7 +299,7 @@ class OrmFlowBundleRegistryTest {
                 return revision;
             }
         };
-        OrmFlowBundleRegistry racingRegistry = new OrmFlowBundleRegistry(racingStub);
+        OrmFlowBundleRegistry racingRegistry = new OrmFlowBundleRegistry(racingStub, 60);
 
         CompiledFlowDefinition result = racingRegistry.register(sampleDefinition("race-flow", null), null, DESIGN_A);
 
@@ -382,19 +383,43 @@ class OrmFlowBundleRegistryTest {
 
     // ==================== Stub Service ====================
 
+    /**
+     * In-memory {@link FlowBundleService} that isolates tenants the way the ORM does: a created
+     * row takes the context's tenant, and reads see only that tenant's rows unless the context
+     * is cross-tenant.
+     */
     static class StubBundleService implements FlowBundleService {
 
         final Map<Long, FlowBundle> savedBundles = new ConcurrentHashMap<>();
         private final AtomicLong idSequence = new AtomicLong(1);
+        /** tenantId → getAllActiveFlow calls made in that tenant's context. */
+        private final Map<Long, Integer> activeQueries = new HashMap<>();
+
+        int activeQueries(Long tenantId) {
+            return activeQueries.getOrDefault(tenantId, 0);
+        }
+
+        private static boolean visible(FlowBundle bundle) {
+            Context context = ContextHolder.getContext();
+            return context.isCrossTenant() || Objects.equals(bundle.getTenantId(), context.getTenantId());
+        }
+
+        private Stream<FlowBundle> visibleBundles() {
+            return savedBundles.values().stream().filter(StubBundleService::visible);
+        }
 
         @Override
         public Optional<FlowBundle> findById(Long id) {
-            return Optional.ofNullable(savedBundles.get(id));
+            return Optional.ofNullable(savedBundles.get(id)).filter(StubBundleService::visible);
         }
 
         @Override
         public void saveBundle(FlowBundle bundle) {
             if (bundle.getId() == null) {
+                Context context = ContextHolder.getContext();
+                if (!context.isCrossTenant()) {
+                    bundle.setTenantId(context.getTenantId());
+                }
                 // mimic uk_tenant_design_revision: a create colliding on (designId, revision) fails
                 boolean revisionTaken = bundle.getDesignId() != null
                         && findByDesignIdAndRevision(bundle.getDesignId(), bundle.getRevision()).isPresent();
@@ -408,22 +433,27 @@ class OrmFlowBundleRegistryTest {
 
         @Override
         public Optional<FlowBundle> findActiveByDesignId(Long designId) {
-            return savedBundles.values().stream()
+            return visibleBundles()
                     .filter(b -> designId.equals(b.getDesignId())
                             && Boolean.TRUE.equals(b.getActive()))
                     .max(Comparator.comparingInt(FlowBundle::getRevision));
         }
 
+        @Override
+        public Optional<Long> findActiveBundleId(Long designId) {
+            return findActiveByDesignId(designId).map(FlowBundle::getId);
+        }
+
         // Fake-internal helper (no longer part of FlowBundleService).
         private Optional<FlowBundle> findByDesignIdAndRevision(Long designId, Integer revision) {
-            return savedBundles.values().stream()
+            return visibleBundles()
                     .filter(b -> designId.equals(b.getDesignId()) && revision.equals(b.getRevision()))
                     .findFirst();
         }
 
         @Override
         public List<FlowBundle> listRevisionsByDesignId(Long designId) {
-            return savedBundles.values().stream()
+            return visibleBundles()
                     .filter(b -> designId.equals(b.getDesignId()))
                     .filter(b -> !Boolean.TRUE.equals(b.getDebug()))
                     .sorted(Comparator.comparingInt(FlowBundle::getRevision).reversed())
@@ -432,19 +462,15 @@ class OrmFlowBundleRegistryTest {
 
         @Override
         public List<FlowBundle> getAllActiveFlow() {
-            Map<Long, FlowBundle> latestMap = new HashMap<>();
-            for (FlowBundle b : savedBundles.values()) {
-                if (Boolean.TRUE.equals(b.getActive()) && b.getDesignId() != null) {
-                    latestMap.merge(b.getDesignId(), b,
-                            (a, c) -> a.getRevision() >= c.getRevision() ? a : c);
-                }
-            }
-            return new ArrayList<>(latestMap.values());
+            activeQueries.merge(ContextHolder.getContext().getTenantId(), 1, Integer::sum);
+            return visibleBundles()
+                    .filter(b -> Boolean.TRUE.equals(b.getActive()) && b.getDesignId() != null)
+                    .toList();
         }
 
         @Override
         public int getNextRevision(Long designId) {
-            return savedBundles.values().stream()
+            return visibleBundles()
                     .filter(b -> designId.equals(b.getDesignId()))
                     .mapToInt(FlowBundle::getRevision)
                     .max()
@@ -453,11 +479,9 @@ class OrmFlowBundleRegistryTest {
 
         @Override
         public void markAsActive(Long designId, Integer revision) {
-            for (FlowBundle b : savedBundles.values()) {
-                if (designId.equals(b.getDesignId())) {
-                    b.setActive(revision.equals(b.getRevision()));
-                }
-            }
+            visibleBundles()
+                    .filter(b -> designId.equals(b.getDesignId()))
+                    .forEach(b -> b.setActive(revision.equals(b.getRevision())));
         }
 
         @Override

@@ -21,9 +21,15 @@ public interface FlowBundleService {
 
     Optional<FlowBundle> findActiveByDesignId(Long designId);
 
+    /** Id of the design's active revision, read without the bundle's JSON columns. */
+    Optional<Long> findActiveBundleId(Long designId);
+
     List<FlowBundle> listRevisionsByDesignId(Long designId);
 
-    /** Return all currently active bundles (one per design); used for cache warm-up. */
+    /**
+     * All currently active bundles (one per design) of the current tenant, carrying only what
+     * {@link io.softa.starter.flow.runtime.bundle.FlowBundleMapper#toDefinition} reads.
+     */
     List<FlowBundle> getAllActiveFlow();
 
     int getNextRevision(Long designId);

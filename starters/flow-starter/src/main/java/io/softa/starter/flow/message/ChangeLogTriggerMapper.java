@@ -1,6 +1,7 @@
 package io.softa.starter.flow.message;
 
 import java.util.*;
+import java.util.function.Predicate;
 
 import io.softa.framework.orm.changelog.message.dto.ChangeLog;
 import io.softa.framework.orm.enums.AccessType;
@@ -34,12 +35,28 @@ public final class ChangeLogTriggerMapper {
      * @return list of trigger events, one per change log
      */
     public static List<FlowTriggerEvent> mapChangeLogs(List<ChangeLog> changeLogs, String actorId) {
+        return mapChangeLogs(changeLogs, actorId, model -> true);
+    }
+
+    /**
+     * Map only the change logs of models {@code watchedModel} accepts; it is asked once per model.
+     *
+     * @param changeLogs   the change logs from a transaction or MQ message
+     * @param actorId      the actor id (user who initiated the change)
+     * @param watchedModel whether any flow listens to changes of a model
+     * @return list of trigger events, one per accepted change log
+     */
+    public static List<FlowTriggerEvent> mapChangeLogs(List<ChangeLog> changeLogs, String actorId,
+                                                       Predicate<String> watchedModel) {
         if (changeLogs == null || changeLogs.isEmpty()) {
             return List.of();
         }
+        Map<String, Boolean> watched = new HashMap<>();
         List<FlowTriggerEvent> events = new ArrayList<>();
         for (ChangeLog changeLog : changeLogs) {
-            events.add(mapSingle(changeLog, actorId));
+            if (watched.computeIfAbsent(changeLog.getModel(), watchedModel::test)) {
+                events.add(mapSingle(changeLog, actorId));
+            }
         }
         return events;
     }

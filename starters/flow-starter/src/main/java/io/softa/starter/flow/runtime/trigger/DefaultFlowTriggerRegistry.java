@@ -12,8 +12,8 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 
 /**
- * Default trigger registry that scans all registered bundles and matches
- * by trigger type, source model, and optional condition expression.
+ * Default trigger registry that matches the bundles the registry offers for an event's
+ * model by trigger type, source model, and optional condition expression.
  */
 @Component
 public class DefaultFlowTriggerRegistry {
@@ -27,13 +27,12 @@ public class DefaultFlowTriggerRegistry {
     }
 
     public List<CompiledFlowDefinition> findMatchingFlows(FlowTriggerEvent event) {
-        // The bundle cache is warmed cross-tenant for performance, so isolation is enforced
-        // here at match time: an event may only fire flows of its own tenant (plus
-        // platform-shared flows). Requires the event's tenant to be in context (the consumer
-        // restores it from the message).
+        // Candidates are scoped to the event's tenant (plus platform-shared flows), which must be
+        // in context — the consumers restore it from the message. The tenant check below still
+        // holds the line for a registry that offers more.
         Long currentTenant = ContextHolder.existContext() ? ContextHolder.getContext().getTenantId() : null;
         List<CompiledFlowDefinition> matches = new ArrayList<>();
-        for (CompiledFlowDefinition definition : bundleRegistry.list()) {
+        for (CompiledFlowDefinition definition : bundleRegistry.listTriggerCandidates(event.getSourceModel())) {
             if (!tenantMatches(definition, currentTenant)) {
                 continue;
             }
@@ -45,12 +44,26 @@ public class DefaultFlowTriggerRegistry {
     }
 
     /**
+     * Whether any flow in the current context watches entity changes of {@code model} — lets the
+     * change-log paths skip mapping rows nothing listens to.
+     */
+    public boolean hasEntityChangeTrigger(String model) {
+        for (CompiledFlowDefinition definition : bundleRegistry.listTriggerCandidates(model)) {
+            if (definition.getTrigger() instanceof EntityChangeTrigger trigger
+                    && (!StringUtils.hasText(trigger.modelName()) || trigger.modelName().equals(model))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Match-time tenant isolation: a platform-shared flow ({@code tenantId == 0}) applies to
      * every tenant; otherwise the flow's tenant must equal the event's current tenant.
      */
     private boolean tenantMatches(CompiledFlowDefinition definition, Long currentTenant) {
         Long flowTenant = definition.getTenantId();
-        if (flowTenant != null && flowTenant == 0L) {
+        if (FlowBundleRegistry.SHARED_TENANT_ID.equals(flowTenant)) {
             return true;
         }
         return Objects.equals(flowTenant, currentTenant);

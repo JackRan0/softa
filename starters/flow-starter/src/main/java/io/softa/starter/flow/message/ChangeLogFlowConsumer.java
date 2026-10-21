@@ -44,7 +44,7 @@ public class ChangeLogFlowConsumer {
         ContextHolder.runWith(ctx, () -> {
             String actorId = ctx.getUserId() != null ? ctx.getUserId().toString() : null;
             List<FlowTriggerEvent> events = ChangeLogTriggerMapper.mapChangeLogs(
-                    changeLogMessage.getChangeLogs(), actorId);
+                    changeLogMessage.getChangeLogs(), actorId, automationService::hasEntityChangeTrigger);
 
             for (FlowTriggerEvent event : events) {
                 try {

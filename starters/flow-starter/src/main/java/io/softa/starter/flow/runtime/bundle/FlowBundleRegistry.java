@@ -13,11 +13,19 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
  * (stable flow identity). {@code flowCode} is intentionally absent from the registry
  * API: it is not tenant-unique and cannot be used as a reliable lookup key.
  * </p>
+ * <p>
+ * Every lookup answers for the current context: a bundle of another tenant reads as absent,
+ * platform-shared bundles ({@link #SHARED_TENANT_ID}) are visible to every tenant, and a
+ * cross-tenant context sees all of them.
+ * </p>
  */
 public interface FlowBundleRegistry {
 
+    /** Tenant id of platform-shared bundles: they apply to every tenant. */
+    Long SHARED_TENANT_ID = 0L;
+
     /**
-     * Persist and cache a new revision.
+     * Persist a new revision and make it the design's active one.
      *
      * @param definition compiled definition
      * @param design     original design document (stored for editor restore; may be null)
@@ -33,7 +41,7 @@ public interface FlowBundleRegistry {
     }
 
     /**
-     * Persist and cache a debug-run bundle: resolvable by {@code bundleId} like any
+     * Persist a debug-run bundle: resolvable by {@code bundleId} like any
      * revision (so instances survive restarts), but never active and hidden from
      * revision lists. Purged by the maintenance job after the retention window.
      */
@@ -52,12 +60,24 @@ public interface FlowBundleRegistry {
     /** List all revisions for a design id, ordered by revision descending. */
     List<CompiledFlowDefinition> listRevisionsByDesignId(Long designId);
 
-    /** All active bundles (one per flow design). */
+    /** The current tenant's active bundles (one per flow design), ordered by flow code. */
     Collection<CompiledFlowDefinition> list();
 
     /**
-     * Refresh the in-memory active-bundle pointer for a design after a rollback.
-     * Default no-op; persistent implementations should override.
+     * Active bundles whose trigger may fire for an event on {@code sourceModel} in the current
+     * context: those bound to that model plus those bound to none (API, cron and subflow triggers,
+     * or an entity / field trigger without a model filter), from the current tenant and the
+     * platform-shared ones — only the shared ones when the context carries no tenant. Callers
+     * still apply the full trigger match, tenant check included.
+     * <p>The default offers everything {@link #list()} returns.</p>
+     */
+    default List<CompiledFlowDefinition> listTriggerCandidates(String sourceModel) {
+        return List.copyOf(list());
+    }
+
+    /**
+     * The active revision of a design changed (rollback / roll-forward): make the new one
+     * effective. Default no-op; caching implementations should override.
      */
     default void refreshActiveForDesignId(Long designId) {
     }

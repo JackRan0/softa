@@ -6,7 +6,10 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.softa.framework.base.utils.LambdaUtils;
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowBundle;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
@@ -15,6 +18,13 @@ import io.softa.starter.flow.service.FlowBundleService;
 @Service
 public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
         implements FlowBundleService {
+
+    /** What {@code FlowBundleMapper.toDefinition} reads — the design snapshot is left out. */
+    private static final List<String> DEFINITION_FIELDS = List.of(
+            LambdaUtils.getAttributeName(FlowBundle::getId),
+            LambdaUtils.getAttributeName(FlowBundle::getTenantId),
+            LambdaUtils.getAttributeName(FlowBundle::getDesignId),
+            LambdaUtils.getAttributeName(FlowBundle::getCompiledJson));
 
     @Override
     public Optional<FlowBundle> findById(Long id) {
@@ -45,6 +55,20 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
         return this.searchOne(filters);
     }
 
+    /**
+     * Runtime lookup behind "start the active revision": the caller's own row permissions do
+     * not apply, the tenant filter still does.
+     */
+    @Override
+    @SkipPermissionCheck
+    public Optional<Long> findActiveBundleId(Long designId) {
+        Filters filters = new Filters()
+                .eq(FlowBundle::getDesignId, designId)
+                .eq(FlowBundle::getActive, true);
+        FlexQuery query = new FlexQuery(filters).select(FlowBundle::getId);
+        return this.searchOne(query).map(FlowBundle::getId);
+    }
+
     /** Revision-addressed lookup — internal backbone of {@code markAsActive}. */
     private Optional<FlowBundle> findByDesignIdAndRevision(Long designId, Integer revision) {
         Filters filters = new Filters()
@@ -65,8 +89,9 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
 
     @Override
     public List<FlowBundle> getAllActiveFlow() {
-        Filters filters = new Filters().eq(FlowBundle::getActive, true);
-        return this.searchList(filters);
+        FlexQuery query = new FlexQuery(new Filters().eq(FlowBundle::getActive, true));
+        query.select(DEFINITION_FIELDS);
+        return this.searchList(query);
     }
 
     @Override

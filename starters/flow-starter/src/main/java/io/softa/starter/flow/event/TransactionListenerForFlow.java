@@ -49,7 +49,8 @@ public class TransactionListenerForFlow {
         }
 
         String actorId = context.getUserId() != null ? context.getUserId().toString() : null;
-        List<FlowTriggerEvent> events = ChangeLogTriggerMapper.mapChangeLogs(changeLogs, actorId);
+        List<FlowTriggerEvent> events = ChangeLogTriggerMapper.mapChangeLogs(
+                changeLogs, actorId, automationService::hasEntityChangeTrigger);
 
         for (FlowTriggerEvent triggerEvent : events) {
             automationService.fireSyncOnly(triggerEvent);
