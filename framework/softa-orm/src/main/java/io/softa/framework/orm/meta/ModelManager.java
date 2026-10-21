@@ -811,6 +811,16 @@ public class ModelManager {
      * and `fieldB` is a stored field of the related model.
      * If current field is a stored field, the ManyToOne/OneToOne `fieldA` must be a stored field too.
      *
+     * <p>A dynamic cascaded field may reach further, through up to {@link BaseConstant#CASCADE_LEVEL}
+     * relations: `fieldA.fieldB.fieldC`, each relation a stored ManyToOne/OneToOne field and the last
+     * segment a stored field. Such a field is filled the way a one-relation one is — through `fieldA` —
+     * and asks `fieldA`'s related model for the rest of the path, which that model reads as a dotted
+     * field; filters and sorts on it are rewritten to the whole path and joined, as for any cascade.
+     * A stored cascaded field stays one relation: it is recomputed when its own `fieldA` changes, and a
+     * relation further along could change without this row ever knowing.
+     *
+     * <p>{@code dependentFields} is therefore always two entries: `fieldA`, and the rest of the path.
+     *
      * @param metaField field metadata object
      */
     private static void verifyCascadedField(MetaField metaField) {
@@ -820,18 +830,35 @@ public class ModelManager {
                 "The field {0} of model {1} is an audit field and cannot be defined as a cascaded field!",
                 fieldName, modelName);
         String[] cascadedFields = StringUtils.split(metaField.getCascadedField(), ".");
-        Assert.isTrue(cascadedFields.length == 2,
-                "The `cascadedField` {0} of model {1} field {2} does not valid! Only `fieldA.fieldB` format is allowed.",
+        int relations = cascadedFields.length - 1;
+        Assert.isTrue(relations >= 1,
+                "The `cascadedField` {0} of model {1} field {2} does not valid! A `fieldA.fieldB` path is required.",
                 metaField.getCascadedField(), modelName, fieldName);
-        MetaField leftField = getModelField(modelName, cascadedFields[0]);
-        Set<String> modelAllFields = modelFields().get(modelName).keySet();
-        Assert.isTrue(modelAllFields.contains(cascadedFields[0]) && FieldType.TO_ONE_TYPES.contains(leftField.getFieldType()),
-                "The `cascadedField` {0} of model {1} field {2} does not valid! The field `{3}` is not a ManyToOne/OneToOne field of current model.",
-                metaField.getCascadedField(), modelName, fieldName, cascadedFields[0]);
-        Assert.isTrue(isStored(leftField.getRelatedModel(), cascadedFields[1]),
-                "The `cascadedField` {0} of model {1} field {2} does not valid! The field `{3}` is a dynamic field of related model `{4}`.",
-                metaField.getCascadedField(), modelName, fieldName, cascadedFields[1], leftField.getRelatedModel());
-        metaField.setDependentFields(Arrays.asList(cascadedFields));
+        Assert.isTrue(relations == 1 || metaField.isDynamic(),
+                "The `cascadedField` {0} of model {1} field {2} does not valid! A stored cascaded field reads one relation, `fieldA.fieldB`; a longer path is only allowed on a dynamic field.",
+                metaField.getCascadedField(), modelName, fieldName);
+        Assert.isTrue(relations <= BaseConstant.CASCADE_LEVEL,
+                "The `cascadedField` {0} of model {1} field {2} does not valid! It crosses more than {3} relations.",
+                metaField.getCascadedField(), modelName, fieldName, BaseConstant.CASCADE_LEVEL);
+        String currentModel = modelName;
+        for (int i = 0; i < relations; i++) {
+            String relation = cascadedFields[i];
+            MetaField relationField = existField(currentModel, relation) ? getModelField(currentModel, relation) : null;
+            Assert.isTrue(relationField != null && FieldType.TO_ONE_TYPES.contains(relationField.getFieldType()),
+                    "The `cascadedField` {0} of model {1} field {2} does not valid! The field `{3}` is not a ManyToOne/OneToOne field of model `{4}`.",
+                    metaField.getCascadedField(), modelName, fieldName, relation, currentModel);
+            // Past the first relation the path is joined column by column, so each relation needs a column.
+            Assert.isTrue(i == 0 || !relationField.isDynamic(),
+                    "The `cascadedField` {0} of model {1} field {2} does not valid! The field `{3}` is a dynamic field of related model `{4}`.",
+                    metaField.getCascadedField(), modelName, fieldName, relation, currentModel);
+            currentModel = relationField.getRelatedModel();
+        }
+        String leaf = cascadedFields[relations];
+        Assert.isTrue(existField(currentModel, leaf) && isStored(currentModel, leaf),
+                "The `cascadedField` {0} of model {1} field {2} does not valid! The field `{3}` is not a stored field of related model `{4}`.",
+                metaField.getCascadedField(), modelName, fieldName, leaf, currentModel);
+        metaField.setDependentFields(List.of(cascadedFields[0],
+                String.join(".", Arrays.copyOfRange(cascadedFields, 1, cascadedFields.length))));
         if (!metaField.isDynamic()) {
             // Update the stored cascaded fields cache of the model
             MetaModel metaModel = modelMap().get(modelName);
