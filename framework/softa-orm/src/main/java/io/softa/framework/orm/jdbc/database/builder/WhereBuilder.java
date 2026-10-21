@@ -29,6 +29,19 @@ import io.softa.framework.orm.meta.ModelManager;
  */
 public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
 
+    /** Field types a `searchName` text match applies to as written. */
+    private static final Set<FieldType> TEXT_SEARCH_TYPES =
+            EnumSet.of(FieldType.STRING, FieldType.TEXT, FieldType.MULTI_STRING);
+
+    /** Field types a typed whole number can be matched against exactly. */
+    private static final Set<FieldType> WHOLE_NUMBER_TYPES = EnumSet.of(FieldType.INTEGER, FieldType.LONG);
+
+    private static final Set<Operator> TEXT_MATCH_OPERATORS =
+            EnumSet.of(Operator.CONTAINS, Operator.START_WITH, Operator.EQUAL);
+
+    private static final Set<Operator> NEGATED_TEXT_MATCH_OPERATORS =
+            EnumSet.of(Operator.NOT_CONTAINS, Operator.NOT_START_WITH, Operator.NOT_EQUAL);
+
     public WhereBuilder(SqlWrapper sqlWrapper, FlexQuery flexQuery) {
         super(sqlWrapper, flexQuery);
     }
@@ -376,8 +389,7 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
         StringBuilder filterUnitSql = new StringBuilder();
         if (searchNames.size() == 1) {
             // When there is only one field configured in `searchName`, parse directly based on this field.
-            FilterUnit newUnit = new FilterUnit(searchNames.getFirst(), operator, value);
-            filterUnitSql.append(parseFilterUnit(newUnit, xToManyBuilder));
+            filterUnitSql.append(parseSearchField(searchNames.getFirst(), operator, value, xToManyBuilder));
         } else {
             // When there are multiple fields configured in `searchName`,
             // split into multiple fields for `OR` condition search.
@@ -386,12 +398,49 @@ public class WhereBuilder extends BaseBuilder implements SqlClauseBuilder {
                 if (i > 0) {
                     filterUnitSql.append(" OR ");
                 }
-                FilterUnit newUnit = new FilterUnit(searchNames.get(i), operator, value);
-                filterUnitSql.append(parseFilterUnit(newUnit, xToManyBuilder));
+                filterUnitSql.append(parseSearchField(searchNames.get(i), operator, value, xToManyBuilder));
             }
             filterUnitSql.append(") ");
         }
         return filterUnitSql;
+    }
+
+    /**
+     * One `searchName` member's condition.
+     *
+     * <p>A text member takes the operator as given. A non-text one cannot: a model with neither a
+     * declared `searchName` nor a `name` field searches by `id`, and the box's `CONTAINS` became
+     * `id LIKE '%...%'` — which PostgreSQL refuses outright for a BIGINT ("operator does not exist:
+     * bigint ~~ unknown"), whatever was typed. Every list of such a model failed as soon as anyone
+     * typed in its search box. So a whole number is matched exactly, the one search an id
+     * supports, and any other input matches no row (its negation, every row) instead of failing.
+     * Operators that are not about matching text keep their own meaning.
+     */
+    private StringBuilder parseSearchField(String fieldName, Operator operator, Object value,
+                                           FilterXToManyParser xToManyBuilder) {
+        FieldType fieldType = ModelManager.getModelField(mainModelName, fieldName).getFieldType();
+        boolean textMatch = TEXT_MATCH_OPERATORS.contains(operator);
+        boolean textMatchNegated = NEGATED_TEXT_MATCH_OPERATORS.contains(operator);
+        if (TEXT_SEARCH_TYPES.contains(fieldType) || !(textMatch || textMatchNegated)) {
+            return parseFilterUnit(new FilterUnit(fieldName, operator, value), xToManyBuilder);
+        }
+        Long wholeNumber = WHOLE_NUMBER_TYPES.contains(fieldType) ? parseWholeNumber(value) : null;
+        if (wholeNumber != null) {
+            Operator exact = textMatch ? Operator.EQUAL : Operator.NOT_EQUAL;
+            return parseFilterUnit(new FilterUnit(fieldName, exact, wholeNumber), xToManyBuilder);
+        }
+        return new StringBuilder(textMatch ? " 1 = 0 " : " 1 = 1 ");
+    }
+
+    private static Long parseWholeNumber(Object value) {
+        if (value instanceof Integer || value instanceof Long) {
+            return ((Number) value).longValue();
+        }
+        String text = value == null ? "" : value.toString().trim();
+        if (!text.matches("-?\\d{1,18}")) {
+            return null;
+        }
+        return Long.parseLong(text);
     }
 
     private List<List<Object>> normalizeTupleValues(FilterUnit filterUnit, List<ResolvedTupleField> resolvedFields) {
