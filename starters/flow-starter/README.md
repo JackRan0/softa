@@ -123,7 +123,7 @@ Base path: `/flow/bundles`
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/flow/bundles?designId=` | Revision list of one design (or every design's active bundle without `designId`) |
+| `GET` | `/flow/bundles?designId=` | Revision list of one design (or, without `designId`, the active bundle of every design of the caller's tenant) |
 | `GET` | `/flow/bundles/{bundleId}?include=design` | One revision's summary, optionally with the canvas-complete design snapshot |
 | `POST` | `/flow/bundles/{bundleId}/activate` | Make this revision the design's effective one (rollback = roll-forward) |
 
@@ -406,6 +406,12 @@ Primary storage adapters in this module:
 
 - `OrmFlowBundleRegistry`
 - `OrmFlowInstanceStore`
+
+`OrmFlowBundleRegistry` loads nothing at startup and caches per tenant:
+
+- **Trigger matching** reads an index of the tenant's active bundles, loaded in that tenant's own context on its first event (an empty result is kept too) and merged with the platform-shared bundles (`tenantId = 0`); a context without a tenant matches the shared ones only. Entries live for `flow.trigger-cache-ttl-seconds` (default `60`). Publishing or activating a revision drops the tenant's entry at once on the instance that did it; other instances pick the change up within the TTL. Change logs of models no flow watches are not turned into trigger events.
+- **Definitions** are cached by `bundleId` in a bounded LRU (a published revision never changes). A bundle of another tenant reads as not found, whether cached or not; platform-shared bundles are visible to every tenant.
+- **The active revision of a design** is read from the database on every lookup, so starting by `designId` follows a publish or rollback made on any instance.
 
 ## Node Descriptor Contract
 

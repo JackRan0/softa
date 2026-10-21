@@ -56,6 +56,14 @@ public class FlowAutomationService {
     }
 
     /**
+     * Whether any flow in the current context watches entity changes of {@code model}; change logs
+     * of other models need not become trigger events at all.
+     */
+    public boolean hasEntityChangeTrigger(String model) {
+        return triggerRegistry.hasEntityChangeTrigger(model);
+    }
+
+    /**
      * Publish the event to Pulsar for asynchronous fan-out via {@code mq.topics.flow-event}.
      * <p>
      * Preferred for high-cardinality producers (e.g. ChangeLog) so that flow matching
