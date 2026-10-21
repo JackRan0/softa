@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -72,12 +73,19 @@ class SequenceServiceImplTest {
     private final AtomicLong counter = new AtomicLong();
     private final Set<String> takenInTable = new HashSet<>();
     private SequenceServiceImpl service;
+    private SystemConfig originalConfig;
+
+    @AfterEach
+    void restoreConfig() {
+        SystemConfig.env = originalConfig;
+    }
 
     @BeforeEach
     void setUp() {
-        if (SystemConfig.env == null) {
-            SystemConfig.env = new SystemConfig();
-        }
+        // A fresh config of our own: other tests switch multi-tenancy on in this shared static, and
+        // whether they ran first must not decide whether an allocation here needs a tenant.
+        originalConfig = SystemConfig.env;
+        SystemConfig.env = new SystemConfig();
         service = new SequenceServiceImpl(jdbcProxy, sysSequenceService, new TemplateRenderer(), dialectFactory,
                 abbreviations, occupancy);
         ReflectionTestUtils.setField(service, "self", service);
