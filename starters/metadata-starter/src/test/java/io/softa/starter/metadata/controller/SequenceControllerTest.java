@@ -8,6 +8,9 @@ import org.mockito.Mockito;
 import io.softa.framework.orm.sequence.SequenceService;
 import io.softa.starter.metadata.entity.SysSequence;
 import io.softa.starter.metadata.enums.SequenceMode;
+import io.softa.starter.metadata.sequence.CompanyAbbrPreview;
+import io.softa.starter.metadata.sequence.SequenceTemplatePreview;
+import io.softa.starter.metadata.service.impl.SequenceServiceImpl;
 import io.softa.starter.metadata.service.SysSequenceService;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,7 +29,10 @@ class SequenceControllerTest {
 
     private final SequenceService sequenceService = Mockito.mock(SequenceService.class);
     private final SysSequenceService sysSequenceService = Mockito.mock(SysSequenceService.class);
-    private final SequenceController controller = new SequenceController(sequenceService, sysSequenceService);
+    private final SequenceServiceImpl sequenceServiceImpl = Mockito.mock(SequenceServiceImpl.class);
+    private final SequenceController controller =
+            new SequenceController(sequenceService, sysSequenceService, sequenceServiceImpl,
+                    Mockito.mock(io.softa.starter.metadata.sequence.ManualCodeChecker.class));
 
     private void stubMode(String code, SequenceMode mode) {
         SysSequence config = new SysSequence();
@@ -68,5 +74,14 @@ class SequenceControllerTest {
 
         assertDoesNotThrow(() -> controller.nextBatch("Audit.eventNo", 100));
         assertThrows(RuntimeException.class, () -> controller.nextBatch("Audit.eventNo", 101));
+    }
+
+    @Test
+    void templatePreview_isServedForAnyMode() {
+        SequenceTemplatePreview preview = new SequenceTemplatePreview(true, 1_000_009L,
+                new CompanyAbbrPreview(true, "ZingKey Pte Ltd", "ZK"));
+        when(sequenceServiceImpl.templatePreview("Employee.code")).thenReturn(preview);
+
+        assertEquals(preview, controller.templatePreview("Employee.code").getData());
     }
 }

@@ -1,6 +1,7 @@
 package io.softa.starter.metadata.sequence.service;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 import io.softa.framework.orm.sequence.exception.SequenceTemplateException;
 import io.softa.starter.metadata.sequence.TemplateRenderer;
 
@@ -80,5 +81,32 @@ class TemplateRendererTest {
         // Templates without {seq} are caught at config-validation time; the renderer
         // itself just echoes the literal back without throwing.
         assertThat(renderer.render("plain", 1, ANCHOR, CODE)).isEqualTo("plain");
+    }
+
+    // ---- {companyAbbr}: a record-dependent token ---------------------------
+
+    @Test
+    void companyAbbr_rendersTheValueSuppliedForTheRecord() {
+        assertThat(renderer.render("{companyAbbr}{seq:7}", 1000021, ANCHOR, CODE,
+                Map.of(TemplateRenderer.COMPANY_ABBR, "ZK"))).isEqualTo("ZK1000021");
+    }
+
+    @Test
+    void companyAbbr_missingRendersEmpty_andTheCodeIsStillGenerated() {
+        // An abbreviation is optional: no prefix, not an error.
+        assertThat(renderer.render("{companyAbbr}{seq:7}", 1000024, ANCHOR, CODE, Map.of())).isEqualTo("1000024");
+        assertThat(renderer.render("{companyAbbr}{seq:7}", 1000024, ANCHOR, CODE)).isEqualTo("1000024");
+    }
+
+    @Test
+    void companyAbbr_emptyDoesNotSwallowAdjacentLiterals() {
+        assertThat(renderer.render("{companyAbbr}-{seq:5}", 21, ANCHOR, CODE)).isEqualTo("-00021");
+    }
+
+    @Test
+    void usesCompanyAbbr_detectsOnlyTheToken() {
+        assertThat(TemplateRenderer.usesCompanyAbbr("{companyAbbr}{seq:7}")).isTrue();
+        assertThat(TemplateRenderer.usesCompanyAbbr("E{seq:7}")).isFalse();
+        assertThat(TemplateRenderer.usesCompanyAbbr(null)).isFalse();
     }
 }

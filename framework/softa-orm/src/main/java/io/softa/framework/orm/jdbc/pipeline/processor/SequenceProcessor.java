@@ -18,14 +18,16 @@ import io.softa.framework.orm.sequence.SequenceService;
  * <ul>
  *   <li>{@code accessType == CREATE} (sequence allocation only happens on insert)</li>
  *   <li>{@code metaField.isAutoSequence() == true} (binding declared by sys_sequence row)</li>
- *   <li>The corresponding row's value is null/blank (caller-provided values are trusted)</li>
+ *   <li>The corresponding row's value is null/blank (a typed value is kept here; the write validators
+ *       check it at the write root)</li>
  * </ul>
  *
  * <p>Pairing with {@code readonly} switches to strict system numbering: a
  * caller-provided value is rejected here (readonly's promise, enforced before
  * the fill), and the filled value passes the downstream readonly check via the
  * autoSequence exemption in {@code BaseProcessor.checkReadonly}. Without
- * {@code readonly}, caller values are trusted (import-friendly).
+ * {@code readonly}, a caller value is kept (import-friendly); the metadata
+ * starter's write validator checks it against the sequence's Manual Entry rule.
  *
  * <p>The sequence code is reconstructed at construction time from
  * {@code modelName + "." + fieldName} per the v1 naming convention; the actual
@@ -34,6 +36,10 @@ import io.softa.framework.orm.sequence.SequenceService;
  * <p>{@link #batchProcessInputRows(List)} is overridden to coalesce a batch
  * insert into a single {@code nextBatch} call, taking the row lock once for
  * the whole batch instead of {@code rows.size()} times.
+ *
+ * <p>The rows themselves are handed to the service, not just their count: a
+ * template token may depend on the record being numbered ({@code {companyAbbr}}
+ * renders the abbreviation of the company the record belongs to).
  */
 public class SequenceProcessor extends BaseProcessor {
 
@@ -54,7 +60,7 @@ public class SequenceProcessor extends BaseProcessor {
             return;
         }
         if (isBlank(row.get(fieldName))) {
-            row.put(fieldName, sequenceService.next(code));
+            row.put(fieldName, sequenceService.next(code, row));
         } else if (metaField.isReadonly()) {
             throw readonlyViolation();
         }
@@ -73,9 +79,14 @@ public class SequenceProcessor extends BaseProcessor {
             return;
         }
         List<Map<String, Object>> blanks = new ArrayList<>(rows.size());
+        List<String> claimed = new ArrayList<>();
         for (Map<String, Object> row : rows) {
-            if (isBlank(row.get(fieldName))) {
+            Object value = row.get(fieldName);
+            if (isBlank(value)) {
                 blanks.add(row);
+            } else {
+                // Trimmed as the string processor will store it, later in this same create.
+                claimed.add(value.toString().trim());
             }
         }
         if (metaField.isReadonly() && blanks.size() < rows.size()) {
@@ -84,11 +95,13 @@ public class SequenceProcessor extends BaseProcessor {
         if (blanks.isEmpty()) {
             return;
         }
-        if (blanks.size() == 1) {
-            blanks.getFirst().put(fieldName, sequenceService.next(code));
+        if (blanks.size() == 1 && claimed.isEmpty()) {
+            blanks.getFirst().put(fieldName, sequenceService.next(code, blanks.getFirst()));
             return;
         }
-        List<String> codes = sequenceService.nextBatch(code, blanks.size());
+        // Values typed into the other rows are not in the table yet, so the service cannot see them
+        // there: a generated value equal to one of them would only fail at insert.
+        List<String> codes = sequenceService.nextBatch(code, blanks, claimed);
         Iterator<String> it = codes.iterator();
         for (Map<String, Object> r : blanks) {
             r.put(fieldName, it.next());

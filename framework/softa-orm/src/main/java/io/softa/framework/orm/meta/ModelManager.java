@@ -1025,6 +1025,18 @@ public class ModelManager {
     }
 
     /**
+     * Get the indexes declared on a model.
+     *
+     * @param modelName model name
+     * @return the model's indexes, in no particular order; empty when it declares none
+     */
+    public static List<MetaIndex> getModelIndexes(String modelName) {
+        return indexMap().values().stream()
+                .filter(index -> Objects.equals(modelName, index.getModelName()))
+                .toList();
+    }
+
+    /**
      * Get the tableName by model name
      *
      * @param modelName model name

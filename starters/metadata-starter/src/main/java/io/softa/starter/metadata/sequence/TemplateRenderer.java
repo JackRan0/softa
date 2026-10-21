@@ -2,6 +2,8 @@ package io.softa.starter.metadata.sequence;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,6 +22,9 @@ import org.springframework.stereotype.Component;
  *   <li>{@code {yy}} — 2-digit year</li>
  *   <li>{@code {MM}} — 2-digit month</li>
  *   <li>{@code {dd}} — 2-digit day</li>
+ *   <li>{@code {companyAbbr}} — abbreviation of the company the numbered record belongs to; empty
+ *       when there is none. It depends on the record, so its value is passed in rather than computed
+ *       here — see {@link #render(String, long, LocalDateTime, String, Map)}</li>
  * </ul>
  *
  * <p>Date tokens take their values from the supplied {@code anchorTime} (the
@@ -42,7 +47,25 @@ public class TemplateRenderer {
     private static final DateTimeFormatter FMT_MM = DateTimeFormatter.ofPattern("MM");
     private static final DateTimeFormatter FMT_DD = DateTimeFormatter.ofPattern("dd");
 
+    /** The record-dependent token: a company abbreviation, supplied per record by the caller. */
+    public static final String COMPANY_ABBR = "companyAbbr";
+
+    /** Whether rendering {@code template} needs the numbered record's company abbreviation. */
+    public static boolean usesCompanyAbbr(String template) {
+        return template != null && template.contains("{" + COMPANY_ABBR + "}");
+    }
+
     public String render(String template, long number, LocalDateTime anchorTime, String code) {
+        return render(template, number, anchorTime, code, Map.of());
+    }
+
+    /**
+     * Render with record-dependent token values. {@code variables} maps a token name to its value for
+     * this record; a missing or null value renders as empty — an abbreviation is optional, and a code
+     * without its prefix is still a valid code.
+     */
+    public String render(String template, long number, LocalDateTime anchorTime, String code,
+                         Map<String, String> variables) {
         if (template == null || template.isEmpty()) {
             throw new SequenceTemplateException(code, "Template is empty");
         }
@@ -51,14 +74,15 @@ public class TemplateRenderer {
         while (m.find()) {
             String name = m.group(1);
             String arg = m.group(2);
-            String replacement = resolve(name, arg, number, anchorTime, code);
+            String replacement = resolve(name, arg, number, anchorTime, code, variables);
             m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
         }
         m.appendTail(sb);
         return sb.toString();
     }
 
-    private String resolve(String name, String arg, long number, LocalDateTime t, String code) {
+    private String resolve(String name, String arg, long number, LocalDateTime t, String code,
+                           Map<String, String> variables) {
         return switch (name) {
             case "seq" -> {
                 if (arg == null) {
@@ -71,6 +95,7 @@ public class TemplateRenderer {
             case "yy"   -> t.format(FMT_YY);
             case "MM"   -> t.format(FMT_MM);
             case "dd"   -> t.format(FMT_DD);
+            case COMPANY_ABBR -> Objects.toString(variables.get(COMPANY_ABBR), "");
             default -> throw new SequenceTemplateException(code, "Unknown template token: {" + name + "}");
         };
     }

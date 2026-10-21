@@ -34,6 +34,8 @@ public class MetaFieldDTO {
     private Boolean computed;
     private Boolean dynamic;
     private Boolean encrypted;
+    /** Filled from a sequence when left blank; a code typed instead is checked against the sequence's rules. */
+    private Boolean autoSequence;
 
     private String optionSetCode;
     private String relatedModel;

@@ -14,8 +14,9 @@ import io.softa.framework.orm.enums.WidgetType;
  * Marks a Java field on a {@link Model}-annotated class as a Softa metadata Field.
  * <p>
  * The {@code fieldName} is derived from the Java field name (no override).
- * Only declared fields are processed—inherited audit fields from
- * {@code AuditableModel} are skipped via {@code Class.getDeclaredFields()}.
+ * Fields declared on superclasses are processed too: the scanner walks the
+ * superclass chain, which is how the audit fields on {@code AuditableModel}
+ * reach every model. A subclass field of the same name shadows the inherited one.
  *
  * <p><b>Requires {@code metadata-starter}</b> on the classpath to take effect
  * (see {@link Model}).
