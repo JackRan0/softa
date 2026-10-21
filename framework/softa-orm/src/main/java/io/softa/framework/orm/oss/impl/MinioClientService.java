@@ -14,6 +14,7 @@ import io.softa.framework.base.exception.ExternalException;
 import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.enums.FileType;
+import io.softa.framework.orm.oss.ContentDisposition;
 import io.softa.framework.orm.oss.OSSProperties;
 import io.softa.framework.orm.oss.OssClientService;
 
@@ -25,8 +26,6 @@ import io.softa.framework.orm.oss.OssClientService;
 public class MinioClientService implements OssClientService {
 
     private static final String CONTENT_DISPOSITION = "response-content-disposition";
-
-    private static final String ATTACHMENT_VALUE = "attachment;";
 
     private MinioClient ossClient;
 
@@ -112,6 +111,8 @@ public class MinioClientService implements OssClientService {
                             .bucket(getBucketName())
                             .object(ossKey)
                             .expiry(expirationInSeconds)
+                            .extraQueryParams(Map.of(CONTENT_DISPOSITION,
+                                    ContentDisposition.of(ContentDisposition.INLINE, fileName)))
                             .build()
             );
         } catch (Exception e) {
@@ -135,7 +136,8 @@ public class MinioClientService implements OssClientService {
                             .bucket(getBucketName())
                             .object(ossKey)
                             .expiry(expirationInSeconds)
-                            .extraQueryParams(Map.of(CONTENT_DISPOSITION, ATTACHMENT_VALUE))
+                            .extraQueryParams(Map.of(CONTENT_DISPOSITION,
+                                    ContentDisposition.of(ContentDisposition.ATTACHMENT, fileName)))
                             .build()
             );
         } catch (Exception e) {

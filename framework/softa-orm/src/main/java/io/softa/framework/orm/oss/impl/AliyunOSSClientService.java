@@ -18,6 +18,7 @@ import io.softa.framework.base.exception.ExternalException;
 import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.enums.FileType;
+import io.softa.framework.orm.oss.ContentDisposition;
 import io.softa.framework.orm.oss.OSSProperties;
 import io.softa.framework.orm.oss.OssClientService;
 
@@ -27,8 +28,6 @@ import io.softa.framework.orm.oss.OssClientService;
 @Slf4j
 @AllArgsConstructor
 public class AliyunOSSClientService implements OssClientService {
-
-    private static final String ATTACHMENT_VALUE = "attachment;";
 
     private OSS ossClient;
 
@@ -95,7 +94,12 @@ public class AliyunOSSClientService implements OssClientService {
     public String getPreSignedUrl(String ossKey, int expirationInSeconds, String fileName) {
         try {
             Date expiration = new Date(System.currentTimeMillis() + expirationInSeconds * 1000L);
-            URL url = presignClient.generatePresignedUrl(getBucketName(), ossKey, expiration);
+            GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(getBucketName(), ossKey);
+            request.setExpiration(expiration);
+            ResponseHeaderOverrides responseHeaders = new ResponseHeaderOverrides();
+            responseHeaders.setContentDisposition(ContentDisposition.of(ContentDisposition.INLINE, fileName));
+            request.setResponseHeaders(responseHeaders);
+            URL url = presignClient.generatePresignedUrl(request);
             return url.toString();
         } catch (Exception e) {
             throw new ExternalException("Error while generating the file URL {0}", fileName, e);
@@ -116,7 +120,7 @@ public class AliyunOSSClientService implements OssClientService {
             GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(getBucketName(), ossKey);
             request.setExpiration(expiration);
             ResponseHeaderOverrides responseHeaders = new ResponseHeaderOverrides();
-            responseHeaders.setContentDisposition(ATTACHMENT_VALUE);
+            responseHeaders.setContentDisposition(ContentDisposition.of(ContentDisposition.ATTACHMENT, fileName));
             request.setResponseHeaders(responseHeaders);
             URL url = presignClient.generatePresignedUrl(request);
             return url.toString();

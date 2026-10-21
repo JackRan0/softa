@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -51,12 +53,16 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
     private OSSProperties ossProperties;
 
     /**
-     * Generate an OSS key for the file
-     * ModelName is used as the prefix of the OSS key, to store files in different directories
-     * Set the UUID as a part of the OSS key to avoid conflicts between files with the same name
+     * Generate an OSS key for the file: {@code [subDir/][tenantId/]modelName/<uuid>.<ext>}.
+     *
+     * <p>The file's own name is not part of the key, only its extension. Embedded, it made the key as
+     * long as whatever the user's file was called, and a scanned document's name easily pushed it past
+     * {@code FileRecord.ossKey}: the upload failed, and the message quoted the tenant id and the storage
+     * path. The name lives on {@code FileRecord.fileName}, and download and preview URLs hand it to the
+     * browser in {@code Content-Disposition}, so a downloaded file is still saved under it.
      *
      * @param modelName the name of the corresponding business model
-     * @param fileName the name of the file
+     * @param fileName the name of the file, read for its extension only
      * @return the generated OSS key
      */
     public String generateOssKey(String modelName, String fileName) {
@@ -78,9 +84,59 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         } else {
             key.append(FileConstant.DEFAULT_SUBFOLDER).append("/");
         }
-        // Set the UUID as a part of the OSS key
-        key.append(IDGenerator.generateStringId()).append("/").append(fileName);
+        // A generated name, so files with the same name do not collide
+        key.append(IDGenerator.generateStringId()).append(extensionOf(fileName));
         return key.toString();
+    }
+
+    /**
+     * The extension of {@code fileName}, dot included, or empty when it has none. Only a short run of
+     * letters and digits counts: anything else after the last dot is part of the name, not a type.
+     */
+    static String extensionOf(String fileName) {
+        if (StringUtils.isBlank(fileName)) {
+            return "";
+        }
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0 || dot == fileName.length() - 1) {
+            return "";
+        }
+        String extension = fileName.substring(dot + 1);
+        return extension.length() <= 10 && StringUtils.isAlphanumeric(extension) ? "." + extension : "";
+    }
+
+    /** The width of {@code FileRecord.fileName}. */
+    static final int MAX_FILE_NAME_LENGTH = 128;
+
+    /** The upload-date suffix {@link #getFullFileName} puts before the extension. */
+    private static final Pattern DATE_SUFFIX = Pattern.compile("_\\d{8}$");
+
+    /**
+     * {@code fileName} cut to {@link #MAX_FILE_NAME_LENGTH}, keeping its extension and upload-date
+     * suffix, so a record always fits its column.
+     *
+     * <p>For a name the system made up — an export, a generated or signed document, an archived mail,
+     * a fetched photo. Nobody chose those names and nobody can shorten them, so refusing one would
+     * only fail the work it belongs to; a name a person picked is refused at upload instead.
+     */
+    static String fitFileName(String fileName) {
+        if (fileName == null || fileName.length() <= MAX_FILE_NAME_LENGTH) {
+            return fileName;
+        }
+        String extension = extensionOf(fileName);
+        String stem = fileName.substring(0, fileName.length() - extension.length());
+        Matcher date = DATE_SUFFIX.matcher(stem);
+        String kept = extension;
+        if (date.find()) {
+            kept = date.group() + extension;
+            stem = stem.substring(0, date.start());
+        }
+        int room = MAX_FILE_NAME_LENGTH - kept.length();
+        // Never end on half a surrogate pair: an emoji cut in two is not a character.
+        if (room > 0 && Character.isHighSurrogate(stem.charAt(room - 1))) {
+            room--;
+        }
+        return stem.substring(0, Math.max(0, room)) + kept;
     }
 
     /**
@@ -146,6 +202,14 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
      * @return fileRecord object
      */
     private FileRecord uploadFileToField(String modelName, Serializable rowId, String fieldName, MultipartFile file) {
+        // A name the person picked is theirs to shorten, so it is refused, before anything is stored,
+        // rather than cut — and the message names no value, tenant or storage path.
+        String originalName = file.getOriginalFilename();
+        if (originalName != null && originalName.length() > MAX_FILE_NAME_LENGTH) {
+            throw new IllegalArgumentException(
+                    "File name is too long (max {0} characters). Rename the file and upload it again.",
+                    MAX_FILE_NAME_LENGTH);
+        }
         String fileName = FileUtils.getShortFileName(file);
         FileType fileType = FileUtils.getActualFileType(file);
         String fullFileName = getFullFileName(fileName, fileType);
@@ -560,6 +624,7 @@ public class FileServiceImpl extends EntityServiceImpl<FileRecord, Long> impleme
         if (fileRecord.getTenantId() == null) {
             fileRecord.setTenantId(ContextHolder.getContext().getTenantId());
         }
+        fileRecord.setFileName(fitFileName(fileRecord.getFileName()));
         return bypassFileRecordScope(() -> this.createOne(fileRecord));
     }
 
