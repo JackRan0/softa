@@ -1492,7 +1492,9 @@ public class PermissionServiceImpl implements PermissionService {
         if (fieldsByWriters.isEmpty() || ids == null || ids.isEmpty()) return;
         List<Serializable> idList = ids.stream().distinct().collect(Collectors.toList());
         fieldsByWriters.forEach((grantingWriters, written) -> {
-            Filters scope = anyOf(grantingWriters.stream().map(g -> grantScope(g, model)).toList());
+            Filters scope = anyOf(grantingWriters.stream()
+                    .map(g -> judgedOnOwner(g, model, accessType) ? null : grantScope(g, model))
+                    .toList());
             if (scope == null) return;
             Filters target = Filters.and(Filters.of(ModelConstant.ID, Operator.IN, idList), scope);
             long reached = unscoped(() -> modelService.count(model, target));
@@ -1660,7 +1662,7 @@ public class PermissionServiceImpl implements PermissionService {
      * by how the grant reaches it rather than fail-closed to nothing:
      * <ul>
      *   <li><b>owned one-to-one</b> — the FK is on the owner, so the ids are those an in-range owner
-     *       points at;</li>
+     *       points at. Not on CREATE: see {@link #judgedOnOwner};</li>
      *   <li><b>shared reference / config</b> without an anchor of its own — readable, nothing to check;</li>
      *   <li><b>reached by nothing</b> and without an anchor — bookkeeping the runtime writes as a side
      *       effect of work it already authorized: a file record, an import or export history row, a login
@@ -1679,6 +1681,9 @@ public class PermissionServiceImpl implements PermissionService {
     private Filters idCheckScope(Grant g, String model, AccessType accessType) {
         if (hasExplicitRules(g, model)) {
             return grantScope(g, model);
+        }
+        if (judgedOnOwner(g, model, accessType)) {
+            return null;
         }
         List<Referencer> refs = findReferencers(model, g);
         Kind kind = refs.isEmpty() ? null : refs.getFirst().kind();
@@ -1701,6 +1706,27 @@ public class PermissionServiceImpl implements PermissionService {
                     : scopeCompiler.compile(List.of(ruleOf(declared)), model);
         }
         return grantScope(g, model);
+    }
+
+    /**
+     * Whether a write to {@code model} by this grant has its row range judged on the owner instead of
+     * on the rows themselves: a one-to-one row being created, with no rules of its own for the model.
+     *
+     * <p>Such a row is in range when an in-range owner points at it, and when it is created nested in
+     * its owner's payload it is written first — its id is what the owner's foreign key is set to — so
+     * at its own check nothing points at it yet, and every new one fell outside the range: a role
+     * reaching its own department could not add an employee, because the profile in the same request
+     * was refused. Its range is decided where it becomes reachable, by the owner's own create or
+     * update, which is checked against the owner's range. A new row nothing ever points at is reachable
+     * by no one. Updating, deleting or naming an existing row by id keeps its own check, since that row
+     * may already belong to an owner outside the range.
+     */
+    private boolean judgedOnOwner(Grant g, String model, AccessType accessType) {
+        if (!AccessType.CREATE.equals(accessType) || hasExplicitRules(g, model)) {
+            return false;
+        }
+        List<Referencer> refs = findReferencers(model, g);
+        return !refs.isEmpty() && refs.getFirst().kind() == Kind.OWNED_ONE_TO_ONE;
     }
 
     /**

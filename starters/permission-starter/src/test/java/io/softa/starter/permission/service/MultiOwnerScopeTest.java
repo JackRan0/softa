@@ -130,6 +130,58 @@ class MultiOwnerScopeTest {
     }
 
     @Test
+    void aProfileCreatedWithItsEmployeeIsNotRefusedBeforeTheEmployeePointsAtIt() {
+        // Nested in the employee's payload, the profile is written first and checked while no employee
+        // points at it yet; its range is the employee's, judged when the employee is written.
+        declare("Employee", oneToOne("employeeProfileId", OnDelete.RESTRICT));
+        grant(List.of("Employee"));
+        when(modelService.count(eq(CHILD), any(Filters.class))).thenReturn(0L);
+
+        asCaller(() -> {
+            service.checkIdsAccess(CHILD, List.<Serializable>of(99L), AccessType.CREATE);
+            return null;
+        });
+
+        verify(modelService, Mockito.never()).count(eq(CHILD), any(Filters.class));
+    }
+
+    @Test
+    void aSensitiveFieldOnANewProfileIsNotRefusedForTheRangeItsEmployeeHasNotGivenItYet() {
+        declare("Employee", oneToOne("employeeProfileId", OnDelete.RESTRICT));
+        grant(List.of("Employee"));
+        when(modelService.count(eq(CHILD), any(Filters.class))).thenReturn(0L);
+        io.softa.starter.permission.sensitive.SensitiveFieldSetCache sfs =
+                mock(io.softa.starter.permission.sensitive.SensitiveFieldSetCache.class);
+        when(sfs.hasSensitiveFieldsOn(CHILD)).thenReturn(true);
+        when(sfs.allSensitiveFieldsOn(CHILD)).thenReturn(java.util.Set.of("idNumber"));
+        when(sfs.grantedFieldsFor(eq(CHILD), any())).thenReturn(java.util.Set.of("idNumber"));
+        PermissionServiceImpl withSensitiveSets =
+                new PermissionServiceImpl(provider, compiler, sfs, modelService, applicability);
+
+        asCaller(() -> {
+            withSensitiveSets.checkIdsFieldsAccess(CHILD, List.<Serializable>of(99L),
+                    java.util.Set.of("idNumber"), AccessType.CREATE);
+            return null;
+        });
+
+        verify(modelService, Mockito.never()).count(eq(CHILD), any(Filters.class));
+    }
+
+    @Test
+    void anExistingProfileNamedByIdIsStillJudgedOnItsOwnersRange() {
+        // What the nested write must keep refusing: an update naming a profile no in-range employee
+        // points at — another department's person — by its id.
+        declare("Employee", oneToOne("employeeProfileId", OnDelete.RESTRICT));
+        grant(List.of("Employee"));
+        when(modelService.count(eq(CHILD), any(Filters.class))).thenReturn(0L);
+
+        assertThatThrownBy(() -> asCaller(() -> {
+            service.checkIdsAccess(CHILD, List.<Serializable>of(99L), AccessType.UPDATE);
+            return null;
+        })).hasMessageContaining("outside your UPDATE scope");
+    }
+
+    @Test
     void twoOwnersOfTheirOwnBothOpenTheirProfiles() {
         declare("Employee", oneToOne("employeeProfileId", OnDelete.RESTRICT));
         declare("ConsultantAssignment", oneToOne("profileId", null));
