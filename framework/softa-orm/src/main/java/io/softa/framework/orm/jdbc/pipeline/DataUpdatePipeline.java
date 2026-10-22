@@ -121,15 +121,59 @@ public class DataUpdatePipeline extends DataPipeline {
      */
     @Override
     public List<Map<String, Object>> processUpdateData(List<Map<String, Object>> rows, Map<Serializable, Map<String, Object>> originalRowsMap, LocalDateTime updatedTime) {
+        // Against the stored rows as read, before anything is merged: a stale version fails the
+        // update even when nothing else in its patch differs.
+        Map<Serializable, Object> readVersions = this.checkVersions(rows, originalRowsMap);
         List<Map<String, Object>> mergedRows = mergeToOriginalData(rows, originalRowsMap);
         processorChain.processInputRows(mergedRows);
         // TODO: Compare the encrypted fields using plaintext to be compatible with different encryption algorithms,
         //  to avoid the situation where the plaintext is the same but the ciphertext is different.
         List<Map<String, Object>> differRows = differFromPrevious(modelName, primaryKey, this.differFields, mergedRows, originalRowsMap);
         if (!differRows.isEmpty()) {
+            // A row whose patch named its version is written only while it is still that version
+            // (`AND version = ?`). Every written row moves its version on in the SQL itself.
+            differRows.forEach(differRow -> {
+                Object readVersion = readVersions.get((Serializable) differRow.get(primaryKey));
+                if (readVersion != null) {
+                    differRow.put(ModelConstant.VERSION, readVersion);
+                }
+            });
             AutofillFields.fillAuditFieldsForUpdate(modelName, differRows, updatedTime);
         }
         return differRows;
+    }
+
+    /**
+     * Check the version each patch carries against its stored row. A patch with `version` says
+     * which version its client read; if the row has moved on since, the update fails. A patch
+     * without one, or a row that has none yet, is not checked.
+     *
+     * @param rows the patches
+     * @param originalRowsMap the stored rows, by pk
+     * @return the version each checked patch was read at, by pk
+     */
+    private Map<Serializable, Object> checkVersions(List<Map<String, Object>> rows, Map<Serializable, Map<String, Object>> originalRowsMap) {
+        if (!ModelManager.isVersionControl(modelName)) {
+            return Collections.emptyMap();
+        }
+        Map<Serializable, Object> readVersions = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Serializable pKey = (Serializable) row.get(primaryKey);
+            Map<String, Object> originalRow = originalRowsMap.get(pKey);
+            Object provided = row.get(ModelConstant.VERSION);
+            Object stored = originalRow == null ? null : originalRow.get(ModelConstant.VERSION);
+            if (provided == null || stored == null) {
+                continue;
+            }
+            if (!VersionLockUtils.sameVersion(provided, stored)) {
+                throw new VersionException("""
+                        Data version does not match, may have been modified, please refresh and try again!
+                        Provided value: {0}, database value: {1}, the two are not equal.""",
+                        provided, stored);
+            }
+            readVersions.put(pKey, stored);
+        }
+        return readVersions;
     }
 
     /**
@@ -191,6 +235,11 @@ public class DataUpdatePipeline extends DataPipeline {
             // get the original `effectiveEndDate` field at the same time for time comparison.
             this.differFields.add(ModelConstant.EFFECTIVE_END_DATE);
         }
+        if (ModelManager.isVersionControl(modelName)) {
+            // `version` is readonly, so it is never among the fields to update. It is read all the
+            // same, to check the version a patch carries (see checkVersions).
+            this.differFields.add(ModelConstant.VERSION);
+        }
     }
 
     /**
@@ -225,8 +274,8 @@ public class DataUpdatePipeline extends DataPipeline {
 
     /**
      * Compare between the new and old data rows, only retain the primary key and modified field values.
-     * The `version` field is special:
-     * if the version is different, an exception is thrown, and if the version is the same, the version is +1.
+     * The `version` field of a versionLock model is not compared here: it is never written as a value
+     * (see processUpdateData).
      *
      * @param modelName model name
      * @param primaryKey primary key field name
@@ -244,22 +293,12 @@ public class DataUpdatePipeline extends DataPipeline {
                 Map<String, Object> originalRow = new HashMap<>();
                 Map<String, Object> differRow = new HashMap<>();
                 differentFields.forEach(field -> {
+                    if (controlVersion && ModelConstant.VERSION.equals(field)) {
+                        return;
+                    }
                     Object newValue = newRow.get(field);
                     Object oldValue = originalRowsMap.get(pKey).get(field);
-                    boolean isValueModified = valueModified(modelName, field, newValue, oldValue);
-                    if (controlVersion && ModelConstant.VERSION.equals(field)) {
-                        // Version control, if the version is different, throw a VersionException exception,
-                        if (isValueModified) {
-                            throw new VersionException("""
-                                    Data version does not match, may have been modified, please refresh and try again!
-                                    Provided value: {0}, database value: {1}, the two are not equal.""",
-                                    newValue, oldValue);
-                        } else {
-                            // Increment version by 1. When constructing the WHERE condition, it will be decremented.
-                            differRow.put(field, VersionLockUtils.increment(oldValue));
-                            originalRow.put(field, oldValue);
-                        }
-                    } else if (isValueModified) {
+                    if (valueModified(modelName, field, newValue, oldValue)) {
                         differRow.put(field, newRow.get(field));
                         // Retain the original value of the modified field
                         originalRow.put(field, originalRowsMap.get(pKey).get(field));

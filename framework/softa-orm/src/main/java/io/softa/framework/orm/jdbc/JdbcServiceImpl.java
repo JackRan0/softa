@@ -1,10 +1,12 @@
 package io.softa.framework.orm.jdbc;
 
 import java.io.Serializable;
+import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.constant.BaseConstant;
+import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.base.exception.VersionException;
 import io.softa.framework.base.utils.Cast;
 import io.softa.framework.orm.annotation.RPCCheckpoint;
@@ -34,7 +38,6 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.framework.orm.utils.IdUtils;
-import io.softa.framework.orm.utils.VersionLockUtils;
 
 /**
  * JdbcServiceImpl
@@ -257,6 +260,8 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
     /**
      * Updates a single row identified by its ID, without performing any data conversion
      * or automatic field population. Also triggers the audit fields and change log as needed.
+     * <p>On a versionLock model the write moves the version on, and a row carrying {@code version}
+     * (the version it was read at) is written only at that version, else {@link VersionException}.</p>
      * <p>Use with caution or in restricted scenarios.</p>
      *
      * @param modelName the name of the model
@@ -265,22 +270,96 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
      */
     public Integer updateOne(String modelName, Map<String, Object> rowMap) {
         SqlParams sqlParams = StaticSqlBuilder.getUpdateSql(modelName, rowMap);
-        if (ModelManager.isVersionControl(modelName) && rowMap.containsKey(ModelConstant.VERSION)) {
-            // Check the optimistic lock version control
-            Object nextVersion = rowMap.get(ModelConstant.VERSION);
-            Object oldVersion = VersionLockUtils.decrement(nextVersion);
-            sqlParams.setSql(sqlParams.getSql() + " AND version = ?");
-            sqlParams.addArgValue(oldVersion);
-            int result = jdbcProxy.update(modelName, sqlParams);
-            if (result == 0) {
-                throw new VersionException("""
-                        Data version does not match, may have been modified, please refresh and try again!
-                        Provided value: {0}, database value: {1}, the two are not equal.""", oldVersion, nextVersion);
-            }
-            return result;
-        } else {
-            return jdbcProxy.update(modelName, sqlParams);
+        int result = jdbcProxy.update(modelName, sqlParams);
+        if (result == 0 && StaticSqlBuilder.isVersionGuarded(modelName, rowMap.keySet())) {
+            throw versionMismatch(rowMap.get(ModelConstant.VERSION));
         }
+        return result;
+    }
+
+    /**
+     * Writes pk-keyed rows the way {@link #updateOne} writes one, without a round trip per row:
+     * rows that set the same fields share one UPDATE statement, so each such group goes to the
+     * database as JDBC batches of {@code DEFAULT_BATCH_SIZE}. A row alone in its group is still
+     * a plain {@link #updateOne}.
+     * <p>A row naming nothing but its pk is skipped: it has nothing to set. A call that names the
+     * same pk more than once is written row by row in the order given, because grouping would
+     * reorder two patches of one row.</p>
+     *
+     * @param modelName the name of the model
+     * @param rows rows to write, each carrying its pk and the fields to set
+     * @return the number of rows affected
+     */
+    int updateRows(String modelName, List<Map<String, Object>> rows) {
+        String pk = ModelManager.getModelPrimaryKey(modelName);
+        // Written, such a row would be `SET WHERE id = ?`, or a bare version bump under the lock.
+        List<Map<String, Object>> toWrite = rows.stream()
+                .filter(row -> row.keySet().stream().anyMatch(field -> !pk.equals(field)))
+                .toList();
+        // Grouped by shape, the later of two patches of one row could go out first and lose.
+        Set<Object> pks = new HashSet<>();
+        if (toWrite.stream().anyMatch(row -> !pks.add(row.get(pk)))) {
+            return toWrite.stream().mapToInt(row -> updateOne(modelName, row)).sum();
+        }
+        // The sorted field list is the statement's shape. It also decides the version condition,
+        // which applies exactly when the rows carry `version`, as in updateOne.
+        Map<List<String>, List<Map<String, Object>>> groups = new LinkedHashMap<>();
+        for (Map<String, Object> row : toWrite) {
+            List<String> fields = row.keySet().stream().filter(field -> !pk.equals(field)).sorted().toList();
+            groups.computeIfAbsent(fields, key -> new ArrayList<>()).add(row);
+        }
+        int count = 0;
+        for (Map.Entry<List<String>, List<Map<String, Object>>> group : groups.entrySet()) {
+            List<Map<String, Object>> groupRows = group.getValue();
+            count += groupRows.size() == 1
+                    ? updateOne(modelName, groupRows.getFirst())
+                    : updateInBatches(modelName, group.getKey(), groupRows);
+        }
+        return count;
+    }
+
+    /**
+     * Writes rows that set the same fields with one statement, in JDBC batches of
+     * {@code DEFAULT_BATCH_SIZE}. Rows carrying {@code version} are each checked as {@link #updateOne}
+     * checks one: a row that matched nothing was modified since it was read.
+     *
+     * @param modelName the name of the model
+     * @param fields the fields every row sets, sorted, without the pk
+     * @param rows rows to write
+     * @return the number of rows affected
+     */
+    private int updateInBatches(String modelName, List<String> fields, List<Map<String, Object>> rows) {
+        boolean versionGuarded = StaticSqlBuilder.isVersionGuarded(modelName, fields);
+        SqlParams sqlParams = StaticSqlBuilder.getUpdateSql(modelName, fields);
+        int count = 0;
+        for (List<Map<String, Object>> batch : Lists.partition(rows, BaseConstant.DEFAULT_BATCH_SIZE)) {
+            List<Object[]> batchArgs = batch.stream()
+                    .map(row -> StaticSqlBuilder.getUpdateArgs(modelName, fields, row))
+                    .toList();
+            int[] results = jdbcProxy.batchUpdateCounts(modelName, sqlParams, batchArgs);
+            for (int i = 0; i < results.length; i++) {
+                if (versionGuarded && results[i] == Statement.SUCCESS_NO_INFO) {
+                    // The batch is written, but whether this row matched its version is unknown, and
+                    // passing it could hide a lost update. MySQL and PostgreSQL report UPDATE counts.
+                    throw new SystemException("""
+                            The JDBC driver reported no update count (SUCCESS_NO_INFO) for a batch update \
+                            of the version-locked model {0}, so the optimistic lock cannot be verified.""",
+                            modelName);
+                } else if (versionGuarded && results[i] == 0) {
+                    throw versionMismatch(batch.get(i).get(ModelConstant.VERSION));
+                }
+                // Without the version condition, a row the driver cannot account for counts as written.
+                count += results[i] == Statement.SUCCESS_NO_INFO ? 1 : results[i];
+            }
+        }
+        return count;
+    }
+
+    /** The optimistic-lock failure of a row whose stored version is no longer the one it was read at. */
+    private static VersionException versionMismatch(Object readVersion) {
+        return new VersionException("""
+                Data version does not match, may have been modified, please refresh and try again!
+                Provided value: {0}, but the data has been modified since it was read.""", readVersion);
     }
 
     /**
@@ -315,7 +394,7 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
                 ? originalRowsMap : withoutKeys(originalRowsMap, logContext, pipeline.getDifferFields());
         // Get the list of changed data, keeping only the fields and row data that have changed.
         List<Map<String, Object>> differRows = pipeline.processUpdateData(rows, pipelineOriginals, updatedTime);
-        int count = differRows.stream().mapToInt(row -> updateOne(modelName, row)).sum();
+        int count = this.updateRows(modelName, differRows);
         // After updating the main table, update the sub-table to avoid the sub-table cascade field being the old value.
         boolean changed = pipeline.processXToManyData(rows);
         // Re-bind what the write now references, and release what it stopped referencing — a cleared
@@ -350,7 +429,8 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
      * originals, so the change log costs no extra round trip; nothing when change logs are off.
      */
     Set<String> changeLogContextFields(String modelName, Set<String> differFields) {
-        if (!SystemConfig.env.isEnableChangeLog() || differFields.isEmpty()) {
+        if (!SystemConfig.env.isEnableChangeLog() || differFields.isEmpty()
+                || !ModelManager.isAuditLogEnabled(modelName)) {
             return Set.of();
         }
         Set<String> context = new HashSet<>();
@@ -437,11 +517,11 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
         int count;
         LocalDateTime deleteTime = LocalDateTime.now();
         if (ModelManager.isSoftDeleted(modelName)) {
-            // Soft delete: assemble one pk-keyed update row per deletable row (updateOne is the
-            // pk-keyed primitive). Keying by pk — not by the logical ids — is what covers every
-            // slice of a timeline entity (pk = sliceId), mirroring the physical branch below
-            // whose `WHERE id IN` naturally spans all slices; for regular models pk = id and the
-            // behavior is unchanged.
+            // Soft delete: assemble one pk-keyed update row per deletable row (updateRows is the
+            // pk-keyed write; the rows all set the same fields, so they go out as one batch).
+            // Keying by pk — not by the logical ids — is what covers every slice of a timeline
+            // entity (pk = sliceId), mirroring the physical branch below whose `WHERE id IN`
+            // naturally spans all slices; for regular models pk = id and the behavior is unchanged.
             String pk = ModelManager.getModelPrimaryKey(modelName);
             List<Map<String, Object>> rows = deletableRows.stream().map(deletableRow -> {
                 Map<String, Object> row = new HashMap<>();
@@ -454,7 +534,7 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
                 return row;
             }).collect(Collectors.toList());
             AutofillFields.fillAuditFieldsForUpdate(modelName, rows, deleteTime);
-            count = rows.stream().mapToInt(row -> updateOne(modelName, row)).sum();
+            count = this.updateRows(modelName, rows);
         } else {
             // Delete data physically
             SqlParams sqlParams = StaticSqlBuilder.getDeleteSql(modelName, ids);

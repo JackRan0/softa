@@ -126,6 +126,21 @@ public @interface Model {
     boolean copyable() default true;
 
     /**
+     * Whether writes to this model produce change logs — the record history behind the
+     * form's Audit Log panel. Set {@code false} on derived / report models whose rows are
+     * recomputed in bulk and carry no history worth keeping (the source data's own log is
+     * the audit trail): create / update / delete then build no change log at all, which also
+     * drops the transaction-bound buffer that holds every row's before / after until commit.
+     * <p>The same log is what data-change flow triggers read, so a model with this off fires
+     * no change-triggered flow (synchronous or asynchronous), and its rows do not appear in a
+     * parent record's history. The stored-row read an update makes is unaffected — the diff,
+     * computed fields and version check still need it. This flag decides per model whether a
+     * log is built at all; {@code system.enable-change-log} still gates what leaves the process
+     * (MQ persistence, asynchronous flows). Exposed as {@code SysModel.enableAuditLog}.
+     */
+    boolean enableAuditLog() default true;
+
+    /**
      * Marks a read-only model over a table it does NOT own — the table belongs to
      * another model in this app (e.g. a report projecting {@code Employee}'s table)
      * or to an external process (e.g. a BI pipeline). Effects:

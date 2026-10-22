@@ -54,6 +54,7 @@ class ChangeLogContextFieldsTest {
         when(holiday.getDisplayName()).thenReturn(List.of("name"));
         models = mockStatic(ModelManager.class);
         models.when(() -> ModelManager.getModel("HolidayCalendarDetail")).thenReturn(holiday);
+        models.when(() -> ModelManager.isAuditLogEnabled("HolidayCalendarDetail")).thenReturn(true);
         models.when(() -> ModelManager.getModelStoredFields("HolidayCalendarDetail"))
                 .thenReturn(List.of("id", "holidayCalendarId", "name", "startDay", "endDay"));
         models.when(() -> ModelManager.getModelFields("HolidayCalendarDetail")).thenReturn(List.of(
@@ -90,6 +91,14 @@ class ChangeLogContextFieldsTest {
     @Test
     void readsNothingExtraWhenChangeLogsAreOff() {
         ReflectionTestUtils.setField(SystemConfig.env, "enableChangeLog", false);
+
+        assertThat(new JdbcServiceImpl<>()
+                .changeLogContextFields("HolidayCalendarDetail", Set.of("startDay"))).isEmpty();
+    }
+
+    @Test
+    void readsNothingExtraForAModelWithItsAuditLogOff() {
+        models.when(() -> ModelManager.isAuditLogEnabled("HolidayCalendarDetail")).thenReturn(false);
 
         assertThat(new JdbcServiceImpl<>()
                 .changeLogContextFields("HolidayCalendarDetail", Set.of("startDay"))).isEmpty();

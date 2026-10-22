@@ -308,6 +308,11 @@ public class TimelineServiceImpl<K extends Serializable> implements TimelineServ
             // In integration scenarios where 'sliceId' is not provided, perform a `Correct` operation on the slice
             // by assigning the overlapped `sliceId` to the current data.
             sliceRow.put(ModelConstant.SLICE_ID, overlappedSlice.getSliceId());
+            if (ModelManager.isVersionControl(modelName)) {
+                // A version in a create locks nothing here: it is that of whichever slice the client
+                // had open, which need not be the slice this corrects.
+                sliceRow.remove(ModelConstant.VERSION);
+            }
             this.updateCurrentSlice(modelName, sliceRow, false);
         } else {
             // Update the `effectiveEndDate` of the overlapped record: overlapEnd = currentStart - 1 day

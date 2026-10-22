@@ -24,6 +24,8 @@ public class MetaModelDTO {
     private boolean versionLock;
     /** Model-level copy switch — false ⇒ hide the Duplicate action and reject copy APIs. */
     private boolean copyable;
+    /** Change-log switch — false ⇒ the model keeps no record history, so hide the Audit Log panel. */
+    private boolean enableAuditLog;
     /** Read-only projection over a table another model owns — true ⇒ hide create/edit/delete, writes are rejected. */
     private boolean projection;
     private Map<String, MetaFieldDTO> modelFields;

@@ -89,6 +89,21 @@ class AnnotationParserTest {
         assertTrue(m.getSoftDelete());
         assertEquals(false, m.getMultiTenant());
         assertEquals(Boolean.TRUE, m.getCopyable(), "copyable defaults to true");
+        assertEquals(Boolean.TRUE, m.getEnableAuditLog(), "enableAuditLog defaults to true");
+    }
+
+    @Test
+    void modelEnableAuditLog_falseIsParsed() {
+        @Model(enableAuditLog = false)
+        @SuppressWarnings("unused")
+        class HeadcountSnapshot extends AuditableModel {
+            @Override
+            public Serializable getId() {
+                return null;
+            }
+        }
+        SysModel m = parser.parse(List.of(HeadcountSnapshot.class), List.of()).models().get(0);
+        assertEquals(Boolean.FALSE, m.getEnableAuditLog());
     }
 
     @Test

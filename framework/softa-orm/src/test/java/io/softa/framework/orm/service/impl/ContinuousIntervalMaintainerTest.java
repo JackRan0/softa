@@ -705,17 +705,27 @@ class ContinuousIntervalMaintainerTest {
         // Soft delete keys per-row updates off the pk taken from deletableRows — for a timeline
         // model that is one update per SLICE (pk = sliceId), covering the whole entity like the
         // physical branch's `WHERE id IN` does. Keying off the logical ids would probe
-        // `WHERE slice_id = NULL` and silently delete nothing.
+        // `WHERE slice_id = NULL` and silently delete nothing. The slices set the same fields,
+        // so the updates go out as one batch: one parameter set per slice.
         modelManager.when(() -> ModelManager.isSoftDeleted(MODEL)).thenReturn(true);
         modelManager.when(() -> ModelManager.isActiveControl(MODEL)).thenReturn(false);
         modelManager.when(() -> ModelManager.getModelPrimaryKey(MODEL)).thenReturn(ModelConstant.SLICE_ID);
-        modelManager.when(() -> ModelManager.getModel(MODEL)).thenReturn(new MetaModel());
+        MetaModel metaModel = new MetaModel();
+        ReflectionTestUtils.setField(metaModel, "tableName", "dept_info");
+        modelManager.when(() -> ModelManager.getModel(MODEL)).thenReturn(metaModel);
+        MetaField sliceIdField = metaField(ModelConstant.SLICE_ID, FieldType.LONG);
+        ReflectionTestUtils.setField(sliceIdField, "columnName", "slice_id");
+        modelManager.when(() -> ModelManager.getModelField(MODEL, ModelConstant.SLICE_ID)).thenReturn(sliceIdField);
+        MetaField deletedField = metaField(ModelConstant.SOFT_DELETED_FIELD, FieldType.BOOLEAN);
+        ReflectionTestUtils.setField(deletedField, "columnName", "deleted");
+        modelManager.when(() -> ModelManager.getModelField(MODEL, ModelConstant.SOFT_DELETED_FIELD)).thenReturn(deletedField);
 
-        io.softa.framework.orm.jdbc.JdbcServiceImpl<Serializable> jdbcService =
-                Mockito.spy(new io.softa.framework.orm.jdbc.JdbcServiceImpl<>());
+        io.softa.framework.orm.jdbc.JdbcServiceImpl<Serializable> jdbcService = new io.softa.framework.orm.jdbc.JdbcServiceImpl<>();
+        io.softa.framework.orm.jdbc.JdbcProxy jdbcProxy = Mockito.mock(io.softa.framework.orm.jdbc.JdbcProxy.class);
+        when(jdbcProxy.batchUpdateCounts(eq(MODEL), any(), anyList())).thenReturn(new int[]{1, 1});
+        ReflectionTestUtils.setField(jdbcService, "jdbcProxy", jdbcProxy);
         ReflectionTestUtils.setField(jdbcService, "changeLogPublisher",
                 Mockito.mock(io.softa.framework.orm.changelog.ChangeLogPublisher.class));
-        Mockito.doReturn(1).when(jdbcService).updateOne(eq(MODEL), any());
 
         List<Map<String, Object>> allSlices = List.of(
                 sliceRow(1L, 11L, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 5, 31)),
@@ -723,16 +733,15 @@ class ContinuousIntervalMaintainerTest {
         boolean deleted = withCtx(() -> jdbcService.deleteByIds(MODEL, listSerializable(1L), allSlices));
 
         Assertions.assertTrue(deleted);
+        ArgumentCaptor<io.softa.framework.orm.jdbc.database.SqlParams> sql =
+                ArgumentCaptor.forClass(io.softa.framework.orm.jdbc.database.SqlParams.class);
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<Map<String, Object>> updates = ArgumentCaptor.forClass(Map.class);
-        verify(jdbcService, Mockito.times(2)).updateOne(eq(MODEL), updates.capture());
-        Assertions.assertEquals(List.of(11L, 12L),
-                updates.getAllValues().stream().map(r -> r.get(ModelConstant.SLICE_ID)).toList());
-        updates.getAllValues().forEach(update -> {
-            Assertions.assertEquals(Boolean.TRUE, update.get("deleted"));
-            Assertions.assertFalse(update.containsKey(ModelConstant.ID),
-                    "the logical id must not sit in the SET clause");
-        });
+        ArgumentCaptor<List<Object[]>> updates = ArgumentCaptor.forClass(List.class);
+        verify(jdbcProxy).batchUpdateCounts(eq(MODEL), sql.capture(), updates.capture());
+        // The logical id must not sit in the SET clause.
+        Assertions.assertEquals("UPDATE dept_info SET deleted=? WHERE slice_id = ?", sql.getValue().getSql());
+        Assertions.assertEquals(List.of(11L, 12L), updates.getValue().stream().map(args -> args[1]).toList());
+        updates.getValue().forEach(args -> Assertions.assertEquals(Boolean.TRUE, args[0]));
     }
 
     private static List<Serializable> listSerializable(Serializable value) {

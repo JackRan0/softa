@@ -106,6 +106,12 @@ public class SysModel extends AuditableModel {
     @Field(defaultValue = "true")
     private Boolean copyable = Boolean.TRUE;
 
+    // Mirrors @Model.enableAuditLog: false ⇒ writes to the model build no change log. Initialized
+    // true (column DEFAULT 1) like copyable; a NULL row still reads as enabled (MetaModel keeps it
+    // a Boolean), so only an explicit false turns a model's audit log off.
+    @Field(label = "Enable Audit Log", defaultValue = "true")
+    private Boolean enableAuditLog = Boolean.TRUE;
+
     /**
      * Read-only projection over a table this model does not own — another model's table, or
      * one created externally (e.g. by a BI pipeline). The scanner generates no DDL for it and
