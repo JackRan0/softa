@@ -231,8 +231,31 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
     @Override
     public void afterRowDispose(RowWriteHandlerContext context) {
         Row row = context.getRow();
-        if (Boolean.TRUE.equals(context.getHead()) && row != null) {
+        if (row == null) {
+            return;
+        }
+        if (Boolean.TRUE.equals(context.getHead())) {
             row.setHeightInPoints(FileConstant.IMPORT_HEAD_ROW_HEIGHT);
+        } else if (mode == Mode.RESULT) {
+            fitFailureReason(row);
+        }
+    }
+
+    /**
+     * Tall enough for the wrapped failure reason. Excel fits a row to wrapped text on its own only for
+     * rows it lays out itself, and some spreadsheet apps never do, so a reason listing several missing
+     * fields stayed a single line running far past its column. The line count is estimated from the
+     * text length against the column width — close enough for a row of plain sentences.
+     */
+    private void fitFailureReason(Row row) {
+        Cell reason = row.getCell(resultColumn + 1);
+        String text = reason == null ? "" : textOf(reason);
+        if (text.isEmpty()) {
+            return;
+        }
+        int lines = (int) Math.ceil(text.length() / (double) FileConstant.IMPORT_MAX_COLUMN_WIDTH);
+        if (lines > 1) {
+            row.setHeightInPoints(lines * FileConstant.IMPORT_RESULT_LINE_HEIGHT);
         }
     }
 
@@ -325,8 +348,13 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
                 style.cloneStyleFrom(source);
             }
             applyGrid(style);
+            if (mode == Mode.RESULT) {
+                // A row grows with its failure reason; the rest of it stays level with the reason.
+                style.setVerticalAlignment(VerticalAlignment.CENTER);
+            }
             if (variant == Variant.FAILED_REASON) {
                 setFill(style, FileConstant.IMPORT_FAILED_REASON_FILL);
+                style.setWrapText(true);
             }
             if (variant == Variant.SUCCESS || variant == Variant.FAILED) {
                 Font font = workbook.createFont();

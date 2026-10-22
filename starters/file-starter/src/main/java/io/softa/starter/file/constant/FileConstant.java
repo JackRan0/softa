@@ -21,6 +21,8 @@ public interface FileConstant {
 
     /** Header row height of an import sheet, in points: two wrapped lines of the bold 11pt header. */
     float IMPORT_HEAD_ROW_HEIGHT = 32f;
+    /** Height of one wrapped line of an 11pt body cell, in points: a result row grows by this per line. */
+    float IMPORT_RESULT_LINE_HEIGHT = 15f;
     short IMPORT_HEAD_FONT_SIZE = 11;
     /** Column width bounds of an import sheet, in characters; the width follows the header text. */
     int IMPORT_MIN_COLUMN_WIDTH = 14;

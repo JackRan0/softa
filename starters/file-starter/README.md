@@ -232,6 +232,7 @@ by `ImportSheetStyleHandler`:
 | Panes | row 1 frozen; when a column is headed `Employee Code`, the columns through it are frozen too |
 | Filter | auto-filter on the header row |
 | Column width | header length × 1.2 (bold text) + 5 (filter button) characters, clamped to 14–40; a longer header wraps |
+| Result file rows | the Failed Reason wraps, and a row grows to the lines its reason needs (estimated from the text length against the column width); the row's other cells are vertically centred |
 
 Option dropdowns and date / time column formats work as before. With `includeDescription = true` the
 instruction sheet is still added (same header look, no comments / freeze / filter); the header comments

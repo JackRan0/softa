@@ -242,6 +242,29 @@ class ImportSheetStyleWorkbookTest {
     }
 
     @Test
+    void aLongFailureReasonWrapsAndItsRowGrowsToShowIt() throws Exception {
+        List<ImportFieldDTO> fields = List.of(field("Employee Code", true, "Key."));
+        List<String> headers = new ArrayList<>(headers(fields));
+        headers.add("Result");
+        headers.add("Failed Reason");
+        String longReason = "The field `Gender` is required; The field `Race` is required when Residence Status is "
+                + "Singaporean or PR; The field `Religion` is required when Residence Status is Singaporean or PR";
+        List<List<Object>> rows = List.of(
+                List.of("E1", "Failed", "Name is too long"),
+                List.of("E2", "Failed", longReason));
+        XSSFSheet sheet = write(headers, rows,
+                ImportSheetStyleHandler.forResult(fields, "Result", "Failed Reason", "Success", "Failed", rows.size()));
+
+        assertThat(styleAt(sheet, 2, 2).getWrapText()).isTrue();
+        assertThat(styleAt(sheet, 2, 0).getVerticalAlignment()).as("the row's other cells stay level")
+                .isEqualTo(org.apache.poi.ss.usermodel.VerticalAlignment.CENTER);
+        int lines = (int) Math.ceil(longReason.length() / 40.0);
+        assertThat(sheet.getRow(2).getHeightInPoints()).isEqualTo(lines * 15f);
+        assertThat(sheet.getRow(1).getHeightInPoints()).as("a one-line reason keeps the default height")
+                .isLessThan(30f);
+    }
+
+    @Test
     void stylesAreSharedNotCreatedPerCell() throws Exception {
         List<ImportFieldDTO> fields = List.of(field("Code", true, null));
         List<List<Object>> rows = new ArrayList<>();
