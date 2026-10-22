@@ -18,11 +18,12 @@ import io.softa.starter.file.entity.ImportTemplate;
  * the import dialog's picker, the administration list, the reference picker behind a Template field,
  * and the export of the list. Held here so they all state the same one.
  *
- * <p>Written as <b>country is null OR country in (my countries)</b>, never a bare membership test —
+ * <p>Written as <b>country is unset OR country in (my countries)</b>, never a bare membership test —
  * that would empty every listing for every tenant, since most rows hold null. The set is the caller's
  * own countries, resolved the same way {@code MultiCountryScope} resolves them; when nothing is known
  * the filter is skipped rather than tightened. Resolved from the request context, never from the
- * payload.
+ * payload. "Unset" covers an empty string as well as null: a row saved with a cleared country means
+ * every country just as much as one never given one.
  */
 public final class ImportTemplateCountryScope {
 
@@ -36,6 +37,7 @@ public final class ImportTemplateCountryScope {
             return null;
         }
         return new Filters().add(ImportTemplate::getCountry, Operator.IS_NOT_SET, null)
+                .or(new Filters().eq(ImportTemplate::getCountry, ""))
                 .or(new Filters().in(ImportTemplate::getCountry, countries));
     }
 

@@ -34,6 +34,13 @@ public class ImportTemplate extends AuditableModel {
     @Field(required = true)
     private String modelName;
 
+    /**
+     * Position of this template among the templates offered for a model; ascending, a template
+     * without one listed after those that have one.
+     */
+    @Field
+    private Integer sequence;
+
     @Field(required = true)
     private ImportRule importRule;
 
