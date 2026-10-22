@@ -34,9 +34,19 @@ import io.softa.starter.file.enums.ImportRule;
  * <p>Create or update is decided the way the write will decide it — {@code ModelService.splitByExistence}
  * on the template's unique key, including its case-insensitive code matching — run on copies, because
  * it writes the matched ids into the rows it is given. Under {@code ONLY_CREATE} every row creates, so
- * nothing is queried. A row whose key is incomplete cannot match anything and creates. A row that has
- * already failed for another reason (an in-file duplicate, a bad value) is not looked up — its key may
- * be the very thing that is wrong — and keeps only its existing reason; the note is dropped.
+ * nothing is queried. Under {@code ONLY_UPDATE} no row creates: a row whose key matches nothing is
+ * refused by the write with the key it could not find, which is what the reader has to fix — told
+ * instead that a column was required, they would fill it in only to meet the real error next time.
+ * A row whose key is incomplete cannot match anything and creates.
+ *
+ * <p>A row that has already failed for another reason gets the required failures added to its reason
+ * when it surely creates (no key to match on, or an incomplete one), so the reader sees everything to
+ * fix in one pass. One with a complete key is not looked up — the key may be the very thing that is
+ * wrong, or the row an in-file duplicate of another — and keeps only its existing reason.
+ *
+ * <p>The lookup never fails the import: when the batch lookup throws (a key that only collides once
+ * normalized, a database error), each row is looked up on its own, and a row whose lookup still throws
+ * is left to the write, which reports the failure on that row.
  *
  * <p>The note never outlives this step: it is removed from every row whatever the outcome, so it
  * reaches neither the custom handler, the write, nor the result file.
@@ -92,27 +102,43 @@ public class RequiredOnCreateResolver {
     /** The noted rows that create a record, by identity. */
     private Set<Map<String, Object>> creatingRows(ImportTemplateDTO template, List<Map<String, Object>> noted) {
         Set<Map<String, Object>> creating = Collections.newSetFromMap(new IdentityHashMap<>());
-        List<String> keys = template.getUniqueConstraints();
         ImportRule rule = template.getImportRule();
-        boolean canMatch = (ImportRule.CREATE_OR_UPDATE.equals(rule) || ImportRule.ONLY_UPDATE.equals(rule))
-                && !CollectionUtils.isEmpty(keys);
+        if (ImportRule.ONLY_UPDATE.equals(rule)) {
+            return creating;
+        }
+        List<String> keys = template.getUniqueConstraints();
+        boolean canMatch = ImportRule.CREATE_OR_UPDATE.equals(rule) && !CollectionUtils.isEmpty(keys);
         Map<Map<String, Object>, Map<String, Object>> originalOfCopy = new IdentityHashMap<>();
         for (Map<String, Object> row : noted) {
-            if (row.containsKey(FileConstant.FAILED_REASON)) {
-                continue;
-            }
             if (!canMatch || !hasCompleteKey(row, keys)) {
                 creating.add(row);
+                continue;
+            }
+            if (row.containsKey(FileConstant.FAILED_REASON)) {
                 continue;
             }
             Map<String, Object> copy = ImportPersistenceService.copyRows(List.of(row)).getFirst();
             copy.remove(MARKER);
             originalOfCopy.put(copy, row);
         }
-        if (!originalOfCopy.isEmpty()) {
+        if (originalOfCopy.isEmpty()) {
+            return creating;
+        }
+        try {
             CreateOrUpdateResult split = modelService.splitByExistence(
                     template.getModelName(), new ArrayList<>(originalOfCopy.keySet()), keys);
             split.created().forEach(copy -> creating.add(originalOfCopy.get(copy)));
+        } catch (RuntimeException batchFailure) {
+            originalOfCopy.forEach((copy, row) -> {
+                try {
+                    if (!modelService.splitByExistence(template.getModelName(), List.of(copy), keys)
+                            .created().isEmpty()) {
+                        creating.add(row);
+                    }
+                } catch (RuntimeException rowFailure) {
+                    // Left to the write, which fails this row with its own reason.
+                }
+            });
         }
         return creating;
     }

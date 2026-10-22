@@ -102,13 +102,18 @@ class RequiredOnCreateResolverTest {
     }
 
     @Test
-    void onlyUpdateDecidesTheSameWay() {
-        existing("E1");
+    void onlyUpdateFailsNoRowForABlankRequiredColumn() {
         Map<String, Object> updating = row("E1", "Name");
+        Map<String, Object> matchingNothing = row("E1O9", "Name");
 
-        resolver().resolve(template(ImportRule.ONLY_UPDATE), List.of(updating), true);
+        resolver().resolve(template(ImportRule.ONLY_UPDATE), List.of(updating, matchingNothing), true);
 
         assertThat(updating).doesNotContainKey(FileConstant.FAILED_REASON);
+        assertThat(matchingNothing)
+                .as("the write refuses it with the key that matched nothing, the error to fix")
+                .doesNotContainKey(FileConstant.FAILED_REASON)
+                .doesNotContainKey(RequiredOnCreateResolver.MARKER);
+        verifyNoInteractions(modelService);
     }
 
     @Test
@@ -151,6 +156,43 @@ class RequiredOnCreateResolverTest {
         assertThat(row.get(FileConstant.FAILED_REASON)).isEqualTo("An earlier row in this file already has code=E1");
         assertThat(row).doesNotContainKey(RequiredOnCreateResolver.MARKER);
         verifyNoInteractions(modelService);
+    }
+
+    @Test
+    void aFailedRowThatSurelyCreatesGetsTheRequiredFailureAdded() {
+        Map<String, Object> row = row(null, "Name");
+        row.put(FileConstant.FAILED_REASON, "Invalid date `2026-13-01`");
+
+        resolver().resolve(template(ImportRule.CREATE_OR_UPDATE), List.of(row), true);
+
+        assertThat(row.get(FileConstant.FAILED_REASON))
+                .isEqualTo("Invalid date `2026-13-01`; The field `Name` is required");
+        verifyNoInteractions(modelService);
+    }
+
+    @Test
+    void aFailedBatchLookupFallsBackToOneRowAtATime() {
+        Map<String, Object> creating = row("E9", "Name");
+        Map<String, Object> updating = row("E1", "Name");
+        Map<String, Object> unreadable = row("BAD", "Name");
+        when(modelService.splitByExistence(anyString(), any(), any())).thenAnswer(inv -> {
+            List<Map<String, Object>> rows = inv.getArgument(1);
+            if (rows.size() > 1 || "BAD".equals(rows.getFirst().get("code"))) {
+                throw new IllegalStateException("lookup failed");
+            }
+            Map<String, Object> r = rows.getFirst();
+            return "E1".equals(r.get("code"))
+                    ? new CreateOrUpdateResult(List.of(), List.of(r))
+                    : new CreateOrUpdateResult(List.of(r), List.of());
+        });
+
+        resolver().resolve(template(ImportRule.CREATE_OR_UPDATE), List.of(creating, updating, unreadable), true);
+
+        assertThat(creating.get(FileConstant.FAILED_REASON)).isEqualTo("The field `Name` is required");
+        assertThat(updating).doesNotContainKey(FileConstant.FAILED_REASON);
+        assertThat(unreadable).as("left to the write, which reports its own failure")
+                .doesNotContainKey(FileConstant.FAILED_REASON)
+                .doesNotContainKey(RequiredOnCreateResolver.MARKER);
     }
 
     // ───────────────────────── the field handler side ─────────────────────────
