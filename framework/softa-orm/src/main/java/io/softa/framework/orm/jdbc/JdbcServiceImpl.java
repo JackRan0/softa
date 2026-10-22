@@ -458,6 +458,10 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
     /**
      * What the update pipeline is handed of the originals: always its own copy, without the change
      * log's context columns. The originals themselves stay whole for the log.
+     *
+     * <p>Its own method, rather than a call to {@link #withoutKeys} inline, so the choice can be
+     * tested against the real diff: handing over the log's map when there is nothing to take out is
+     * exactly the mistake that left the log with the changed columns alone.
      */
     static Map<Serializable, Map<String, Object>> originalsForPipeline(
             Map<Serializable, Map<String, Object>> originals, Set<String> logContext, Set<String> differFields) {
