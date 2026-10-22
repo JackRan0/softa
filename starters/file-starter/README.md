@@ -121,11 +121,12 @@ Required columns — what a blank cell (with no `defaultValue`) does:
 
 | Column is | `ignoreEmpty = false` | `ignoreEmpty = true` |
 | --- | --- | --- |
-| `required` on the template | Refused by the importer | Refused by the importer |
+| `required` on the template | Refused by the importer | Refused by the importer on a row that **creates**; on a row that **updates** it is dropped and the stored value kept |
 | Required on the model only | Refused by the importer (it would be written as null) | Dropped from the row; the ORM refuses a **create** without it, an **update** keeps the stored value |
 | Neither | Written as null | Dropped from the row |
 
-- A cell cannot tell a create from an update, so with `ignoreEmpty = true` the importer leaves the model's requiredness to the ORM, which can. That is what lets a file of corrections leave a mandatory column blank to mean "no change". The template's own `required` is a rule for every row and is never relaxed.
+- A cell cannot tell a create from an update, so with `ignoreEmpty = true` the importer leaves the model's requiredness to the ORM, which can. That is what lets a file of corrections leave a mandatory column blank to mean "no change".
+- The template's own `required` follows the same idea under `ignoreEmpty = true`: the field handler does not refuse the blank cell but notes its header on the row (a transient `__missingRequiredHeaders` entry). `RequiredOnCreateResolver` then runs in `ImportRowPipeline` after the lookups and the in-file duplicate marking, and before the custom handler. It decides create vs update with `ModelService.splitByExistence` on the template's unique key (run on copies, since it writes ids into the rows; case-insensitive code matching included). A creating row gets `The field \`X\` is required` in its `Failed Reason` (or the import aborts with that message when `skipException = false`); an updating row passes. `OnlyCreate` treats every row as a create without a query; a row with an incomplete key creates; a row that already failed for another reason is not looked up and keeps its own reason. The note is removed from every row in that step, so it never reaches the custom handler, the write or the result file. With `ignoreEmpty = false` the cell is refused immediately, as before.
 - A create the ORM refuses for a missing value is reported with the importer's own message, naming the column (`The field \`Company Name\` is required`), not the model field.
 - The same rule applies to a relation lookup column (`deptId.code`) on a required relation. A OneToOne sub-field never inherits the sub-model's requiredness (see 1.1.1).
 
