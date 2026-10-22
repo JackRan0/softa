@@ -15,7 +15,7 @@ import io.softa.framework.orm.meta.ModelManager;
  * OneToMany, so a REVERSE reference reads the same as a composition. Employee declares
  * {@code managedDepartments} / {@code hrbpDepartments} to say "departments this person leads", and
  * Department therefore became a child of Employee — putting the Department import template in the
- * employee dialog (zingkey/zingkey-hcm#764).
+ * employee dialog.
  *
  * <p>A template marked {@code standalone} corrects that from the other side: it says its model's
  * page is the only page it belongs on, so the model is dropped from every OTHER page's set. The
