@@ -78,6 +78,7 @@ File Starter supports two import modes:
 | --- | --- | --- | --- |
 | `name` | String | `null` | Template name |
 | `modelName` | String | `null` | Model name to import |
+| `sequence` | Integer | `null` | Display order in `listByModel` (ascending; unset sorts last, ties by id) |
 | `importRule` | ImportRule | `null` | Import rule: CreateOrUpdate / OnlyCreate / OnlyUpdate |
 | `uniqueConstraints` | List<String> | `null` | Unique key fields used by CreateOrUpdate |
 | `ignoreEmpty` | Boolean | `null` | Ignore empty values when importing |
@@ -85,6 +86,7 @@ File Starter supports two import modes:
 | `customHandler` | String | `null` | Spring bean name for CustomImportHandler |
 | `syncImport` | Boolean | `null` | If true, import runs synchronously; otherwise async |
 | `includeDescription` | Boolean | `null` | Whether to include description in template output |
+| `country` | String | `null` | Country the template is written for (to-one onto `CountryRegion`); `null` = every country |
 | `description` | String | `null` | Description text |
 | `importFields` | List<ImportTemplateField> | `null` | Import field list |
 
@@ -215,7 +217,32 @@ curl -X POST http://localhost:8080/import/dynamicImport \
 Endpoint:
 - `GET /ImportTemplate/getTemplateFile?id={templateId}`
 
-The generated template uses field labels as headers. Required headers are styled.
+The generated template uses field labels (or `customHeader`) as headers, exactly as declared — the
+importer matches columns by header text, so nothing (no `*`) is added to it. The main sheet is styled
+by `ImportSheetStyleHandler`:
+
+| Element | Style |
+| --- | --- |
+| Optional column header | fill `#EEF1F5`, text `#1B1F24` bold Calibri 11pt, 2px (medium) bottom border `#9AA4B2` |
+| Required column header | fill `#FFE7C2`, text `#1B1F24` bold Calibri 11pt, 2px (medium) bottom border `#D98A1C` |
+| Header row | 28pt high, wrapped, vertically centred |
+| Header comment | the field's `description`; a required column's comment starts with `Required.` (not repeated when the description already does). No comment on an optional column without a description |
+| Data area | white, thin `#DDE1E6` grid, Calibri 11pt — set as the column default styles, keeping a date column's format |
+| Panes | row 1 frozen; when a column is headed `Employee Code`, the columns through it are frozen too |
+| Filter | auto-filter on the header row |
+| Column width | header length + 4 characters, clamped to 14–40 |
+
+Option dropdowns and date / time column formats work as before. With `includeDescription = true` the
+instruction sheet is still added (same header look, no comments / freeze / filter); the header comments
+are in addition to it. Exact colours are set as XSSF colours on POI styles after Fesod's own style fill,
+because Fesod's `WriteCellStyle` only takes palette indexes; the derived styles are cached per workbook.
+Exports keep their own header style (`CommonHeadStyleHandler`).
+
+`POST /ImportTemplate/listByModel?modelName=X` lists the templates offered for a model, ordered by
+`sequence` ascending (unset last), then id — sorted in Java, since MySQL and PostgreSQL disagree on where
+nulls go. It is narrowed by `ImportTemplateCountryScope` like the other template listings: templates with
+no country plus those whose country is one of the caller's countries (`Context.grantedCountries`, falling
+back to the caller's own company country); when no country is known it does not narrow.
 
 3. Import by template
 
@@ -269,15 +296,29 @@ curl -X POST http://localhost:8080/import/dynamicImport \
 
 ### 3. Import Result and Failed Rows
 - Import returns `ImportHistory`.
-- If any row fails, a “failed data” Excel file is generated and saved, with a `Failed Reason` column.
+- **Every** import — successful or not — writes a result file, `<uploaded file name>_Import Result`, and
+  stores it on `ImportHistory.failedFileId` (label **Import Result File**; the field keeps its earlier
+  name so stored rows and API consumers carry over). It holds **all** rows of the uploaded file in their
+  original order, under the template's columns styled as in the template, followed by two columns:
+  `Result` (`Success` / `Failed`) and `Failed Reason` (empty on a successful row). The two result headers
+  are dark slate (`#5B6B80`, white bold text); `Success` is green `#1E7B34`, `Failed` red `#B42318`, and
+  a failed row's reason cell is tinted `#FDECEC`. Header labels and outcome values go through `I18n`.
+- The rows come from `ImportDataDTO.sourceRows` — every row as read, the same objects the failure
+  collectors move into `failedRows` with a `Failed Reason` — so a row is `Failed` exactly when it carries
+  a `Failed Reason`. Handlers keep marking rows with `FileConstant.FAILED_REASON` as before.
+- The result file is written after the rows are committed; if writing it fails the import still stands
+  (logged, `failedFileId` left empty) rather than reporting a FAILURE for data that landed. An import
+  that aborts as a whole (`skipException = false`, or an error outside the rows) has no result file —
+  its `errorMessage` says why.
 - The import writes its outcome back to its own `ImportHistory` row as the caller; that row belongs to
   whoever started the import (`ModelDefaultScope` `CREATED_BY_SELF`), which is what lets a caller with no
   grant on `ImportHistory` finish their own run instead of leaving it `PROCESSING`.
 - Writes made by an import run inside `ImportScope`, so a permission refusal reads "update" for the
   uploader rather than "edit".
 - Import status can be `PROCESSING`, `SUCCESS`, `FAILURE`, `PARTIAL_FAILURE`; a validation run
-  (§5) records `VALIDATION_SUCCESS` / `VALIDATION_FAILURE` instead and attaches a result Excel
-  containing **all** rows, passed and failed.
+  (§5) records `VALIDATION_SUCCESS` / `VALIDATION_FAILURE` instead and attaches a result file in the
+  **same format**, named `<uploaded file name>_Validation Result` — kept apart by name because a
+  validation run writes nothing, so its `Success` means "would pass".
 - Failure is per row, not all-or-nothing: rows marked with `Failed Reason` are removed from the batch
   and the rest are written (`PARTIAL_FAILURE`). Only `skipException = false` makes the first bad row
   abort the whole import.
