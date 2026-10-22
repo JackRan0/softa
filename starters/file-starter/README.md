@@ -79,6 +79,7 @@ File Starter supports two import modes:
 | `name` | String | `null` | Template name |
 | `modelName` | String | `null` | Model name to import |
 | `sequence` | Integer | `null` | Display order in `listByModel` (ascending; unset sorts last, ties by id) |
+| `frozenColumns` | Integer | `null` | Columns frozen at the left of the template and the result file; unset freezes through the unique-key columns when they all sit in the first three columns, `0` freezes none |
 | `importRule` | ImportRule | `null` | Import rule: CreateOrUpdate / OnlyCreate / OnlyUpdate |
 | `uniqueConstraints` | List<String> | `null` | Unique key fields used by CreateOrUpdate |
 | `ignoreEmpty` | Boolean | `null` | Ignore empty values when importing |
@@ -126,7 +127,7 @@ Required columns — what a blank cell (with no `defaultValue`) does:
 | Neither | Written as null | Dropped from the row |
 
 - A cell cannot tell a create from an update, so with `ignoreEmpty = true` the importer leaves the model's requiredness to the ORM, which can. That is what lets a file of corrections leave a mandatory column blank to mean "no change".
-- The template's own `required` follows the same idea under `ignoreEmpty = true`: the field handler does not refuse the blank cell but notes its header on the row (a transient `__missingRequiredHeaders` entry). `RequiredOnCreateResolver` then runs in `ImportRowPipeline` after the lookups and the in-file duplicate marking, and before the custom handler. It decides create vs update with `ModelService.splitByExistence` on the template's unique key (run on copies, since it writes ids into the rows; case-insensitive code matching included). A creating row gets `The field \`X\` is required` in its `Failed Reason` (or the import aborts with that message when `skipException = false`); an updating row passes. `OnlyCreate` treats every row as a create without a query; a row with an incomplete key creates; a row that already failed for another reason is not looked up and keeps its own reason. The note is removed from every row in that step, so it never reaches the custom handler, the write or the result file. With `ignoreEmpty = false` the cell is refused immediately, as before.
+- The template's own `required` follows the same idea under `ignoreEmpty = true`: the field handler does not refuse the blank cell but notes its header on the row (a transient `__missingRequiredHeaders` entry). `RequiredOnCreateResolver` then runs in `ImportRowPipeline` after the lookups and the in-file duplicate marking, and before the custom handler. It decides create vs update with `ModelService.splitByExistence` on the template's unique key (run on copies, since it writes ids into the rows; case-insensitive code matching included). A creating row gets `The field \`X\` is required` in its `Failed Reason` (or the import aborts with that message when `skipException = false`); an updating row passes. `OnlyCreate` treats every row as a create without a query; `OnlyUpdate` treats none as one — a row whose key matches nothing is refused by the write with that key, which is the error to fix. A row with an incomplete key creates. A row that already failed for another reason gets the required failures appended when it surely creates (incomplete key, or nothing to match on); with a complete key it is not looked up and keeps its own reason. If the batch lookup throws, each row is looked up on its own, and a row whose lookup still throws is left to the write to report — the step never fails the import. The note is removed from every row in that step, so it never reaches the custom handler, the write or the result file. With `ignoreEmpty = false` the cell is refused immediately, as before.
 - A create the ORM refuses for a missing value is reported with the importer's own message, naming the column (`The field \`Company Name\` is required`), not the model field.
 - The same rule applies to a relation lookup column (`deptId.code`) on a required relation. A OneToOne sub-field never inherits the sub-model's requiredness (see 1.1.1).
 
@@ -229,10 +230,10 @@ by `ImportSheetStyleHandler`:
 | Header row | 32pt high (two wrapped lines), wrapped, vertically centred |
 | Header comment | the field's `description`; a required column's comment starts with `Required.` (not repeated when the description already does). No comment on an optional column without a description |
 | Data area | white, thin `#DDE1E6` grid — set as the column default styles, keeping a date column's format; the workbook's default font is Calibri 11pt, so typed cells match the template instead of the application's locale default |
-| Panes | row 1 frozen; when a column is headed `Employee Code`, the columns through it are frozen too |
+| Panes | row 1 frozen, and the leading columns: the template's `frozenColumns`, or when unset the unique-key columns if they all sit in the first three columns |
 | Filter | auto-filter on the header row |
 | Column width | header length × 1.2 (bold text) + 5 (filter button) characters, clamped to 14–40; a longer header wraps |
-| Result file rows | the Failed Reason wraps, and a row grows to the lines its reason needs (estimated from the text length against the column width); the row's other cells are vertically centred |
+| Result file rows | the Failed Reason wraps, and a row grows to the lines its reason needs (estimated from the text's display width against the column width, a CJK character counting as two); the row's other cells are vertically centred |
 
 Option dropdowns and date / time column formats work as before. With `includeDescription = true` the
 instruction sheet is still added (same header look, no comments / freeze / filter); the header comments
