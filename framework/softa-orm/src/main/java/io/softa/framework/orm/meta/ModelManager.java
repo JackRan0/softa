@@ -847,9 +847,10 @@ public class ModelManager {
             Assert.isTrue(relationField != null && FieldType.TO_ONE_TYPES.contains(relationField.getFieldType()),
                     "The `cascadedField` {0} of model {1} field {2} does not valid! The field `{3}` is not a ManyToOne/OneToOne field of model `{4}`.",
                     metaField.getCascadedField(), modelName, fieldName, relation, currentModel);
-            // Past the first relation the path is joined column by column, so each relation needs a column.
-            Assert.isTrue(i == 0 || !relationField.isDynamic(),
-                    "The `cascadedField` {0} of model {1} field {2} does not valid! The field `{3}` is a dynamic field of related model `{4}`.",
+            // A longer path is filtered and sorted by joining it column by column, the first relation
+            // included, so each relation needs a column. A one-relation path is left as it was.
+            Assert.isTrue(relations == 1 || !relationField.isDynamic(),
+                    "The `cascadedField` {0} of model {1} field {2} does not valid! The field `{3}` of model `{4}` is dynamic; every relation of a longer path must be a stored field.",
                     metaField.getCascadedField(), modelName, fieldName, relation, currentModel);
             currentModel = relationField.getRelatedModel();
         }

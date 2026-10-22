@@ -168,7 +168,7 @@ value-preserving rename would have carried wrong values.
 | `joinModel` | `Class<?>` | `Void.class` | `joinModel` | M2M join model class; `joinModelName` (String) fallback |
 | `joinLeft` | String | `""` | `joinLeft` | |
 | `joinRight` | String | `""` | `joinRight` | |
-| `cascadedField` | String | `""` | `cascadedField` | dotted path through to-one relations to a stored field of the related model, e.g. `"owner.name"`. A stored field reaches one relation; a `dynamic` one up to `CASCADE_LEVEL` (4), every relation past the first a stored ManyToOne/OneToOne — e.g. `"employeeId.profileId.residence"`. A stored one stays one relation because it is recomputed only when its own first relation changes |
+| `cascadedField` | String | `""` | `cascadedField` | dotted path through to-one relations to a stored field of the related model, e.g. `"owner.name"`. A stored field reaches one relation; a `dynamic` one up to `CASCADE_LEVEL` (4), every relation a stored ManyToOne/OneToOne — e.g. `"employeeId.profileId.residence"`. A stored one stays one relation because it is recomputed only when its own first relation changes |
 | `filters` | String | `""` | `filters` | filter expression for relations |
 | `widgetType` | `WidgetType[]` | `{}` | `widgetType` | single-element override |
 | (scanner sets) | — | — | `modelName` | from enclosing `@Model` class |

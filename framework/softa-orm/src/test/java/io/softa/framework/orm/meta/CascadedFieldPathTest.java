@@ -77,6 +77,21 @@ class CascadedFieldPathTest {
     }
 
     @Test
+    void aRelationAlongTheWayMustBeStored() {
+        RuntimeException e = assertThrows(RuntimeException.class,
+                () -> initWith(cascade("residence", "employeeId.dynamicProfileId.residence", true)));
+        assertTrue(e.getMessage().contains("`dynamicProfileId` of model `Employee` is dynamic"), e.getMessage());
+    }
+
+    @Test
+    void theFirstRelationOfALongerPathMustBeStoredToo() {
+        // Filtering and sorting join the first relation by its column as well.
+        RuntimeException e = assertThrows(RuntimeException.class,
+                () -> initWith(cascade("residence", "dynamicEmployeeId.profileId.residence", true)));
+        assertTrue(e.getMessage().contains("`dynamicEmployeeId` of model `Plan` is dynamic"), e.getMessage());
+    }
+
+    @Test
     void theLastStepMustBeAStoredField() {
         RuntimeException e = assertThrows(RuntimeException.class,
                 () -> initWith(cascade("label", "employeeId.profileId.label", true)));
@@ -93,17 +108,19 @@ class CascadedFieldPathTest {
 
     // ---- fixture ---------------------------------------------------------
 
-    /** Plan → Employee (→ manager Employee) → Profile, plus the one cascaded field under test. */
+    /** Plan → Employee (→ manager Employee) → Profile, each also by a dynamic relation, plus the one cascaded field under test. */
     private static void initWith(MetaField cascaded) {
         List<MetaModel> models = new ArrayList<>(List.of(model("Plan", "plan"), model("Employee", "employee"),
                 model("Profile", "profile")));
         List<MetaField> fields = new ArrayList<>(List.of(
                 field("Plan", "id", FieldType.LONG),
                 relation("Plan", "employeeId", FieldType.MANY_TO_ONE, "Employee"),
+                dynamic(relation("Plan", "dynamicEmployeeId", FieldType.MANY_TO_ONE, "Employee")),
                 field("Employee", "id", FieldType.LONG),
                 field("Employee", "name", FieldType.STRING),
                 relation("Employee", "managerId", FieldType.MANY_TO_ONE, "Employee"),
                 relation("Employee", "profileId", FieldType.ONE_TO_ONE, "Profile"),
+                dynamic(relation("Employee", "dynamicProfileId", FieldType.ONE_TO_ONE, "Profile")),
                 field("Profile", "id", FieldType.LONG),
                 field("Profile", "residence", FieldType.STRING),
                 dynamic(field("Profile", "label", FieldType.STRING)),
