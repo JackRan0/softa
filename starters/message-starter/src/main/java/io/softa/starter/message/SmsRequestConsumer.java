@@ -1,5 +1,6 @@
 package io.softa.starter.message;
 
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarListener;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,10 @@ import io.softa.starter.message.sms.dto.SendSmsDTO;
  * <p>Registered only when {@code mq.topics.sms-request.sub} is configured: same publish-vs-deliver
  * role split as mail — every service that can request SMS configures the topic, only the deployment
  * owning delivery (providers + templates) declares a subscription.
+ *
+ * <p>The subscription is Shared, like the mail-request one: every replica takes requests off the
+ * topic, and each message still reaches one consumer. The one-time switch needs a stop-then-start
+ * release; see {@code MailSendConsumer}.
  */
 @Slf4j
 @Component
@@ -34,7 +39,8 @@ public class SmsRequestConsumer {
     }
 
     @PulsarListener(topics = "${mq.topics.sms-request.topic}",
-            subscriptionName = "${mq.topics.sms-request.sub}")
+            subscriptionName = "${mq.topics.sms-request.sub}",
+            subscriptionType = SubscriptionType.Shared)
     public void onMessage(SmsRequestMessage message) {
         if (message == null || message.to() == null || message.to().isEmpty()
                 || message.templateCode() == null || message.templateCode().isBlank()) {
