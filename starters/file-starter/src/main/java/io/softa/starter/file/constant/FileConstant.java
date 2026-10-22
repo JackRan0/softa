@@ -19,8 +19,8 @@ public interface FileConstant {
 
     // ── Import sheets (templates and result files) ──
 
-    /** Header row height of an import sheet, in points. */
-    float IMPORT_HEAD_ROW_HEIGHT = 28f;
+    /** Header row height of an import sheet, in points: two wrapped lines of the bold 11pt header. */
+    float IMPORT_HEAD_ROW_HEIGHT = 32f;
     short IMPORT_HEAD_FONT_SIZE = 11;
     /** Column width bounds of an import sheet, in characters; the width follows the header text. */
     int IMPORT_MIN_COLUMN_WIDTH = 14;

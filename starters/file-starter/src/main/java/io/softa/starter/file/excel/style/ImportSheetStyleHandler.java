@@ -149,6 +149,7 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
     @Override
     public void afterSheetCreate(SheetWriteHandlerContext context) {
         Sheet sheet = context.getWriteSheetHolder().getSheet();
+        useBodyFontByDefault(sheet.getWorkbook());
         for (int i = 0; i < headers.size(); i++) {
             sheet.setColumnWidth(i, columnWidth(i) * 256);
         }
@@ -162,14 +163,35 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
         }
     }
 
-    /** Width in characters: the header text plus room for the filter button, within the bounds. */
+    /**
+     * Width in characters, within the bounds. Bold text runs about a fifth wider than the width unit,
+     * which is measured on a regular character, and the filter button takes the right edge of the
+     * cell; sized on the plain length, a header such as "Date Of Birth" was cut short. A header past
+     * the maximum wraps onto a second line, which the header row is tall enough to show.
+     */
     int columnWidth(int column) {
         if (column == resultColumn + 1 && mode == Mode.RESULT) {
             return FileConstant.IMPORT_MAX_COLUMN_WIDTH;
         }
         String header = headers.get(column);
-        int length = header == null ? 0 : header.length() + 4;
+        int length = header == null ? 0 : (int) Math.ceil(header.length() * BOLD_WIDTH_FACTOR) + FILTER_BUTTON_WIDTH;
         return Math.clamp(length, FileConstant.IMPORT_MIN_COLUMN_WIDTH, FileConstant.IMPORT_MAX_COLUMN_WIDTH);
+    }
+
+    /** How much wider bold header text runs than the regular character the width unit is measured on. */
+    private static final double BOLD_WIDTH_FACTOR = 1.2;
+    /** Characters the header's filter button covers at the right edge of the cell. */
+    private static final int FILTER_BUTTON_WIDTH = 5;
+
+    /**
+     * The workbook's default font, which every cell without a font of its own uses — the cells a person
+     * types into. Left alone, it is the application's own default (SimSun in a Chinese locale), so what
+     * was filled in did not match the template around it.
+     */
+    private static void useBodyFontByDefault(Workbook workbook) {
+        Font font = workbook.getFontAt(0);
+        font.setFontName(FileConstant.DEFAULT_EXCEL_FONT_NAME);
+        font.setFontHeightInPoints(FileConstant.DEFAULT_EXCEL_BODY_FONT_SIZE);
     }
 
     /** Columns to freeze: through the identity column when the sheet has one, none otherwise. */

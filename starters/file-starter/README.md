@@ -226,12 +226,12 @@ by `ImportSheetStyleHandler`:
 | --- | --- |
 | Optional column header | fill `#EEF1F5`, text `#1B1F24` bold Calibri 11pt, 2px (medium) bottom border `#9AA4B2` |
 | Required column header | fill `#FFE7C2`, text `#1B1F24` bold Calibri 11pt, 2px (medium) bottom border `#D98A1C` |
-| Header row | 28pt high, wrapped, vertically centred |
+| Header row | 32pt high (two wrapped lines), wrapped, vertically centred |
 | Header comment | the field's `description`; a required column's comment starts with `Required.` (not repeated when the description already does). No comment on an optional column without a description |
-| Data area | white, thin `#DDE1E6` grid, Calibri 11pt — set as the column default styles, keeping a date column's format |
+| Data area | white, thin `#DDE1E6` grid — set as the column default styles, keeping a date column's format; the workbook's default font is Calibri 11pt, so typed cells match the template instead of the application's locale default |
 | Panes | row 1 frozen; when a column is headed `Employee Code`, the columns through it are frozen too |
 | Filter | auto-filter on the header row |
-| Column width | header length + 4 characters, clamped to 14–40 |
+| Column width | header length × 1.2 (bold text) + 5 (filter button) characters, clamped to 14–40; a longer header wraps |
 
 Option dropdowns and date / time column formats work as before. With `includeDescription = true` the
 instruction sheet is still added (same header look, no comments / freeze / filter); the header comments

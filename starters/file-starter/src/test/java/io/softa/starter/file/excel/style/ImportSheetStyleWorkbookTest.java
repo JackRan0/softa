@@ -96,7 +96,7 @@ class ImportSheetStyleWorkbookTest {
 
         // The text is what the importer matches columns by — no marker added.
         assertThat(sheet.getRow(0).getCell(0).getStringCellValue()).isEqualTo("Name");
-        assertThat(sheet.getRow(0).getHeightInPoints()).isEqualTo(28f);
+        assertThat(sheet.getRow(0).getHeightInPoints()).isEqualTo(32f);
     }
 
     @Test
@@ -148,7 +148,9 @@ class ImportSheetStyleWorkbookTest {
         XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS));
 
         assertThat(sheet.getColumnWidth(0)).as("short header: the minimum").isEqualTo(14 * 256);
-        assertThat(sheet.getColumnWidth(1)).isEqualTo(("Employee Code".length() + 4) * 256);
+        assertThat(sheet.getColumnWidth(1)).as("bold text and the filter button")
+                .isEqualTo(((int) Math.ceil("Employee Code".length() * 1.2) + 5) * 256);
+        assertThat(sheet.getWorkbook().getFontAt(0).getFontName()).as("typed cells use the body font").isEqualTo("Calibri");
         assertThat(sheet.getColumnWidth(2)).as("long header: the maximum").isEqualTo(40 * 256);
     }
 
