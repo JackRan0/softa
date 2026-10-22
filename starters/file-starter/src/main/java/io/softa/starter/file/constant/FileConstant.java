@@ -28,12 +28,6 @@ public interface FileConstant {
     int IMPORT_MIN_COLUMN_WIDTH = 14;
     int IMPORT_MAX_COLUMN_WIDTH = 40;
 
-    /**
-     * Header of the identity column of a sheet. When an import sheet has it, the panes freeze through
-     * it so each row stays identifiable while scrolling right; otherwise only the header row freezes.
-     */
-    String IMPORT_FREEZE_THROUGH_HEADER = "Employee Code";
-
     /** Prefix of a required column's header comment. */
     String IMPORT_REQUIRED_NOTE = "Required.";
 

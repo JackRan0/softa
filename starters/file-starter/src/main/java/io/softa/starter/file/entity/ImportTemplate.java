@@ -41,6 +41,14 @@ public class ImportTemplate extends AuditableModel {
     @Field
     private Integer sequence;
 
+    /**
+     * Columns kept in view at the left of the sheet while scrolling right, so each row stays
+     * identifiable. Unset, the sheet freezes through its unique-key columns when they open the sheet,
+     * and freezes no column otherwise; 0 freezes none.
+     */
+    @Field(description = "Columns kept in view at the left while scrolling right")
+    private Integer frozenColumns;
+
     @Field(required = true)
     private ImportRule importRule;
 

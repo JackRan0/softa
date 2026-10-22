@@ -146,7 +146,9 @@ public class ImportServiceImpl implements ImportService {
         ExcelSheetData mainSheetData = new ExcelSheetData(importTemplate.getName(), headers, Collections.emptyList(),
                 new WriteHandler[]{
                         // Header look, description comments, freeze, filter, widths, data-area grid.
-                        ImportSheetStyleHandler.forTemplate(importFields),
+                        ImportSheetStyleHandler.forTemplate(importFields, ImportSheetStyleHandler.frozenColumns(
+                                importTemplate.getFrozenColumns(), importTemplate.getUniqueConstraints(),
+                                importFields)),
                         new OptionDropdownHandler(dropdowns),
                         // Without this a date column is General, and the format a typed date takes is
                         // the reader's locale — contradicting the instruction sheet beside it.
@@ -162,14 +164,15 @@ public class ImportServiceImpl implements ImportService {
                 String description = f.getDescription();
                 return description == null ? "" : description;
             }).toList();
+            ImportSheetStyleHandler instructionStyle = ImportSheetStyleHandler.forCompanionSheet(importFields);
             ExcelSheetData instructionSheetData = new ExcelSheetData(
                     "Import instructions",
                     headers,
                     List.of(instructionRow),
                     new WriteHandler[]{
-                            ImportSheetStyleHandler.forCompanionSheet(importFields),
+                            instructionStyle,
                             createInstructionWrapHandler(),
-                            createInstructionRowHeightHandler()
+                            createInstructionRowHeightHandler(instructionStyle)
                     }
             );
             sheetDataList.add(instructionSheetData);
@@ -236,7 +239,8 @@ public class ImportServiceImpl implements ImportService {
         };
     }
 
-    private WriteHandler createInstructionRowHeightHandler() {
+    /** Sized against the widths {@code style} gives each column, which follow the column's header. */
+    private WriteHandler createInstructionRowHeightHandler(ImportSheetStyleHandler style) {
         return new RowWriteHandler() {
             @Override
             public void afterRowDispose(RowWriteHandlerContext context) {
@@ -244,18 +248,17 @@ public class ImportServiceImpl implements ImportService {
                 if (context.getHead() || row == null) {
                     return;
                 }
-                row.setHeightInPoints(calculateInstructionRowHeight(row));
+                row.setHeightInPoints(calculateInstructionRowHeight(row, style));
             }
         };
     }
 
-    private float calculateInstructionRowHeight(Row row) {
+    private float calculateInstructionRowHeight(Row row, ImportSheetStyleHandler style) {
         int estimatedLineCount = 1;
         short lastCellNum = row.getLastCellNum();
         if (lastCellNum <= 0) {
             return estimatedLineCount * 16f;
         }
-        int charsPerLine = Math.max(1, FileConstant.DEFAULT_EXCEL_COLUMN_WIDTH - 4);
         for (int i = 0; i < lastCellNum; i++) {
             Cell cell = row.getCell(i);
             if (cell == null) {
@@ -265,18 +268,10 @@ public class ImportServiceImpl implements ImportService {
             if (StringUtils.isBlank(cellText)) {
                 continue;
             }
-            estimatedLineCount = Math.max(estimatedLineCount, estimateWrappedLineCount(cellText, charsPerLine));
+            estimatedLineCount = Math.max(estimatedLineCount,
+                    ImportSheetStyleHandler.wrappedLines(cellText, style.columnWidth(i) - 4));
         }
         return estimatedLineCount * 16f;
-    }
-
-    private int estimateWrappedLineCount(String text, int charsPerLine) {
-        int lineCount = 0;
-        for (String segment : text.split("\\R", -1)) {
-            int segmentLength = Math.max(1, segment.length());
-            lineCount += Math.max(1, (segmentLength + charsPerLine - 1) / charsPerLine);
-        }
-        return Math.max(1, lineCount);
     }
 
     /**
@@ -556,6 +551,7 @@ public class ImportServiceImpl implements ImportService {
         importTemplateDTO.setSkipException(importTemplate.getSkipException());
         importTemplateDTO.setCustomHandler(importTemplate.getCustomHandler());
         importTemplateDTO.setUniqueConstraints(importTemplate.getUniqueConstraints());
+        importTemplateDTO.setFrozenColumns(importTemplate.getFrozenColumns());
         importTemplateDTO.setEnv(env);
         return importTemplateDTO;
     }
@@ -797,7 +793,9 @@ public class ImportServiceImpl implements ImportService {
         List<List<Object>> rowsTable = ListUtils.convertToTableData(fields, resultRows);
         ExcelSheetData sheetData = new ExcelSheetData(suffix, headers, rowsTable, new WriteHandler[]{
                 ImportSheetStyleHandler.forResult(importFields, resultHeader, reasonHeader,
-                        successLabel, failedLabel, rowsTable.size())
+                        successLabel, failedLabel, rowsTable.size(), ImportSheetStyleHandler.frozenColumns(
+                                importTemplateDTO.getFrozenColumns(), importTemplateDTO.getUniqueConstraints(),
+                                importFields))
         });
         // Stamped with the holder, not the subject — see importByTemplate. This one lands on
         // ImportHistory.failedFileId.

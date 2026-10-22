@@ -47,9 +47,8 @@ import io.softa.starter.file.dto.ImportFieldDTO;
  * what the template declares. A column's description goes into the header cell's comment, where it is
  * one hover away from the column it explains.
  *
- * <p>The sheet freezes the header row (and, when present, the columns through the identity column
- * {@value FileConstant#IMPORT_FREEZE_THROUGH_HEADER}), turns on a filter over the header, and sizes
- * each column from its header text. The data area is white with a light grid. A result file adds two
+ * <p>The sheet freezes the header row and the template's leading columns (see {@link #frozenColumns}),
+ * turns on a filter over the header, and sizes each column from its header text. The data area is white with a light grid. A result file adds two
  * trailing columns — the per-row outcome and the failure reason — with a dark header so they stand
  * apart from the template's own columns, and colours each outcome.
  *
@@ -65,6 +64,8 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
 
     private static final int COMMENT_CHARS_PER_LINE = 40;
     private static final int COMMENT_MAX_LINES = 12;
+    /** Unique-key columns are frozen by default only when all of them are among this many leading columns. */
+    private static final int LEADING_KEY_COLUMNS = 3;
 
     private enum Mode {
         /** The template's main sheet: everything, including comments and the column defaults. */
@@ -89,12 +90,14 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
     private final String failedLabel;
     /** Last row the filter covers: the header alone for a template, every data row for a result file. */
     private final int lastFilterRow;
+    private final int frozenColumns;
 
     private final Map<Workbook, Map<String, CellStyle>> styleCache = new IdentityHashMap<>();
     private final Map<Sheet, Drawing<?>> drawings = new IdentityHashMap<>();
 
     private ImportSheetStyleHandler(Mode mode, List<ImportFieldDTO> fields, List<String> extraHeaders,
-                                    String successLabel, String failedLabel, int lastFilterRow) {
+                                    String successLabel, String failedLabel, int lastFilterRow,
+                                    int frozenColumns) {
         this.mode = mode;
         this.headers = new ArrayList<>();
         this.required = new ArrayList<>();
@@ -113,16 +116,21 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
         this.successLabel = successLabel;
         this.failedLabel = failedLabel;
         this.lastFilterRow = lastFilterRow;
+        this.frozenColumns = Math.clamp(frozenColumns, 0, fields.size());
     }
 
-    /** The template's main sheet: header look, comments, freeze, filter, widths and the data-area grid. */
-    public static ImportSheetStyleHandler forTemplate(List<ImportFieldDTO> fields) {
-        return new ImportSheetStyleHandler(Mode.TEMPLATE, fields, List.of(), null, null, 0);
+    /**
+     * The template's main sheet: header look, comments, freeze, filter, widths and the data-area grid.
+     *
+     * @param frozenColumns columns to freeze at the left, see {@link #frozenColumns}
+     */
+    public static ImportSheetStyleHandler forTemplate(List<ImportFieldDTO> fields, int frozenColumns) {
+        return new ImportSheetStyleHandler(Mode.TEMPLATE, fields, List.of(), null, null, 0, frozenColumns);
     }
 
     /** A companion sheet of a template (the instruction sheet): the same header look and widths only. */
     public static ImportSheetStyleHandler forCompanionSheet(List<ImportFieldDTO> fields) {
-        return new ImportSheetStyleHandler(Mode.HEADER_ONLY, fields, List.of(), null, null, 0);
+        return new ImportSheetStyleHandler(Mode.HEADER_ONLY, fields, List.of(), null, null, 0, 0);
     }
 
     /**
@@ -130,13 +138,49 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
      *
      * @param successLabel the outcome text of a row that went through
      * @param failedLabel  the outcome text of a row that did not
-     * @param dataRows     number of data rows, so the filter covers all of them
+     * @param dataRows      number of data rows, so the filter covers all of them
+     * @param frozenColumns columns to freeze at the left, see {@link #frozenColumns}
      */
     public static ImportSheetStyleHandler forResult(List<ImportFieldDTO> fields, String resultHeader,
                                                     String reasonHeader, String successLabel,
-                                                    String failedLabel, int dataRows) {
+                                                    String failedLabel, int dataRows, int frozenColumns) {
         return new ImportSheetStyleHandler(Mode.RESULT, fields, List.of(resultHeader, reasonHeader),
-                successLabel, failedLabel, dataRows);
+                successLabel, failedLabel, dataRows, frozenColumns);
+    }
+
+    /**
+     * Columns to freeze at the left, so each row stays identifiable while scrolling right.
+     *
+     * <p>The template's own setting when it has one. Otherwise through the unique-key columns, when
+     * all of them open the sheet — a key that sits further right is not what a reader scans for, and
+     * freezing up to it would pin half the screen. A key field matches its column directly or through
+     * a lookup on it ({@code employeeId} matches {@code employeeId.code}).
+     *
+     * @param declared   the template's setting, null when it has none
+     * @param uniqueKeys the template's unique-key fields, may be null
+     */
+    public static int frozenColumns(Integer declared, List<String> uniqueKeys, List<ImportFieldDTO> fields) {
+        if (declared != null) {
+            return Math.max(0, declared);
+        }
+        if (uniqueKeys == null || uniqueKeys.isEmpty()) {
+            return 0;
+        }
+        int through = 0;
+        for (String key : uniqueKeys) {
+            int column = -1;
+            for (int i = 0; i < fields.size() && column < 0; i++) {
+                String fieldName = fields.get(i).getFieldName();
+                if (fieldName != null && (fieldName.equals(key) || fieldName.startsWith(key + "."))) {
+                    column = i;
+                }
+            }
+            if (column < 0 || column >= LEADING_KEY_COLUMNS) {
+                return 0;
+            }
+            through = Math.max(through, column + 1);
+        }
+        return through;
     }
 
     @Override
@@ -156,7 +200,7 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
         if (mode == Mode.HEADER_ONLY || headers.isEmpty()) {
             return;
         }
-        sheet.createFreezePane(frozenColumns(headers), 1);
+        sheet.createFreezePane(frozenColumns, 1);
         sheet.setAutoFilter(new CellRangeAddress(0, Math.max(0, lastFilterRow), 0, headers.size() - 1));
         if (mode == Mode.TEMPLATE) {
             applyDataAreaDefaults(sheet);
@@ -169,7 +213,7 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
      * cell; sized on the plain length, a header such as "Date Of Birth" was cut short. A header past
      * the maximum wraps onto a second line, which the header row is tall enough to show.
      */
-    int columnWidth(int column) {
+    public int columnWidth(int column) {
         if (column == resultColumn + 1 && mode == Mode.RESULT) {
             return FileConstant.IMPORT_MAX_COLUMN_WIDTH;
         }
@@ -192,17 +236,6 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
         Font font = workbook.getFontAt(0);
         font.setFontName(FileConstant.DEFAULT_EXCEL_FONT_NAME);
         font.setFontHeightInPoints(FileConstant.DEFAULT_EXCEL_BODY_FONT_SIZE);
-    }
-
-    /** Columns to freeze: through the identity column when the sheet has one, none otherwise. */
-    static int frozenColumns(List<String> headers) {
-        for (int i = 0; i < headers.size(); i++) {
-            String header = headers.get(i);
-            if (header != null && FileConstant.IMPORT_FREEZE_THROUGH_HEADER.equalsIgnoreCase(header.trim())) {
-                return i + 1;
-            }
-        }
-        return 0;
     }
 
     /**
@@ -245,7 +278,7 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
      * Tall enough for the wrapped failure reason. Excel fits a row to wrapped text on its own only for
      * rows it lays out itself, and some spreadsheet apps never do, so a reason listing several missing
      * fields stayed a single line running far past its column. The line count is estimated from the
-     * text length against the column width — close enough for a row of plain sentences.
+     * text's display width against the column width — close enough for a row of plain sentences.
      */
     private void fitFailureReason(Row row) {
         Cell reason = row.getCell(resultColumn + 1);
@@ -253,10 +286,49 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
         if (text.isEmpty()) {
             return;
         }
-        int lines = (int) Math.ceil(text.length() / (double) FileConstant.IMPORT_MAX_COLUMN_WIDTH);
+        int lines = wrappedLines(text, FileConstant.IMPORT_MAX_COLUMN_WIDTH - 2);
         if (lines > 1) {
             row.setHeightInPoints(lines * FileConstant.IMPORT_RESULT_LINE_HEIGHT);
         }
+    }
+
+    /**
+     * Lines {@code text} takes when wrapped in a column {@code width} characters wide, each explicit
+     * line break starting a new one.
+     */
+    public static int wrappedLines(String text, int width) {
+        int perLine = Math.max(1, width);
+        int lines = 0;
+        for (String segment : text.split("\\R", -1)) {
+            lines += Math.max(1, (displayWidth(segment) + perLine - 1) / perLine);
+        }
+        return Math.max(1, lines);
+    }
+
+    /**
+     * Width of {@code text} in column-width units: a CJK or other full-width character takes two, as it
+     * does on screen. Counted by characters alone, a Chinese reason was estimated at half its width
+     * and the row came out too short to show it.
+     */
+    static int displayWidth(String text) {
+        int width = 0;
+        for (int i = 0; i < text.length(); ) {
+            int codePoint = text.codePointAt(i);
+            width += isWide(codePoint) ? 2 : 1;
+            i += Character.charCount(codePoint);
+        }
+        return width;
+    }
+
+    private static boolean isWide(int codePoint) {
+        return (codePoint >= 0x1100 && codePoint <= 0x115F)
+                || (codePoint >= 0x2E80 && codePoint <= 0xA4CF)
+                || (codePoint >= 0xAC00 && codePoint <= 0xD7A3)
+                || (codePoint >= 0xF900 && codePoint <= 0xFAFF)
+                || (codePoint >= 0xFE30 && codePoint <= 0xFE4F)
+                || (codePoint >= 0xFF00 && codePoint <= 0xFF60)
+                || (codePoint >= 0xFFE0 && codePoint <= 0xFFE6)
+                || (codePoint >= 0x20000 && codePoint <= 0x3FFFD);
     }
 
     // ───────────────────────── cell ─────────────────────────

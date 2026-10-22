@@ -76,7 +76,7 @@ class ImportSheetStyleWorkbookTest {
 
     @Test
     void requiredAndOptionalHeadersAreLightWithDarkBoldText() throws Exception {
-        XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS));
+        XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS, 2));
 
         XSSFCellStyle required = styleAt(sheet, 0, 0);
         assertThat(rgb(required.getFillForegroundColorColor())).isEqualTo("FFE7C2");
@@ -101,7 +101,7 @@ class ImportSheetStyleWorkbookTest {
 
     @Test
     void descriptionsGoIntoHeaderCommentsAndRequiredOnesSaySo() throws Exception {
-        XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS));
+        XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS, 2));
 
         assertThat(sheet.getRow(0).getCell(0).getCellComment().getString().getString())
                 .isEqualTo("Required. Full legal name.");
@@ -123,8 +123,8 @@ class ImportSheetStyleWorkbookTest {
     }
 
     @Test
-    void panesFreezeThroughTheIdentityColumnAndTheHeaderIsFiltered() throws Exception {
-        XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS));
+    void panesFreezeTheLeadingColumnsAndTheHeaderIsFiltered() throws Exception {
+        XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS, 2));
 
         PaneInformation pane = sheet.getPaneInformation();
         assertThat(pane.isFreezePane()).isTrue();
@@ -134,9 +134,9 @@ class ImportSheetStyleWorkbookTest {
     }
 
     @Test
-    void withoutAnIdentityColumnOnlyTheHeaderRowFreezes() throws Exception {
+    void withNoFrozenColumnsOnlyTheHeaderRowFreezes() throws Exception {
         List<ImportFieldDTO> fields = List.of(field("Name", true, null), field("Code", false, null));
-        XSSFSheet sheet = write(headers(fields), List.of(), ImportSheetStyleHandler.forTemplate(fields));
+        XSSFSheet sheet = write(headers(fields), List.of(), ImportSheetStyleHandler.forTemplate(fields, 0));
 
         PaneInformation pane = sheet.getPaneInformation();
         assertThat(pane.getVerticalSplitPosition()).isEqualTo((short) 0);
@@ -145,7 +145,7 @@ class ImportSheetStyleWorkbookTest {
 
     @Test
     void columnsAreSizedFromTheirHeaderWithinBounds() throws Exception {
-        XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS));
+        XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS, 2));
 
         assertThat(sheet.getColumnWidth(0)).as("short header: the minimum").isEqualTo(14 * 256);
         assertThat(sheet.getColumnWidth(1)).as("bold text and the filter button")
@@ -156,7 +156,7 @@ class ImportSheetStyleWorkbookTest {
 
     @Test
     void theEmptyDataAreaCarriesALightGrid() throws Exception {
-        XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS));
+        XSSFSheet sheet = write(headers(FIELDS), List.of(), ImportSheetStyleHandler.forTemplate(FIELDS, 2));
 
         XSSFCellStyle column = (XSSFCellStyle) sheet.getColumnStyle(0);
         assertThat(column.getBorderLeft()).isEqualTo(BorderStyle.THIN);
@@ -177,7 +177,7 @@ class ImportSheetStyleWorkbookTest {
                 sheet.setDefaultColumnStyle(3, style);
             }
         };
-        XSSFSheet sheet = write(headers(FIELDS), List.of(), dateColumn, ImportSheetStyleHandler.forTemplate(FIELDS));
+        XSSFSheet sheet = write(headers(FIELDS), List.of(), dateColumn, ImportSheetStyleHandler.forTemplate(FIELDS, 2));
 
         CellStyle column = sheet.getColumnStyle(3);
         assertThat(column.getDataFormatString()).isEqualTo("yyyy-MM-dd");
@@ -195,6 +195,36 @@ class ImportSheetStyleWorkbookTest {
         assertThat(styleAt(sheet, 1, 0).getBorderTop()).isEqualTo(BorderStyle.THIN);
     }
 
+    @Test
+    void frozenColumnsFollowTheTemplateOrElseALeadingUniqueKey() {
+        List<ImportFieldDTO> fields = List.of(keyed("code"), keyed("employeeId.code"), keyed("type"),
+                keyed("remark"));
+
+        assertThat(ImportSheetStyleHandler.frozenColumns(2, List.of("code"), fields)).as("declared").isEqualTo(2);
+        assertThat(ImportSheetStyleHandler.frozenColumns(0, List.of("code"), fields)).as("declared none").isZero();
+        assertThat(ImportSheetStyleHandler.frozenColumns(null, List.of("code"), fields)).isEqualTo(1);
+        assertThat(ImportSheetStyleHandler.frozenColumns(null, List.of("employeeId", "type"), fields))
+                .as("a key matches its lookup column").isEqualTo(3);
+        assertThat(ImportSheetStyleHandler.frozenColumns(null, List.of("remark"), fields))
+                .as("a key further right is not frozen to").isZero();
+        assertThat(ImportSheetStyleHandler.frozenColumns(null, List.of("missing"), fields)).isZero();
+        assertThat(ImportSheetStyleHandler.frozenColumns(null, null, fields)).isZero();
+    }
+
+    private static ImportFieldDTO keyed(String fieldName) {
+        ImportFieldDTO field = field(fieldName, false, null);
+        field.setFieldName(fieldName);
+        return field;
+    }
+
+    @Test
+    void wrappedLinesCountWideCharactersTwiceAndBreakOnNewlines() {
+        assertThat(ImportSheetStyleHandler.wrappedLines("a".repeat(38), 38)).isEqualTo(1);
+        assertThat(ImportSheetStyleHandler.wrappedLines("a".repeat(39), 38)).isEqualTo(2);
+        assertThat(ImportSheetStyleHandler.wrappedLines("字".repeat(20), 38)).as("40 units wide").isEqualTo(2);
+        assertThat(ImportSheetStyleHandler.wrappedLines("a\nb", 38)).isEqualTo(2);
+    }
+
     // ───────────────────────── result file ─────────────────────────
 
     @Test
@@ -207,7 +237,7 @@ class ImportSheetStyleWorkbookTest {
                 List.of("E1", "Ann", "Success", ""),
                 List.of("E2", "Bob", "Failed", "Name is too long"));
         XSSFSheet sheet = write(headers, rows,
-                ImportSheetStyleHandler.forResult(fields, "Result", "Failed Reason", "Success", "Failed", rows.size()));
+                ImportSheetStyleHandler.forResult(fields, "Result", "Failed Reason", "Success", "Failed", rows.size(), 1));
 
         // Template columns keep the template look.
         assertThat(rgb(styleAt(sheet, 0, 0).getFillForegroundColorColor())).isEqualTo("FFE7C2");
@@ -253,12 +283,12 @@ class ImportSheetStyleWorkbookTest {
                 List.of("E1", "Failed", "Name is too long"),
                 List.of("E2", "Failed", longReason));
         XSSFSheet sheet = write(headers, rows,
-                ImportSheetStyleHandler.forResult(fields, "Result", "Failed Reason", "Success", "Failed", rows.size()));
+                ImportSheetStyleHandler.forResult(fields, "Result", "Failed Reason", "Success", "Failed", rows.size(), 1));
 
         assertThat(styleAt(sheet, 2, 2).getWrapText()).isTrue();
         assertThat(styleAt(sheet, 2, 0).getVerticalAlignment()).as("the row's other cells stay level")
                 .isEqualTo(org.apache.poi.ss.usermodel.VerticalAlignment.CENTER);
-        int lines = (int) Math.ceil(longReason.length() / 40.0);
+        int lines = (int) Math.ceil(longReason.length() / 38.0);
         assertThat(sheet.getRow(2).getHeightInPoints()).isEqualTo(lines * 15f);
         assertThat(sheet.getRow(1).getHeightInPoints()).as("a one-line reason keeps the default height")
                 .isLessThan(30f);
@@ -272,7 +302,7 @@ class ImportSheetStyleWorkbookTest {
             rows.add(List.of("C" + i, i % 2 == 0 ? "Success" : "Failed", i % 2 == 0 ? "" : "bad"));
         }
         XSSFSheet sheet = write(List.of("Code", "Result", "Failed Reason"), rows,
-                ImportSheetStyleHandler.forResult(fields, "Result", "Failed Reason", "Success", "Failed", rows.size()));
+                ImportSheetStyleHandler.forResult(fields, "Result", "Failed Reason", "Success", "Failed", rows.size(), 1));
 
         assertThat(sheet.getWorkbook().getNumCellStyles()).isLessThan(40);
     }
