@@ -40,4 +40,20 @@ class MetadataDtoMapperTest {
                     .containsExactly("status", "code", "draft", "piEmployeeId", "email");
         }
     }
+
+    @Test
+    void carriesTheAuditLogSwitchSoTheFormCanHideItsHistory() {
+        MetaModel model = Mockito.mock(MetaModel.class);
+        Mockito.when(model.getModelName()).thenReturn("Customer");
+        try (MockedStatic<ModelManager> manager = Mockito.mockStatic(ModelManager.class)) {
+            manager.when(() -> ModelManager.getModel("Customer")).thenReturn(model);
+            manager.when(() -> ModelManager.getModelFields("Customer")).thenReturn(List.of());
+            // Read through ModelManager, which treats a NULL column as on, not off the raw field.
+            manager.when(() -> ModelManager.isAuditLogEnabled("Customer")).thenReturn(false);
+            assertThat(MetadataDtoMapper.toModelDTO("Customer").isEnableAuditLog()).isFalse();
+
+            manager.when(() -> ModelManager.isAuditLogEnabled("Customer")).thenReturn(true);
+            assertThat(MetadataDtoMapper.toModelDTO("Customer").isEnableAuditLog()).isTrue();
+        }
+    }
 }

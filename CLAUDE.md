@@ -121,6 +121,7 @@ rows by business key. Per-tenant metadata customization is **not supported**.
     softDelete = false, activeControl = false, timeline = false,
     versionLock = false,
     copyable = true,                            // default true; false = copy APIs reject + UI hides Duplicate (runtime/log models)
+    enableAuditLog = true,                      // default true; false = writes build no change log (derived/report models): no Audit Log history, no change-triggered flows
     projection = false                          // default false; true = read-only model over a table it does NOT own: no DDL ever, writes rejected, @Index rejected
 )
 @Index(fields = {"status", "createdTime"})            // @Repeatable; index names are GLOBALLY unique (≤60 chars, boot-enforced)

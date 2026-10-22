@@ -108,6 +108,14 @@ public class ExecuteSqlAspect {
             }
         } else if (result instanceof Map<?, ?> resultMap) {
             sb.append("\n").append(resultMap.values());
+        } else if (result instanceof int[] counts) {
+            // The update count of each batch row, printed like the batch params
+            if (counts.length > LOG_BATCH_NUMBER) {
+                sb.append(Arrays.toString(Arrays.copyOf(counts, LOG_BATCH_NUMBER)))
+                        .append(" ... Total rows: ").append(counts.length);
+            } else {
+                sb.append(Arrays.toString(counts));
+            }
         } else {
             sb.append(result);
         }

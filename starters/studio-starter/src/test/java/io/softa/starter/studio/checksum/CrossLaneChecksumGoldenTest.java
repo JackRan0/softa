@@ -44,6 +44,8 @@ class CrossLaneChecksumGoldenTest {
         // Non-default on BOTH sides (see the autoSequence note below): proves the
         // projection attribute itself transports, not just its initializer default.
         m.setProjection(Boolean.TRUE);
+        // Likewise off its default on both sides, so the audit-log switch must travel too.
+        m.setEnableAuditLog(Boolean.FALSE);
         // Excluded noise — must NOT affect the hash:
         m.setId(1L);
         m.setAppCode("demo-app");
@@ -87,6 +89,7 @@ class CrossLaneChecksumGoldenTest {
         m.setDescription("A customer");
         // Mirrors the sys-side fixture — the attribute must hash identically across lanes.
         m.setProjection(Boolean.TRUE);
+        m.setEnableAuditLog(Boolean.FALSE);
         // Different excluded noise on the studio side — must NOT affect the hash:
         m.setId(987654321L);
         m.setAppId(42L);

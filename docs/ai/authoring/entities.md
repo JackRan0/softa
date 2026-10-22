@@ -105,7 +105,8 @@ Common attributes — omit any that equals the default:
 | `multiTenant` | `false` | adds a `tenant_id` scope to the table |
 | `idStrategy` | `DB_AUTO_ID` | use `DISTRIBUTED_LONG` for CosID distributed IDs; `EXTERNAL_ID` for code-as-id masters |
 | `copyable` | `true` | `false` = row can't be duplicated (log / runtime models) |
-| `versionLock` | `false` | optimistic locking: declare a `@Field(required = true) private Long version;` on the class. The starting value is materialized to `0` for you (don't set `defaultValue`); the framework stamps it on insert and CAS-increments it on update — a stale update throws `VersionException` |
+| `enableAuditLog` | `true` | `false` = writes build no change log, for derived / report models rewritten in bulk. The model then has no Audit Log history and fires no change-triggered flows — check none is bound to it first |
+| `versionLock` | `false` | optimistic locking: declare a `@Field(required = true) private Long version;` on the class. The starting value is materialized to `0` for you (don't set `defaultValue`); the framework stamps it on insert and increments it on every update; an update that carries a stale `version` throws `VersionException` |
 | `renamedFrom` | `""` | previous class name, for a safe rename — see §5 |
 
 `modelName` is always the class simple name; there is no attribute for it.

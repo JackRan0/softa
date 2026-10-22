@@ -91,6 +91,23 @@ public class JdbcProxy {
     }
 
     /**
+     * Performs a batch update for the provided SQL and parameter sets, returning the update count
+     * of each parameter set in {@code batchArgs} order — for callers that must check every row,
+     * such as an optimistic-lock update where a 0 means the version moved. A driver that cannot
+     * tell reports {@link java.sql.Statement#SUCCESS_NO_INFO} for an entry.
+     *
+     * @param modelName identifies the model; can be used to switch the data source
+     * @param sqlParams encapsulates the SQL statement
+     * @param batchArgs a list of parameter arrays, one for each row
+     * @return the update count of each parameter set
+     */
+    @WriteOperation
+    @ExecuteSql
+    public int[] batchUpdateCounts(String modelName, SqlParams sqlParams, List<Object[]> batchArgs) {
+        return jdbcTemplate.batchUpdate(sqlParams.getSql(), batchArgs);
+    }
+
+    /**
      * Executes a query and returns the results as a list of maps,
      * with each map's keys in camelCase. This utilizes {@link ModelRowMapper}.
      *

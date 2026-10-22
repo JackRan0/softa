@@ -1107,6 +1107,19 @@ public class ModelManager {
     }
 
     /**
+     * Check whether writes to the model produce change logs
+     * ({@code @Model(enableAuditLog = ...)}).
+     *
+     * @param modelName model name
+     * @return true if the model's creates / updates / deletes are change-logged; only an explicit
+     *         false turns it off (null reads as enabled)
+     */
+    public static boolean isAuditLogEnabled(String modelName) {
+        validateModel(modelName);
+        return !Boolean.FALSE.equals(modelMap().get(modelName).getEnableAuditLog());
+    }
+
+    /**
      * Check whether the model is a read-only projection over a table it does not
      * own ({@code @Model(projection = ...)}) — the write APIs are disabled for it.
      *

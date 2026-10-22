@@ -67,6 +67,7 @@ public final class MetadataDtoMapper {
         dto.setTimeline(metaModel.isTimeline());
         dto.setVersionLock(metaModel.isVersionLock());
         dto.setCopyable(metaModel.isCopyable());
+        dto.setEnableAuditLog(ModelManager.isAuditLogEnabled(modelName));
         dto.setProjection(metaModel.isProjection());
         // By label, ignoring case — the name a person reads — so a client listing the model's fields
         // shows them alphabetically however the model was written or grown; a field without a label

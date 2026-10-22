@@ -2,6 +2,8 @@ package io.softa.framework.orm.jdbc.database;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
@@ -119,32 +121,92 @@ public class StaticSqlBuilder {
     }
 
     /**
-     * Build UPDATE SQL based on model and data:
+     * Build UPDATE SQL based on model and data, setting every field the row carries but the pk, in
+     * the row's own order:
      *      UPDATE table_name SET f1=?,f2=?,f3=? WHERE id = ?
+     * The optimistic lock applies as in {@link #getUpdateSql(String, List)}.
      *
      * @param modelName model name
      * @param rowMap data row
-     * @return UPDATE SQL
+     * @return UPDATE SQL with its arguments
      */
     public static SqlParams getUpdateSql(String modelName, Map<String, Object> rowMap) {
-        StringBuilder updateSql = new StringBuilder("UPDATE ").append(getTableName(modelName)).append(" SET ");
-        // Append `SET` fields
-        String pk = ModelManager.getModelPrimaryKey(modelName);
         List<String> fields = new ArrayList<>(rowMap.keySet());
-        fields.remove(pk);
-        fields.forEach(field -> updateSql.append(ModelManager.getModelField(modelName, field).getColumnName()).append("=?,"));
+        fields.remove(ModelManager.getModelPrimaryKey(modelName));
+        SqlParams sqlParams = getUpdateSql(modelName, fields);
+        sqlParams.setArgs(new ArrayList<>(Arrays.asList(getUpdateArgs(modelName, fields, rowMap))));
+        return sqlParams;
+    }
+
+    /**
+     * Build UPDATE SQL for a fixed, ordered field list, so rows setting the same fields can share
+     * one statement in a JDBC batch:
+     *      UPDATE table_name SET f1=?,f2=?,f3=? WHERE id = ?
+     * On a versionLock model every write moves the version on in the SQL itself, and a row that
+     * carries {@code version} (the version its client read) is written only while it is still
+     * that version:
+     *      UPDATE table_name SET f1=?,f2=?,version=version+1 WHERE id = ? [AND version = ?]
+     * The arguments of each row come from {@link #getUpdateArgs} with the same fields.
+     *
+     * @param modelName model name
+     * @param fields the fields the rows carry, in order, without the primary key
+     * @return UPDATE SQL without arguments
+     */
+    public static SqlParams getUpdateSql(String modelName, List<String> fields) {
+        boolean versionLock = ModelManager.isVersionControl(modelName);
+        StringBuilder updateSql = new StringBuilder("UPDATE ").append(getTableName(modelName)).append(" SET ");
+        fields.stream()
+                .filter(field -> !versionLock || !ModelConstant.VERSION.equals(field))
+                .forEach(field -> updateSql.append(ModelManager.getModelField(modelName, field).getColumnName()).append("=?,"));
+        if (versionLock) {
+            updateSql.append("version=version+1,");
+        }
         // Remove the last character
         updateSql.deleteCharAt(updateSql.length() - 1);
         // Append the pk condition to the WHERE clause — as a COLUMN name, like the SET side
         // (the pk FIELD name `sliceId` differs from its column `slice_id` on timeline models).
+        String pk = ModelManager.getModelPrimaryKey(modelName);
         String pkColumnName = ModelManager.getModelField(modelName, pk).getColumnName();
         updateSql.append(" WHERE ").append(pkColumnName).append(" = ?");
-        // SQL params object
-        SqlParams sqlParams = new SqlParams(updateSql.toString());
-        fields.forEach(field -> sqlParams.addArgValue(rowMap.get(field)));
-        // Add the pk value to the end of `valueArray`
-        sqlParams.addArgValue(rowMap.get(pk));
-        return sqlParams;
+        if (isVersionGuarded(modelName, fields)) {
+            updateSql.append(" AND version = ?");
+        }
+        return new SqlParams(updateSql.toString());
+    }
+
+    /**
+     * The arguments of {@link #getUpdateSql(String, List)} for one row: the values of the fields it
+     * sets, in list order, then the pk value, then for a version-guarded write the version the row
+     * was read at.
+     *
+     * @param modelName model name
+     * @param fields the fields the row carries, in the order of the SQL
+     * @param rowMap data row, including the pk
+     * @return argument values in placeholder order
+     */
+    public static Object[] getUpdateArgs(String modelName, List<String> fields, Map<String, Object> rowMap) {
+        boolean versionLock = ModelManager.isVersionControl(modelName);
+        List<Object> args = new ArrayList<>(fields.size() + 1);
+        fields.stream()
+                .filter(field -> !versionLock || !ModelConstant.VERSION.equals(field))
+                .forEach(field -> args.add(rowMap.get(field)));
+        args.add(rowMap.get(ModelManager.getModelPrimaryKey(modelName)));
+        if (isVersionGuarded(modelName, fields)) {
+            args.add(rowMap.get(ModelConstant.VERSION));
+        }
+        return args.toArray();
+    }
+
+    /**
+     * Whether rows carrying these fields are written only at the version they carry: the rows of a
+     * versionLock model that name {@code version}.
+     *
+     * @param modelName model name
+     * @param fields the fields the rows carry
+     * @return true when the UPDATE carries {@code AND version = ?}
+     */
+    public static boolean isVersionGuarded(String modelName, Collection<String> fields) {
+        return fields.contains(ModelConstant.VERSION) && ModelManager.isVersionControl(modelName);
     }
 
     /**

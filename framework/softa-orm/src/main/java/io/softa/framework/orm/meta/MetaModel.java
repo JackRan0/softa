@@ -68,6 +68,12 @@ public class MetaModel implements Serializable {
     // covers programmatically constructed instances (tests, in-memory models).
     private boolean copyable = true;
 
+    // A Boolean, not a primitive: the meta row mapper reads NULL into a primitive as false, and a
+    // NULL column must not switch a model's audit log off — null reads as enabled
+    // (ModelManager.isAuditLogEnabled). The initializer covers a sys_model without the column yet
+    // (a scanner-off environment before its migration), where SELECT * returns no value.
+    private Boolean enableAuditLog = Boolean.TRUE;
+
     /** Read-only projection over a table another model (or an external process) owns; writes are rejected. */
     private boolean projection;
 

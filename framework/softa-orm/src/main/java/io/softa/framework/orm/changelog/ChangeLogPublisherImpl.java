@@ -29,9 +29,10 @@ import io.softa.framework.orm.meta.ModelManager;
 
 /**
  * Default implementation of ChangeLogPublisher.
- * Publishes ChangeLog events to the ApplicationEventPublisher and stores logs
- * in ChangeLogHolder
- * only if `system.enable-change-log` is true in the configuration.
+ * Builds the logs of models with {@code enableAuditLog} on, stores them in the transaction-bound
+ * ChangeLogHolder and publishes a ChangeLog event once per transaction. flow-starter's synchronous
+ * triggers read the buffer before commit whatever the configuration; sending it to MQ after commit
+ * is what `system.enable-change-log` gates (see ChangeLogProducer).
  */
 @Slf4j
 @Service
@@ -69,7 +70,7 @@ public class ChangeLogPublisherImpl implements ChangeLogPublisher {
     @Override
     public void publishCreationLog(String model, List<Map<String, Object>> createdRows, LocalDateTime createdTime) {
         // Skip if disabled or no rows
-        if (createdRows == null || createdRows.isEmpty()) {
+        if (createdRows == null || createdRows.isEmpty() || !ModelManager.isAuditLogEnabled(model)) {
             return;
         }
         String primaryKey = ModelManager.getModelPrimaryKey(model);
@@ -91,7 +92,7 @@ public class ChangeLogPublisherImpl implements ChangeLogPublisher {
     public void publishUpdateLog(String model, List<Map<String, Object>> updatedRows,
             Map<Serializable, Map<String, Object>> originalRowsMap, LocalDateTime updatedTime) {
         // Skip if disabled or no rows
-        if (updatedRows == null || updatedRows.isEmpty()) {
+        if (updatedRows == null || updatedRows.isEmpty() || !ModelManager.isAuditLogEnabled(model)) {
             return;
         }
         String primaryKey = ModelManager.getModelPrimaryKey(model);
@@ -104,6 +105,11 @@ public class ChangeLogPublisherImpl implements ChangeLogPublisher {
             row.remove(primaryKey);
             row.remove(ModelConstant.ID); // ID might be different from PK
             ModelManager.getModel(model).getAuditUpdateFields().forEach(row::remove);
+            if (ModelManager.isVersionControl(model)) {
+                // The optimistic-lock version is the framework's, like the audit fields, and the
+                // value a written row carries is the version it was read at, not the one it got.
+                row.remove(ModelConstant.VERSION);
+            }
 
             ChangeLog changeLog = generateChangeLog(model, AccessType.UPDATE, pKey, updatedTime);
             changeLog.setDataBeforeChange(originalRowsMap.get(pKey));
@@ -123,7 +129,7 @@ public class ChangeLogPublisherImpl implements ChangeLogPublisher {
     @Override
     public void publishDeletionLog(String model, List<Map<String, Object>> deletedRows, LocalDateTime deleteTime) {
         // Skip if disabled or no rows
-        if (deletedRows == null || deletedRows.isEmpty()) {
+        if (deletedRows == null || deletedRows.isEmpty() || !ModelManager.isAuditLogEnabled(model)) {
             return;
         }
         String primaryKey = ModelManager.getModelPrimaryKey(model);
