@@ -47,8 +47,8 @@ import io.softa.starter.file.dto.ImportFieldDTO;
  * what the template declares. A column's description goes into the header cell's comment, where it is
  * one hover away from the column it explains.
  *
- * <p>The sheet freezes the header row and the template's leading columns (see {@link #frozenColumns}),
- * turns on a filter over the header, and sizes each column from its header text. The data area is white with a light grid. A result file adds two
+ * <p>The sheet freezes the header row, turns on a filter over the header, and sizes each column from
+ * its header text. The data area is white with a light grid. A result file adds two
  * trailing columns — the per-row outcome and the failure reason — with a dark header so they stand
  * apart from the template's own columns, and colours each outcome.
  *
@@ -64,8 +64,6 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
 
     private static final int COMMENT_CHARS_PER_LINE = 40;
     private static final int COMMENT_MAX_LINES = 12;
-    /** Unique-key columns are frozen by default only when all of them are among this many leading columns. */
-    private static final int LEADING_KEY_COLUMNS = 3;
 
     private enum Mode {
         /** The template's main sheet: everything, including comments and the column defaults. */
@@ -90,14 +88,12 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
     private final String failedLabel;
     /** Last row the filter covers: the header alone for a template, every data row for a result file. */
     private final int lastFilterRow;
-    private final int frozenColumns;
 
     private final Map<Workbook, Map<String, CellStyle>> styleCache = new IdentityHashMap<>();
     private final Map<Sheet, Drawing<?>> drawings = new IdentityHashMap<>();
 
     private ImportSheetStyleHandler(Mode mode, List<ImportFieldDTO> fields, List<String> extraHeaders,
-                                    String successLabel, String failedLabel, int lastFilterRow,
-                                    int frozenColumns) {
+                                    String successLabel, String failedLabel, int lastFilterRow) {
         this.mode = mode;
         this.headers = new ArrayList<>();
         this.required = new ArrayList<>();
@@ -116,21 +112,16 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
         this.successLabel = successLabel;
         this.failedLabel = failedLabel;
         this.lastFilterRow = lastFilterRow;
-        this.frozenColumns = Math.clamp(frozenColumns, 0, fields.size());
     }
 
-    /**
-     * The template's main sheet: header look, comments, freeze, filter, widths and the data-area grid.
-     *
-     * @param frozenColumns columns to freeze at the left, see {@link #frozenColumns}
-     */
-    public static ImportSheetStyleHandler forTemplate(List<ImportFieldDTO> fields, int frozenColumns) {
-        return new ImportSheetStyleHandler(Mode.TEMPLATE, fields, List.of(), null, null, 0, frozenColumns);
+    /** The template's main sheet: header look, comments, freeze, filter, widths and the data-area grid. */
+    public static ImportSheetStyleHandler forTemplate(List<ImportFieldDTO> fields) {
+        return new ImportSheetStyleHandler(Mode.TEMPLATE, fields, List.of(), null, null, 0);
     }
 
     /** A companion sheet of a template (the instruction sheet): the same header look and widths only. */
     public static ImportSheetStyleHandler forCompanionSheet(List<ImportFieldDTO> fields) {
-        return new ImportSheetStyleHandler(Mode.HEADER_ONLY, fields, List.of(), null, null, 0, 0);
+        return new ImportSheetStyleHandler(Mode.HEADER_ONLY, fields, List.of(), null, null, 0);
     }
 
     /**
@@ -138,50 +129,15 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
      *
      * @param successLabel the outcome text of a row that went through
      * @param failedLabel  the outcome text of a row that did not
-     * @param dataRows      number of data rows, so the filter covers all of them
-     * @param frozenColumns columns to freeze at the left, see {@link #frozenColumns}
+     * @param dataRows     number of data rows, so the filter covers all of them
      */
     public static ImportSheetStyleHandler forResult(List<ImportFieldDTO> fields, String resultHeader,
                                                     String reasonHeader, String successLabel,
-                                                    String failedLabel, int dataRows, int frozenColumns) {
+                                                    String failedLabel, int dataRows) {
         return new ImportSheetStyleHandler(Mode.RESULT, fields, List.of(resultHeader, reasonHeader),
-                successLabel, failedLabel, dataRows, frozenColumns);
+                successLabel, failedLabel, dataRows);
     }
 
-    /**
-     * Columns to freeze at the left, so each row stays identifiable while scrolling right.
-     *
-     * <p>The template's own setting when it has one. Otherwise through the unique-key columns, when
-     * all of them open the sheet — a key that sits further right is not what a reader scans for, and
-     * freezing up to it would pin half the screen. A key field matches its column directly or through
-     * a lookup on it ({@code employeeId} matches {@code employeeId.code}).
-     *
-     * @param declared   the template's setting, null when it has none
-     * @param uniqueKeys the template's unique-key fields, may be null
-     */
-    public static int frozenColumns(Integer declared, List<String> uniqueKeys, List<ImportFieldDTO> fields) {
-        if (declared != null) {
-            return Math.max(0, declared);
-        }
-        if (uniqueKeys == null || uniqueKeys.isEmpty()) {
-            return 0;
-        }
-        int through = 0;
-        for (String key : uniqueKeys) {
-            int column = -1;
-            for (int i = 0; i < fields.size() && column < 0; i++) {
-                String fieldName = fields.get(i).getFieldName();
-                if (fieldName != null && (fieldName.equals(key) || fieldName.startsWith(key + "."))) {
-                    column = i;
-                }
-            }
-            if (column < 0 || column >= LEADING_KEY_COLUMNS) {
-                return 0;
-            }
-            through = Math.max(through, column + 1);
-        }
-        return through;
-    }
 
     @Override
     public int order() {
@@ -200,7 +156,7 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
         if (mode == Mode.HEADER_ONLY || headers.isEmpty()) {
             return;
         }
-        sheet.createFreezePane(frozenColumns, 1);
+        sheet.createFreezePane(0, 1);
         sheet.setAutoFilter(new CellRangeAddress(0, Math.max(0, lastFilterRow), 0, headers.size() - 1));
         if (mode == Mode.TEMPLATE) {
             applyDataAreaDefaults(sheet);

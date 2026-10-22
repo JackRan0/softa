@@ -79,7 +79,6 @@ File Starter supports two import modes:
 | `name` | String | `null` | Template name |
 | `modelName` | String | `null` | Model name to import |
 | `sequence` | Integer | `null` | Display order in `listByModel` (ascending; unset sorts last, ties by id) |
-| `frozenColumns` | Integer | `null` | Columns frozen at the left of the template and the result file; unset freezes through the unique-key columns when they all sit in the first three columns, `0` freezes none |
 | `importRule` | ImportRule | `null` | Import rule: CreateOrUpdate / OnlyCreate / OnlyUpdate |
 | `uniqueConstraints` | List<String> | `null` | Unique key fields used by CreateOrUpdate |
 | `ignoreEmpty` | Boolean | `null` | Ignore empty values when importing |
@@ -230,7 +229,7 @@ by `ImportSheetStyleHandler`:
 | Header row | 32pt high (two wrapped lines), wrapped, vertically centred |
 | Header comment | the field's `description`; a required column's comment starts with `Required.` (not repeated when the description already does). No comment on an optional column without a description |
 | Data area | white, thin `#DDE1E6` grid — set as the column default styles, keeping a date column's format; the workbook's default font is Calibri 11pt, so typed cells match the template instead of the application's locale default |
-| Panes | row 1 frozen, and the leading columns: the template's `frozenColumns`, or when unset the unique-key columns if they all sit in the first three columns |
+| Panes | row 1 frozen |
 | Filter | auto-filter on the header row |
 | Column width | header length × 1.2 (bold text) + 5 (filter button) characters, clamped to 14–40; a longer header wraps |
 | Result file rows | the Failed Reason wraps, and a row grows to the lines its reason needs (estimated from the text's display width against the column width, a CJK character counting as two); the row's other cells are vertically centred |

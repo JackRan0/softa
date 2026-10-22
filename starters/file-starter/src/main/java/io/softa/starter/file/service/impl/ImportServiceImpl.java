@@ -146,9 +146,7 @@ public class ImportServiceImpl implements ImportService {
         ExcelSheetData mainSheetData = new ExcelSheetData(importTemplate.getName(), headers, Collections.emptyList(),
                 new WriteHandler[]{
                         // Header look, description comments, freeze, filter, widths, data-area grid.
-                        ImportSheetStyleHandler.forTemplate(importFields, ImportSheetStyleHandler.frozenColumns(
-                                importTemplate.getFrozenColumns(), importTemplate.getUniqueConstraints(),
-                                importFields)),
+                        ImportSheetStyleHandler.forTemplate(importFields),
                         new OptionDropdownHandler(dropdowns),
                         // Without this a date column is General, and the format a typed date takes is
                         // the reader's locale — contradicting the instruction sheet beside it.
@@ -551,7 +549,6 @@ public class ImportServiceImpl implements ImportService {
         importTemplateDTO.setSkipException(importTemplate.getSkipException());
         importTemplateDTO.setCustomHandler(importTemplate.getCustomHandler());
         importTemplateDTO.setUniqueConstraints(importTemplate.getUniqueConstraints());
-        importTemplateDTO.setFrozenColumns(importTemplate.getFrozenColumns());
         importTemplateDTO.setEnv(env);
         return importTemplateDTO;
     }
@@ -793,9 +790,7 @@ public class ImportServiceImpl implements ImportService {
         List<List<Object>> rowsTable = ListUtils.convertToTableData(fields, resultRows);
         ExcelSheetData sheetData = new ExcelSheetData(suffix, headers, rowsTable, new WriteHandler[]{
                 ImportSheetStyleHandler.forResult(importFields, resultHeader, reasonHeader,
-                        successLabel, failedLabel, rowsTable.size(), ImportSheetStyleHandler.frozenColumns(
-                                importTemplateDTO.getFrozenColumns(), importTemplateDTO.getUniqueConstraints(),
-                                importFields))
+                        successLabel, failedLabel, rowsTable.size())
         });
         // Stamped with the holder, not the subject — see importByTemplate. This one lands on
         // ImportHistory.failedFileId.

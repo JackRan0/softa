@@ -35,9 +35,6 @@ public class ImportTemplateDTO {
 
     private List<String> uniqueConstraints;
 
-    /** Columns frozen at the left of the result file; see {@code ImportTemplate.frozenColumns}. */
-    private Integer frozenColumns;
-
     private Boolean ignoreEmpty;
 
     private Boolean skipException;
