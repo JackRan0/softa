@@ -168,6 +168,29 @@ up" rather than a generic failure, checked before the active check so that speci
   pom): a deployment on a different scheduler (Quartz, `@Scheduled`, XXL-Job, …) omits cron-starter — the
   consumer stays dormant and the app drives `failTimedOut()` / `SubscriptionProjectionJob` from its own trigger.
 
+## Platform tenant
+
+Platform operators' accounts belong to the platform tenant, `BaseConstant.PLATFORM_TENANT_ID` — `-1`, not
+`0`, because `IdUtils.validId` treats `0` as no id at all. Login checks the tenant of every account, so no
+operator can sign in until this row exists and is `ACTIVE`. It is never provisioned: nothing seeds it and
+nothing moves its status, so `TenantInfoService.ensurePlatformTenant()` creates it already `ACTIVE`, and only
+when it is missing — an existing row, in any state, soft-deleted included, is left alone.
+
+```yaml
+softa:
+  tenant:
+    platform:
+      default-country: SG          # required, no default — which country is the application's call
+      default-timezone: UTC+08:00  # required
+      default-language: en-US      # optional; name / code default to Platform / platform
+```
+
+The row is written through JDBC rather than the model layer, because its id is fixed and `IdProcessor`
+replaces the id of every insert unless the global `enableInsertId` switch is on. `PlatformTenantCreatorTest`
+holds the column list to the entity, so a new required `TenantInfo` field fails the build instead of the next
+fresh deployment. user-starter's `PlatformAdminBootstrap` calls it before creating the first
+super-administrator.
+
 ## How isolation works
 
 Tenant identity travels on the request `Context` (`io.softa.framework.base.context`),

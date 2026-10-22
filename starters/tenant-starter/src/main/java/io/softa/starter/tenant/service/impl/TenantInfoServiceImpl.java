@@ -34,6 +34,9 @@ public class TenantInfoServiceImpl extends EntityServiceImpl<TenantInfo, Long> i
     @Autowired
     private JdbcService<?> jdbcService;
 
+    @Autowired
+    private PlatformTenantCreator platformTenantCreator;
+
     @Override
     public List<Long> getActiveTenantIds() {
         // Try Redis cache first
@@ -203,6 +206,16 @@ public class TenantInfoServiceImpl extends EntityServiceImpl<TenantInfo, Long> i
         tenant.setSuspendedTime(target == TenantStatus.SUSPENDED ? now : null);
         tenant.setClosedTime(target == TenantStatus.CLOSED ? now : null);
         tenant.setStatus(target);
+    }
+
+    /**
+     * Delegates to {@link PlatformTenantCreator}, which writes the row through JDBC because its id is
+     * fixed. No cache to clear afterwards: {@link #getTenantInfo} only ever caches a row it found, so the
+     * absence that came before is not remembered anywhere.
+     */
+    @Override
+    public boolean ensurePlatformTenant() {
+        return platformTenantCreator.createIfAbsent();
     }
 
     /** Cached single-tenant lookup — internal to tenant-starter (not part of the framework SPI). */
