@@ -257,5 +257,31 @@ social-oauth:
   linkedin: { enable: false, client-id: ..., client-secret: ... }
 ```
 
-There are no `softa.user.*` property keys — password and login policy live in
+### First platform administrator
+
+`PlatformAdminBootstrap` creates the platform's first super-administrator at startup, so a fresh
+deployment needs no hand-run SQL (prefix `softa.user.platform-admin`, bound by `PlatformAdminProperties`):
+
+```yaml
+softa:
+  user:
+    platform-admin:
+      enabled: ${PLATFORM_ADMIN_BOOTSTRAP:false}
+      email: ${PLATFORM_ADMIN_EMAIL:}
+      password: ${PLATFORM_ADMIN_PASSWORD:}   # from the environment — never commit it
+```
+
+- Runs on `ApplicationReadyEvent`, after the boot DDL, so every table it writes exists.
+- **Creates, never repairs.** An account with that address already in the platform tenant is left as it
+  is — its password above all, or the setting would reset it on every restart — and a revoked role is not
+  re-granted.
+- **Refuses an address that already signs a person in.** Credentials belong to the person, not the
+  account, so the configured password would replace theirs in every tenant they belong to.
+- Fails the boot when enabled without an email or password, or when the password fails the password
+  policy. Several instances starting together on a fresh database race safely.
+- Under multi-tenancy the admin belongs to the platform tenant, which it creates first through
+  `TenantInfoService.ensurePlatformTenant` — see tenant-starter's `softa.tenant.platform`.
+- It loads no seed data; the administrator it creates is the one who does.
+
+Apart from that, there are no `softa.user.*` keys — password and login policy live in
 `UserSecurityPolicy` rows, not in `application.yml`.
