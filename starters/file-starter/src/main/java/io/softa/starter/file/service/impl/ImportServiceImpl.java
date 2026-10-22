@@ -35,7 +35,6 @@ import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.DateUtils;
 import io.softa.framework.base.utils.ListUtils;
-import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -47,6 +46,7 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.FileService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.utils.FileUtils;
+import io.softa.starter.file.constant.FileConstant;
 import io.softa.starter.file.dto.ImportDataDTO;
 import io.softa.starter.file.dto.ImportFieldDTO;
 import io.softa.starter.file.dto.ImportTemplateDTO;
@@ -62,13 +62,15 @@ import io.softa.starter.file.excel.style.TemporalColumnFormatHandler;
 import io.softa.starter.file.excel.export.support.OptionDropdownResolver;
 import io.softa.starter.file.excel.imports.ImportHeaderMatcher;
 import io.softa.starter.file.excel.imports.ImportRowPipeline;
-import io.softa.starter.file.excel.style.CustomHeadStyleHandler;
+import io.softa.starter.file.excel.style.ImportSheetStyleHandler;
 import io.softa.starter.file.message.AsyncImportProducer;
 import io.softa.starter.file.service.ImportHistoryService;
 import io.softa.starter.file.service.ImportService;
 import io.softa.starter.file.service.ImportTemplateFieldService;
 import io.softa.starter.file.service.ImportTemplateService;
 import io.softa.starter.file.vo.ImportWizard;
+
+import static io.softa.framework.orm.constant.FileConstant.FAILED_REASON;
 
 @Slf4j
 @Service
@@ -131,14 +133,11 @@ public class ImportServiceImpl implements ImportService {
 
         List<ImportFieldDTO> importFields = importTemplateDTO.getImportFields();
         List<String> headers = importFields.stream().map(ImportFieldDTO::getHeader).toList();
-        List<String> requiredHeaderList = importFields.stream()
-                .filter(ImportFieldDTO::getRequired).map(ImportFieldDTO::getHeader).toList();
 
         // 1) Main sheet: header row, plus a dropdown on every column whose values are a fixed list.
         // Resolved here rather than inside the handler so the query happens before the workbook is
         // serialised — a write handler runs during serialisation and should not be holding a
         // connection. An empty map simply means no column qualified.
-        CustomHeadStyleHandler headStyleHandler = new CustomHeadStyleHandler(requiredHeaderList);
         // The template's own country, not the request's: an administrator of a company in one country
         // may download another country's template, and inferring it from the request would fill that
         // template with the wrong country's values.
@@ -146,7 +145,8 @@ public class ImportServiceImpl implements ImportService {
                 importTemplate.getModelName(), importFields, importTemplate.getCountry());
         ExcelSheetData mainSheetData = new ExcelSheetData(importTemplate.getName(), headers, Collections.emptyList(),
                 new WriteHandler[]{
-                        headStyleHandler,
+                        // Header look, description comments, freeze, filter, widths, data-area grid.
+                        ImportSheetStyleHandler.forTemplate(importFields),
                         new OptionDropdownHandler(dropdowns),
                         // Without this a date column is General, and the format a typed date takes is
                         // the reader's locale — contradicting the instruction sheet beside it.
@@ -167,7 +167,7 @@ public class ImportServiceImpl implements ImportService {
                     headers,
                     List.of(instructionRow),
                     new WriteHandler[]{
-                            headStyleHandler,
+                            ImportSheetStyleHandler.forCompanionSheet(importFields),
                             createInstructionWrapHandler(),
                             createInstructionRowHeightHandler()
                     }
@@ -255,7 +255,7 @@ public class ImportServiceImpl implements ImportService {
         if (lastCellNum <= 0) {
             return estimatedLineCount * 16f;
         }
-        int charsPerLine = Math.max(1, io.softa.starter.file.constant.FileConstant.DEFAULT_EXCEL_COLUMN_WIDTH - 4);
+        int charsPerLine = Math.max(1, FileConstant.DEFAULT_EXCEL_COLUMN_WIDTH - 4);
         for (int i = 0; i < lastCellNum; i++) {
             Cell cell = row.getCell(i);
             if (cell == null) {
@@ -324,9 +324,11 @@ public class ImportServiceImpl implements ImportService {
             ImportDataDTO importDataDTO = this.generateImportDataDTO(importTemplateDTO, inputStream);
             importRowPipeline.importData(importTemplateDTO, importDataDTO);
             updateImportStatistics(importHistory, importDataDTO);
+            // Every import leaves a result file — every row in file order with its outcome — not only
+            // the ones with failures: the person who ran it gets one place to confirm what landed.
+            importHistory.setFailedFileId(this.generateResultExcelQuietly(
+                    importTemplateDTO, importDataDTO, FileConstant.IMPORT_RESULT));
             if (!CollectionUtils.isEmpty(importDataDTO.getFailedRows())) {
-                Long failedFileId = this.generateFailedExcel(importTemplateDTO.getFileName(), importTemplateDTO, importDataDTO);
-                importHistory.setFailedFileId(failedFileId);
                 ImportStatus status = CollectionUtils.isEmpty(importDataDTO.getRows()) ?
                         ImportStatus.FAILURE : ImportStatus.PARTIAL_FAILURE;
                 importHistory.setStatus(status);
@@ -355,8 +357,8 @@ public class ImportServiceImpl implements ImportService {
 
     /**
      * Synchronous validation of data from the uploaded file (no persistence).
-     * Runs the validation pipeline (which forces skipException=true) and generates a result Excel
-     * containing ALL rows (both passed and failed) with a FAILED_REASON column for complete user feedback.
+     * Runs the validation pipeline (which forces skipException=true) and generates a result Excel in the
+     * same format as an import's: ALL rows in file order with a Result and a Failed Reason column.
      *
      * @param importTemplateDTO the import template DTO
      * @param inputStream the input stream of the uploaded file
@@ -374,10 +376,10 @@ public class ImportServiceImpl implements ImportService {
             importHistory.setTotalRows(successCount + failedCount);
             importHistory.setFailedRows(failedCount);
             importHistory.setSuccessRows(successCount);
-            // Generate validation result Excel containing ALL rows (passed + failed)
-            Long resultFileId = this.generateValidationResultExcel(
-                    importTemplateDTO.getFileName(), importTemplateDTO, importDataDTO);
-            importHistory.setFailedFileId(resultFileId);
+            // Same format as an import's result file, so the two read alike; named apart because a
+            // validation run changes nothing.
+            importHistory.setFailedFileId(this.generateResultExcel(
+                    importTemplateDTO, importDataDTO, FileConstant.VALIDATION_RESULT));
             if (failedCount > 0) {
                 importHistory.setStatus(ImportStatus.VALIDATION_FAILURE);
             } else {
@@ -475,7 +477,9 @@ public class ImportServiceImpl implements ImportService {
         ImportDataDTO importDataDTO = new ImportDataDTO();
         importDataDTO.setRows(allDataList);
         importDataDTO.setEnv(importTemplateDTO.getEnv());
-        importDataDTO.setOriginalRows(ListUtils.deepCopy(allDataList));
+        List<Map<String, Object>> originalRows = ListUtils.deepCopy(allDataList);
+        importDataDTO.setOriginalRows(originalRows);
+        importDataDTO.setSourceRows(new ArrayList<>(originalRows));
         return importDataDTO;
     }
 
@@ -745,27 +749,56 @@ public class ImportServiceImpl implements ImportService {
     }
 
     /**
-     * Generate an Excel file consist of failed data.
+     * {@link #generateResultExcel}, for an import whose rows are already written.
      *
-     * @param fileName the name of the file with failed data
-     * @param importTemplateDTO the import template DTO
-     * @param importDataDTO the import data DTO
-     * @return the fileId of the generated Excel file with failed data
+     * <p>By the time this runs the import has committed, so a failure to write the result file must not
+     * turn into a FAILURE on the history — the person would retry an import that already landed. The
+     * history is left without a result file instead, and the cause goes to the log.
      */
-    private Long generateFailedExcel(String fileName, ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
-        fileName = fileName + "_" + FileConstant.FAILED_DATA;
+    private Long generateResultExcelQuietly(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO,
+                                            String suffix) {
+        try {
+            return this.generateResultExcel(importTemplateDTO, importDataDTO, suffix);
+        } catch (RuntimeException e) {
+            log.error("Failed to generate the result file of import history `{}`; the import itself stands.",
+                    importTemplateDTO.getHistoryId(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Generate the result file of an import or a validation run: every row of the uploaded file in its
+     * original order, under the template's own columns, followed by a Result column ({@code Success} /
+     * {@code Failed}) and a Failed Reason column (empty on a row that went through).
+     *
+     * @param importTemplateDTO the import template DTO
+     * @param importDataDTO the import data DTO, after the pipeline has marked the failed rows
+     * @param suffix appended to the uploaded file's name, and used as the sheet name
+     * @return the fileId of the generated Excel file
+     */
+    private Long generateResultExcel(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO, String suffix) {
+        String fileName = importTemplateDTO.getFileName() + "_" + suffix;
+        String resultHeader = I18n.get(FileConstant.RESULT);
+        String reasonHeader = I18n.get(FAILED_REASON);
+        String successLabel = I18n.get(FileConstant.RESULT_SUCCESS);
+        String failedLabel = I18n.get(FileConstant.RESULT_FAILED);
+        List<ImportFieldDTO> importFields = importTemplateDTO.getImportFields();
         List<String> headers = new ArrayList<>();
         List<String> fields = new ArrayList<>();
-        importTemplateDTO.getImportFields().forEach(importFieldDTO -> {
+        importFields.forEach(importFieldDTO -> {
             fields.add(importFieldDTO.getFieldName());
             headers.add(importFieldDTO.getHeader());
         });
-        // Add the failed reason header and column
-        fields.add(FileConstant.FAILED_REASON);
-        headers.add(I18n.get(FileConstant.FAILED_REASON));
-        // Get the data to be exported
-        List<List<Object>> rowsTable = ListUtils.convertToTableData(fields, importDataDTO.getFailedRows());
-        ExcelSheetData sheetData = new ExcelSheetData(FileConstant.FAILED_DATA, headers, rowsTable, null);
+        fields.add(FileConstant.RESULT);
+        headers.add(resultHeader);
+        fields.add(FAILED_REASON);
+        headers.add(reasonHeader);
+        List<Map<String, Object>> resultRows = resultRows(importDataDTO, successLabel, failedLabel);
+        List<List<Object>> rowsTable = ListUtils.convertToTableData(fields, resultRows);
+        ExcelSheetData sheetData = new ExcelSheetData(suffix, headers, rowsTable, new WriteHandler[]{
+                ImportSheetStyleHandler.forResult(importFields, resultHeader, reasonHeader,
+                        successLabel, failedLabel, rowsTable.size())
+        });
         // Stamped with the holder, not the subject — see importByTemplate. This one lands on
         // ImportHistory.failedFileId.
         FileInfo fileInfo = excelUploadService.generateFileAndUpload(HISTORY_MODEL, fileName, sheetData);
@@ -773,41 +806,29 @@ public class ImportServiceImpl implements ImportService {
     }
 
     /**
-     * Generate a validation result Excel file containing ALL rows (both passed and failed).
-     * Each row includes a FAILED_REASON column: empty for passed rows, error messages for failed rows.
-     * This provides complete feedback so the user can see which rows will pass and which will fail.
-     *
-     * @param fileName the base name of the file
-     * @param importTemplateDTO the import template DTO
-     * @param importDataDTO the import data DTO (with rows and failedRows already separated by ImportFailureCollector)
-     * @return the fileId of the generated validation result Excel file
+     * Every row as read, in file order, each with its outcome. A row failed exactly when the pipeline
+     * gave it a Failed Reason — see {@link ImportDataDTO#getSourceRows()}.
      */
-    private Long generateValidationResultExcel(String fileName, ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
-        fileName = fileName + "_Validation Result";
-        List<String> headers = new ArrayList<>();
-        List<String> fields = new ArrayList<>();
-        importTemplateDTO.getImportFields().forEach(importFieldDTO -> {
-            fields.add(importFieldDTO.getFieldName());
-            headers.add(importFieldDTO.getHeader());
-        });
-        // Add the failed reason header and column
-        fields.add(FileConstant.FAILED_REASON);
-        headers.add(I18n.get(FileConstant.FAILED_REASON));
-        // Merge all rows: failed original rows first, then passed original rows (FAILED_REASON is empty for passed rows)
-        List<Map<String, Object>> allRows = new ArrayList<>();
-        if (!CollectionUtils.isEmpty(importDataDTO.getFailedRows())) {
-            allRows.addAll(importDataDTO.getFailedRows());
+    static List<Map<String, Object>> resultRows(ImportDataDTO importDataDTO, String successLabel, String failedLabel) {
+        List<Map<String, Object>> sourceRows = importDataDTO.getSourceRows();
+        if (sourceRows == null) {
+            // Built without the full list: failed rows first, then the rest, as before.
+            sourceRows = new ArrayList<>();
+            if (importDataDTO.getFailedRows() != null) {
+                sourceRows.addAll(importDataDTO.getFailedRows());
+            }
+            if (importDataDTO.getOriginalRows() != null) {
+                sourceRows.addAll(importDataDTO.getOriginalRows());
+            }
         }
-        if (!CollectionUtils.isEmpty(importDataDTO.getOriginalRows())) {
-            // originalRows still holds the passed rows (failures were removed by ImportFailureCollector)
-            allRows.addAll(importDataDTO.getOriginalRows());
+        List<Map<String, Object>> rows = new ArrayList<>(sourceRows.size());
+        for (Map<String, Object> source : sourceRows) {
+            Map<String, Object> row = new HashMap<>(source);
+            boolean failed = source.containsKey(FAILED_REASON);
+            row.put(FileConstant.RESULT, failed ? failedLabel : successLabel);
+            rows.add(row);
         }
-        List<List<Object>> rowsTable = ListUtils.convertToTableData(fields, allRows);
-        ExcelSheetData sheetData = new ExcelSheetData("Validation Result", headers, rowsTable, null);
-        // Stamped with the holder, not the subject — see importByTemplate. This one lands on
-        // ImportHistory.failedFileId.
-        FileInfo fileInfo = excelUploadService.generateFileAndUpload(HISTORY_MODEL, fileName, sheetData);
-        return fileInfo.getFileId();
+        return rows;
     }
 
 }

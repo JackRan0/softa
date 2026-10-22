@@ -19,4 +19,13 @@ public class ImportDataDTO {
     private Map<String, Object> env;
 
     private List<Map<String, Object>> originalRows;
+
+    /**
+     * Every row as read, in file order — the same row objects {@link #originalRows} starts with.
+     *
+     * <p>{@code originalRows} loses each row that fails, which moves to {@link #failedRows} carrying its
+     * Failed Reason; this list keeps them all where they were. A row here is therefore failed exactly
+     * when it carries a Failed Reason, which is what the result file is written from.
+     */
+    private List<Map<String, Object>> sourceRows;
 }
