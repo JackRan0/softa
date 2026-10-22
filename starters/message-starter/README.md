@@ -205,9 +205,10 @@ one slow SMTP or provider call no longer holds up every message behind it.
 Parallel consumers cannot send a record twice: two deliveries of the same record
 race for the CAS claim in step 3, and only one wins. Outbox messages are published
 unbatched, because a Shared subscription hands a whole broker entry to one
-consumer and a batched burst would land on a single consumer. The mail-request
-subscription (templated mail requested over MQ, accepted by `MailRequestConsumer`)
-is Shared too, with one consumer per instance — accepting a request is quick. A
+consumer and a batched burst would land on a single consumer. The mail-request and
+sms-request subscriptions (templated mail / SMS requested over MQ, accepted by
+`MailRequestConsumer` / `SmsRequestConsumer`) are Shared too, with one consumer per
+instance — accepting a request is quick. A
 request the starter rejects — unknown template, exhausted quota, invalid address,
 no SMTP server; any `BusinessException` — is logged at ERROR and acknowledged:
 it never became a send record, and a redelivery could only be rejected again.

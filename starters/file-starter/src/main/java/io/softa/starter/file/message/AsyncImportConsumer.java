@@ -1,6 +1,7 @@
 package io.softa.starter.file.message;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarListener;
@@ -12,6 +13,10 @@ import io.softa.starter.file.dto.ImportTemplateDTO;
 
 /**
  * AsyncImportConsumer
+ * <p>
+ * The subscription is Shared, so every replica takes imports off the topic; under the former
+ * default (Exclusive) a second replica failed to boot. Each message is one independent import.
+ * The one-time switch needs a stop-then-start release; see {@code MailSendConsumer}.
  */
 @Slf4j
 @Component
@@ -21,7 +26,8 @@ public class AsyncImportConsumer {
     @Autowired
     private AsyncImportHandler asyncImportHandler;
 
-    @PulsarListener(topics = "${mq.topics.async-import.topic}", subscriptionName = "${mq.topics.async-import.sub}")
+    @PulsarListener(topics = "${mq.topics.async-import.topic}", subscriptionName = "${mq.topics.async-import.sub}",
+            subscriptionType = SubscriptionType.Shared)
     public void onMessage(ImportTemplateDTO importTemplateDTO) {
         Context context = importTemplateDTO.getContext();
         if (context == null) {

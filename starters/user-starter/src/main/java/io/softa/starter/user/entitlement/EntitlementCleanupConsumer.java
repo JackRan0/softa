@@ -1,5 +1,6 @@
 package io.softa.starter.user.entitlement;
 
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.pulsar.annotation.PulsarListener;
 import org.springframework.stereotype.Component;
@@ -14,6 +15,11 @@ import io.softa.framework.base.message.EntitlementChangeMessage;
  * (Pulsar optional). Runs the cleanup under a context scoped to the message's tenant (so
  * tenant-filtered reads/deletes target the right tenant) with permission checks skipped
  * (system cleanup, not a user query).
+ *
+ * <p>The subscription is Shared, so every replica takes messages off the topic; under the former
+ * default (Exclusive) a second replica failed to boot. Two changes for one tenant may now be
+ * cleaned up out of order; a cleanup only deletes, so both orders remove the same grants. The
+ * one-time switch needs a stop-then-start release; see {@code MailSendConsumer}.
  */
 @Slf4j
 @Component
@@ -27,7 +33,8 @@ public class EntitlementCleanupConsumer {
     }
 
     @PulsarListener(topics = "${mq.topics.entitlement-change.topic}",
-            subscriptionName = "${mq.topics.entitlement-change.user-sub:entitlement-cleanup-user}")
+            subscriptionName = "${mq.topics.entitlement-change.user-sub:entitlement-cleanup-user}",
+            subscriptionType = SubscriptionType.Shared)
     public void onMessage(EntitlementChangeMessage message) {
         if (message == null || message.tenantId() == null) {
             return;

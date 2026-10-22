@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -23,6 +24,11 @@ import io.softa.starter.es.document.ChangeLogDocument;
 
 /**
  * ChangeLog persist consumer
+ * <p>
+ * The subscription is Shared, so every replica takes messages off the topic; under the former
+ * default (Exclusive) a second replica failed to boot. Each log is indexed as its own document,
+ * so the order the replicas process messages in does not matter. The one-time switch needs a
+ * stop-then-start release; see {@code MailSendConsumer}.
  */
 @Slf4j
 @Component
@@ -39,7 +45,8 @@ public class ChangeLogPersistConsumer {
      * Handle ChangeLog message from Pulsar.
      * @param changeLogMessage ChangeLog message
      */
-    @PulsarListener(topics = "${mq.topics.change-log.topic}", subscriptionName = "${mq.topics.change-log.persist-sub}")
+    @PulsarListener(topics = "${mq.topics.change-log.topic}", subscriptionName = "${mq.topics.change-log.persist-sub}",
+            subscriptionType = SubscriptionType.Shared)
     public void onMessage(ChangeLogMessage changeLogMessage) {
         persistChangeLogToESDirectly(changeLogMessage);
     }
