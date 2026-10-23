@@ -1,5 +1,7 @@
 package io.softa.starter.metadata.sequence;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -98,7 +100,28 @@ class ManualCodeRulesTest {
         assertThat(ManualCodeRules.ruleErrors(new ManualEntryRule(ManualEntryFormat.PATTERN, null, null, null, "[A-Z", null)))
                 .containsEntry("pattern", "Pattern is not a valid regular expression.")
                 .containsEntry("errorMessage", "Error Message is required.");
+        assertThat(ManualCodeRules.ruleErrors(new ManualEntryRule(ManualEntryFormat.PATTERN, null, null, null, "^[A-Z ]+$", "Letters only")))
+                .containsExactly(java.util.Map.entry("pattern", "Pattern cannot match spaces: codes never contain them."));
+        assertThat(ManualCodeRules.ruleErrors(new ManualEntryRule(ManualEntryFormat.PATTERN, null, null, null, "^[A-Z]+$", "Letters only")))
+                .isEmpty();
         // Settings of an inactive format are kept, not judged.
         assertThat(ManualCodeRules.ruleErrors(new ManualEntryRule(ManualEntryFormat.ANY, 10, 6, null, "[A-Z", null))).isEmpty();
+    }
+
+    @Test
+    void aPatternThatSpellsOutASpaceIsRefused() {
+        for (String pattern : List.of("^[A-Z ]+$", "^[A-Z\tB]+$", "^[A-Z\\s]+$", "\\h", "\\v", "\\t", "A\\x20B",
+                "A\\x{20}B", "A\\u0020B", "A\\040B", "\\p{Space}", "\\p{Blank}", "\\p{javaWhitespace}",
+                "\\p{IsWhite_Space}", "\\p{Zs}", "\\Q \\E", "\\\\\\s")) {
+            assertThat(ManualCodeRules.spellsOutSpace(pattern)).as(pattern).isTrue();
+        }
+    }
+
+    @Test
+    void aPatternThatOnlyHappensToAllowOneIsNot() {
+        for (String pattern : List.of("^[A-Z]{2,3}[0-9]{4,7}$", ".+", "\\W", "\\D", "[^A-Z]", "\\S",
+                "\\P{Space}", "\\\\s", "A\\x41B", "A\\u0041B", "\\d{3}")) {
+            assertThat(ManualCodeRules.spellsOutSpace(pattern)).as(pattern).isFalse();
+        }
     }
 }
