@@ -25,6 +25,18 @@ public final class ManualCodeRules {
 
     private static final Pattern TOKEN = Pattern.compile("\\{([a-zA-Z]+)(?::(\\d+))?}");
 
+    static final String PATTERN_MATCHES_SPACES = "Pattern cannot match spaces: codes never contain them.";
+
+    /**
+     * A space spelled out in a pattern. The escapes count only after an odd run of backslashes, so
+     * {@code \\\\s} — a backslash, then an s — is not one. The same expression, character for character, is
+     * in the frontend's rule check.
+     */
+    private static final Pattern SPELLED_SPACE = Pattern.compile(
+            "\\s|(?<!\\\\)(?:\\\\\\\\)*\\\\(?:[shvtnrf]|x(?:20|\\{0*20\\})|u0020|0?40"
+                    + "|p\\{(?:Space|Blank|javaWhitespace|javaSpaceChar|IsWhite_Space|IsWhiteSpace"
+                    + "|Zs|IsZs|Z|IsZ|Separator|IsSeparator|Space_Separator|IsSpace_Separator)\\})");
+
     private ManualCodeRules() {
     }
 
@@ -195,6 +207,10 @@ public final class ManualCodeRules {
                     errors.put("pattern", "Pattern is required.");
                 } else if (compile(rule.pattern()) == null) {
                     errors.put("pattern", "Pattern is not a valid regular expression.");
+                } else if (spellsOutSpace(rule.pattern())) {
+                    // A code never holds a space — the fixed rule refuses one before the pattern is asked —
+                    // so a pattern that spells one out promises codes nobody can enter.
+                    errors.put("pattern", PATTERN_MATCHES_SPACES);
                 }
                 if (StringUtils.isBlank(rule.errorMessage())) {
                     errors.put("errorMessage", "Error Message is required.");
@@ -205,6 +221,19 @@ public final class ManualCodeRules {
             }
         }
         return errors;
+    }
+
+    /**
+     * Whether a pattern spells out a space — the ways that mean whitespace and nothing else: a whitespace
+     * character typed in, an escape such as {@code \\s} or {@code \\h}, the space written by its code
+     * ({@code \\x20}, {@code \\x{20}}, {@code \\u0020}, {@code \\040}), or a whitespace property class such
+     * as {@code \\p{Space}}. Broad constructs that merely happen to include a space — {@code .},
+     * {@code \\W}, {@code \\D}, a negated class — are left alone: they are written to let other characters
+     * through. A code with a space is refused by the fixed rule either way; this only keeps a pattern from
+     * saying otherwise.
+     */
+    public static boolean spellsOutSpace(String pattern) {
+        return pattern != null && SPELLED_SPACE.matcher(pattern).find();
     }
 
     private static Pattern compile(String pattern) {
