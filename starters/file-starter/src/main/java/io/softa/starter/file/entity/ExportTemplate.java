@@ -67,7 +67,7 @@ public class ExportTemplate extends AuditableModel {
      * OneToMany. A reverse reference is indistinguishable there from a composition: Employee
      * declares {@code managedDepartments} / {@code hrbpDepartments} to say "departments this person
      * leads", so Department became a child of Employee and the Department template turned up in the
-     * employee import dialog (zingkey/zingkey-hcm#764).
+     * employee import dialog.
      *
      * <p>Declared on the template rather than inferred from the model graph, because which page a
      * template belongs on is a property of the template — the relation graph only approximates it.

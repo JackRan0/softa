@@ -39,6 +39,9 @@ public class ImportRowPipeline {
     @Autowired
     private UniqueConstraintValidator uniqueConstraintValidator;
 
+    @Autowired
+    private RequiredOnCreateResolver requiredOnCreateResolver;
+
     /**
      * Run the full import row pipeline:
      * 1. Standard field handlers (type conversion, validation, etc.)
@@ -149,6 +152,10 @@ public class ImportRowPipeline {
             uniqueConstraintValidator.validate(importTemplateDTO.getModelName(),
                     importTemplateDTO.getUniqueConstraints(), importDataDTO.getRows(), skipException);
         }
+        // Required columns left blank under ignoreEmpty fail only the rows that create a record. After
+        // the lookups and the duplicate marking, so the key it matches on is the resolved one and a
+        // duplicate is not looked up; before the custom handler, which never sees the transient note.
+        requiredOnCreateResolver.resolve(importTemplateDTO, importDataDTO.getRows(), skipException);
         executeCustomHandler(importTemplateDTO.getCustomHandler(), importDataDTO, mode);
         importFailureCollector.collect(importDataDTO);
     }

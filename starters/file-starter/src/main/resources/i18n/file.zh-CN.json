@@ -8,6 +8,18 @@
     "translation": "失败原因"
   },
   {
+    "original": "Result",
+    "translation": "结果"
+  },
+  {
+    "original": "Success",
+    "translation": "成功"
+  },
+  {
+    "original": "Failed",
+    "translation": "失败"
+  },
+  {
     "original": "The field `{0}` is required",
     "translation": "字段`{0}`是必填字段"
   },

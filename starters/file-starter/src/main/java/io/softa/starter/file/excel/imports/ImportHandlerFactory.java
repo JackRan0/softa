@@ -68,8 +68,8 @@ public class ImportHandlerFactory {
      * that does not carry it is not. With {@code ignoreEmpty} off the blank is written as null, the
      * ORM would refuse it either way, and checking here only buys the column's own name in the error.
      *
-     * <p>The template's own {@code required} is never relaxed: it is a rule the template states for
-     * every row, create or update.
+     * <p>The template's own {@code required} is kept as declared. Under {@code ignoreEmpty} it is
+     * enforced on the rows that create a record only — see {@code RequiredOnCreateResolver}.
      */
     private static void promoteModelRequired(ImportFieldDTO importFieldDTO, MetaField metaField) {
         if (Boolean.TRUE.equals(importFieldDTO.getRequired()) || Boolean.TRUE.equals(importFieldDTO.getIgnoreEmpty())) {

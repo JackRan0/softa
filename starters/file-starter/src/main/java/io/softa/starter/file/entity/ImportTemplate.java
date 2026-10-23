@@ -34,6 +34,13 @@ public class ImportTemplate extends AuditableModel {
     @Field(required = true)
     private String modelName;
 
+    /**
+     * Position of this template among the templates offered for a model; ascending, a template
+     * without one listed after those that have one.
+     */
+    @Field
+    private Integer sequence;
+
     @Field(required = true)
     private ImportRule importRule;
 
@@ -60,7 +67,7 @@ public class ImportTemplate extends AuditableModel {
      * OneToMany. A reverse reference is indistinguishable there from a composition: Employee
      * declares {@code managedDepartments} / {@code hrbpDepartments} to say "departments this person
      * leads", so Department became a child of Employee and the Department template turned up in the
-     * employee import dialog (zingkey/zingkey-hcm#764).
+     * employee import dialog.
      *
      * <p>Declared on the template rather than inferred from the model graph, because which page a
      * template belongs on is a property of the template — the relation graph only approximates it.

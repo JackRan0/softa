@@ -8,6 +8,7 @@ import io.softa.framework.base.exception.ValidationException;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.starter.file.dto.ImportFieldDTO;
+import io.softa.starter.file.excel.imports.RequiredOnCreateResolver;
 
 /**
  * BaseImportHandler
@@ -104,11 +105,16 @@ public abstract class BaseImportHandler {
             // exists for.
             if (importFieldDTO.getDefaultValue() != null) {
                 row.put(rowKey, importFieldDTO.getDefaultValue());
+            } else if (Boolean.TRUE.equals(importFieldDTO.getIgnoreEmpty())) {
+                // A dropped blank keeps the stored value on an update, so a required column may be
+                // left blank on a row that updates. Which kind of row this is is not known yet: the
+                // blank is noted, and RequiredOnCreateResolver fails the row only if it creates.
+                if (Boolean.TRUE.equals(importFieldDTO.getRequired())) {
+                    RequiredOnCreateResolver.record(row, label);
+                }
+                row.remove(rowKey);
             } else {
                 checkRequired();
-                if (Boolean.TRUE.equals(importFieldDTO.getIgnoreEmpty())) {
-                    row.remove(rowKey);
-                }
             }
         } else {
             row.put(rowKey, handleValue(value));

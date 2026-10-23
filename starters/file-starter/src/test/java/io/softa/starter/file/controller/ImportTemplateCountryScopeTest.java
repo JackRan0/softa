@@ -37,14 +37,21 @@ class ImportTemplateCountryScopeTest {
         // Both halves matter. Without the first, an SG + NZ user loses every country-less template —
         // which is 94% of them. Without the second, they also see Malaysia's.
         assertThat(scopeFor(Set.of("SG", "NZ"), null))
-                .hasToString("[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"IN\",[\"NZ\",\"SG\"]]]");
+                .hasToString("[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"=\",\"\"],\"OR\",[\"country\",\"IN\",[\"NZ\",\"SG\"]]]");
+    }
+
+    @Test
+    void aBlankCountryCountsAsNoCountry() {
+        // A country cleared in a form is saved as an empty string, and means "every country" just as
+        // much as null does — it must not disappear from everyone's list.
+        assertThat(scopeFor(Set.of("SG"), null).toString()).contains("[\"country\",\"=\",\"\"]");
     }
 
     @Test
     void anEmptySetFallsBackToTheCallersOwnCountry() {
         // A self-service employee whose roles reach no company still imports for their own country.
         assertThat(scopeFor(Set.of(), "SG"))
-                .hasToString("[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"IN\",[\"SG\"]]]");
+                .hasToString("[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"=\",\"\"],\"OR\",[\"country\",\"IN\",[\"SG\"]]]");
     }
 
     @Test
@@ -70,15 +77,15 @@ class ImportTemplateCountryScopeTest {
         Filters mine = new Filters().eq("modelName", "Employee");
 
         assertThat(scopedFor(Set.of("SG"), mine))
-                .hasToString("[[\"modelName\",\"=\",\"Employee\"],\"AND\",[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"IN\",[\"SG\"]]]]");
+                .hasToString("[[\"modelName\",\"=\",\"Employee\"],\"AND\",[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"=\",\"\"],\"OR\",[\"country\",\"IN\",[\"SG\"]]]]");
     }
 
     @Test
     void noFiltersFromTheCallerMeansTheScopeAlone() {
         assertThat(scopedFor(Set.of("SG"), null))
-                .hasToString("[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"IN\",[\"SG\"]]]");
+                .hasToString("[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"=\",\"\"],\"OR\",[\"country\",\"IN\",[\"SG\"]]]");
         assertThat(scopedFor(Set.of("SG"), new Filters()))
-                .hasToString("[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"IN\",[\"SG\"]]]");
+                .hasToString("[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"=\",\"\"],\"OR\",[\"country\",\"IN\",[\"SG\"]]]");
     }
 
     @Test
@@ -98,6 +105,6 @@ class ImportTemplateCountryScopeTest {
 
         assertThat(ContextHolder.callWith(context, () -> ImportTemplateCountryScope.forModel("Employee", mine))).isSameAs(mine);
         assertThat(ContextHolder.callWith(context, () -> ImportTemplateCountryScope.forModel("ImportTemplate", null)))
-                .hasToString("[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"IN\",[\"SG\"]]]");
+                .hasToString("[[\"country\",\"IS NOT SET\",null],\"OR\",[\"country\",\"=\",\"\"],\"OR\",[\"country\",\"IN\",[\"SG\"]]]");
     }
 }

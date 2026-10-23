@@ -1,5 +1,7 @@
 package io.softa.starter.file.controller;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -132,12 +134,18 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
     }
 
     /**
-     * List all import templates of the specified model
+     * List the import templates of the specified model the caller may use, in display order.
+     *
+     * <p>Narrowed to the caller's countries plus the templates with no country (see
+     * {@link ImportTemplateCountryScope}), and ordered by {@code sequence} ascending — a template with
+     * no sequence after those with one — then by id, so the order is the same on every database.
      *
      * @param modelName model name
      * @return list of import templates
      */
-    @Operation(summary="listByModel", description = "List all import templates of the specified model")
+    @Operation(summary="listByModel", description = "List the import templates of the specified model, "
+            + "narrowed to the caller's countries plus the templates that apply to every country, "
+            + "ordered by sequence (unset last), then id.")
     @PostMapping(value = "/listByModel")
     public ApiResponse<List<ImportTemplate>> listByModel(@RequestParam String modelName) {
         Set<String> modelNames = TemplateScope.of(modelName, this::standaloneModelNames);
@@ -147,8 +155,19 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
             filters.and(countryScope);
         }
         FlexQuery flexQuery = new FlexQuery(filters).expandSubQuery(ImportTemplate::getImportFields);
-        List<ImportTemplate> templates = service.searchList(flexQuery);
+        List<ImportTemplate> templates = inDisplayOrder(service.searchList(flexQuery));
         return ApiResponse.success(templates);
+    }
+
+    /** Sequence ascending with unset last, then id. Sorted here: databases disagree on where nulls go. */
+    static final Comparator<ImportTemplate> DISPLAY_ORDER =
+            Comparator.comparing(ImportTemplate::getSequence, Comparator.nullsLast(Comparator.naturalOrder()))
+                    .thenComparing(ImportTemplate::getId, Comparator.nullsLast(Comparator.naturalOrder()));
+
+    static List<ImportTemplate> inDisplayOrder(List<ImportTemplate> templates) {
+        List<ImportTemplate> sorted = new ArrayList<>(templates);
+        sorted.sort(DISPLAY_ORDER);
+        return sorted;
     }
 
     /** See {@link ImportTemplateCountryScope}: the same rule every template listing states. */

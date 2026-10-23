@@ -49,7 +49,14 @@ public class ImportHistory extends AuditableModel {
     @Field(label = "Import Status")
     private ImportStatus status;
 
-    @Field(label = "Failed File ID", fieldType = FieldType.FILE)
+    /**
+     * The result file of the run: every row of the uploaded file with its outcome and, for a failed
+     * row, the reason. Written for every import and every validation run, not only failed ones.
+     *
+     * <p>The field keeps its earlier name, from when only failed rows were written back, so stored
+     * rows and API consumers carry over unchanged; the label says what it holds now.
+     */
+    @Field(label = "Import Result File", fieldType = FieldType.FILE)
     private Long failedFileId;
 
     @Field

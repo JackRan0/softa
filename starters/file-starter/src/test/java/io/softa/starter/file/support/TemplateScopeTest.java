@@ -18,8 +18,7 @@ import io.softa.framework.orm.meta.ModelManager;
  * templates for addresses, family members and the rest. But "child model" counts the target of every
  * OneToMany, and a reverse reference looks exactly like a composition there: Employee declares
  * {@code managedDepartments} / {@code hrbpDepartments} for "departments this person leads", so
- * Department became a child of Employee and its import template appeared in the employee dialog
- * (zingkey/zingkey-hcm#764).
+ * Department became a child of Employee and its import template appeared in the employee dialog.
  *
  * <p>The fixture below is that exact shape: Employee with two genuine child records and one
  * first-class entity that only points back at it.

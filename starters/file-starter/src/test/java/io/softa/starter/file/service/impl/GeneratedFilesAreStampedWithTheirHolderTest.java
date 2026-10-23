@@ -41,7 +41,7 @@ import static org.mockito.Mockito.when;
  * sees them, and until this class they rested on an assertion about the source text. Anyone who
  * reworded the call kept the test green and the product broken.
  *
- * <p>These are the files a user actually clicks: the failed-data workbook in My Import History and
+ * <p>These are the files a user actually clicks: the import-result workbook in My Import History and
  * every export. Both hang on a history row, so both need the history's stamp.
  */
 class GeneratedFilesAreStampedWithTheirHolderTest {
@@ -64,6 +64,7 @@ class GeneratedFilesAreStampedWithTheirHolderTest {
     private static ImportTemplateDTO templateDto() {
         ImportTemplateDTO dto = new ImportTemplateDTO();
         dto.setModelName("Employee");
+        dto.setFileName("employees");
         ImportFieldDTO field = new ImportFieldDTO();
         field.setFieldName("code");
         field.setHeader("Employee Code");
@@ -72,15 +73,15 @@ class GeneratedFilesAreStampedWithTheirHolderTest {
     }
 
     @Test
-    @DisplayName("the failed-data workbook is stamped ImportHistory, not the imported model")
-    void theFailedDataWorkbook() {
+    @DisplayName("the import-result workbook is stamped ImportHistory, not the imported model")
+    void theImportResultWorkbook() {
         ImportServiceImpl service = new ImportServiceImpl();
         ExcelUploadService uploadService = uploadServiceReturning();
         ReflectionTestUtils.setField(service, "excelUploadService", uploadService);
         ImportDataDTO data = new ImportDataDTO();
         data.setFailedRows(List.of());
 
-        ReflectionTestUtils.invokeMethod(service, "generateFailedExcel", "employees", templateDto(), data);
+        ReflectionTestUtils.invokeMethod(service, "generateResultExcel", templateDto(), data, "Import Result");
 
         assertThat(stampOf(uploadService))
                 .as("this file lands on ImportHistory.failedFileId — the one a user clicks in My Import History")
@@ -98,7 +99,7 @@ class GeneratedFilesAreStampedWithTheirHolderTest {
         data.setRows(List.of());
         data.setFailedRows(List.of());
 
-        ReflectionTestUtils.invokeMethod(service, "generateValidationResultExcel", "employees", templateDto(), data);
+        ReflectionTestUtils.invokeMethod(service, "generateResultExcel", templateDto(), data, "Validation Result");
 
         assertThat(stampOf(uploadService)).isEqualTo(ImportHistory.class.getSimpleName());
     }

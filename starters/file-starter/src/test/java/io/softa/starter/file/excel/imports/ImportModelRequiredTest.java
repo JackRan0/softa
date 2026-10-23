@@ -66,15 +66,20 @@ class ImportModelRequiredTest {
         }
     }
 
-    /** The template's own flag is a rule for every row and is not relaxed by ignoreEmpty. */
+    /**
+     * The template's own flag still applies under ignoreEmpty, but only to a row that creates: the cell
+     * cannot tell, so the blank is noted for {@link RequiredOnCreateResolver} instead of refused here.
+     */
     @Test
-    void ignoreEmptyOn_aTemplateRequiredCell_isStillRefused() {
+    void ignoreEmptyOn_aTemplateRequiredCell_isNotedForTheCreateCheck() {
         try (MockedStatic<ModelManager> mm = stubName(false)) {
             BaseImportHandler handler = onlyHandler(column("name", "Company Name", true, true));
 
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("name", "");
-            assertThrows(ValidationException.class, () -> handler.handleRow(row));
+            handler.handleRow(row);
+            assertEquals("[Company Name]", String.valueOf(row.get(RequiredOnCreateResolver.MARKER)));
+            assertEquals(false, row.containsKey("name"));
         }
     }
 

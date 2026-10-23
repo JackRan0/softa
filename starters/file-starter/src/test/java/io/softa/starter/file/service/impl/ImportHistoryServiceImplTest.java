@@ -68,7 +68,7 @@ class ImportHistoryServiceImplTest {
      *
      * <p>Department is a child of Employee only because Employee declares `managedDepartments` /
      * `hrbpDepartments` — a reverse reference, not a composition. Its template is marked standalone so
-     * it stays off the employee page (zingkey/zingkey-hcm#764); the history has to agree, or the page
+     * it stays off the employee page; the history has to agree, or the page
      * lists runs for a template it does not offer.
      */
     @Test
