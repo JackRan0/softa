@@ -18,9 +18,10 @@ import io.softa.framework.orm.enums.IdStrategy;
  * {@code SysOptionItem}.
  * <p>
  * Carries both the owning set's business code ({@code optionSetCode}, half of the business key) and
- * the surrogate FK ({@code optionSetId}); unlike the platform lane there is no post-scan populator,
- * so writers set the FK directly. {@code parentItemId} is the self-reference behind hierarchical
- * option sets.
+ * the surrogate FK ({@code optionSetId}). Writers set the FK; the code is a stored cascade of it,
+ * filled by the framework on every write, so a form that picks the set — or a copy of an existing
+ * item — never has to know the code, and the two can never disagree. {@code parentItemId} is the
+ * self-reference behind hierarchical option sets.
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -49,11 +50,12 @@ public class TenantOptionItem extends AuditableModel {
             description = "Owning tenant. Auto-stamped and isolated by the ORM on every write / read.")
     private Long tenantId;
 
-    @Field(required = true, description = "Owning option set's business code")
+    @Field(cascadedField = "optionSetId.optionSetCode",
+            description = "Owning option set's business code, mirrored from optionSetId on every write")
     private String optionSetCode;
 
     @Field(label = "Option Set ID", fieldType = FieldType.MANY_TO_ONE,
-            relatedModel = TenantOptionSet.class)
+            relatedModel = TenantOptionSet.class, required = true)
     private Long optionSetId;
 
     @Field(label = "Parent Item ID", fieldType = FieldType.MANY_TO_ONE,

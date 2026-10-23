@@ -89,13 +89,33 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         if (ModelManager.isMultiTenantControl(modelName)) {
             rows.forEach(row -> {
                 if (row.containsKey(ModelConstant.TENANT_ID)) {
-                    Long tenantId = (Long) row.get(ModelConstant.TENANT_ID);
+                    // An id arrives as a number from Java callers and as a string from the web, where
+                    // every id is a string — a copied form carries the source row's tenantId so.
+                    Long tenantId = asTenantId(row.get(ModelConstant.TENANT_ID), row);
                     if (Objects.nonNull(tenantId) && !tenantId.equals(ContextHolder.getContext().getTenantId())) {
                         throw new SecurityException("In a multi-tenancy environment, cross-tenant data access is not allowed: {0}", row);
                     }
                     row.remove(ModelConstant.TENANT_ID);
                 }
             });
+        }
+    }
+
+    private static Long asTenantId(Object value, Map<String, Object> row) {
+        if (value == null || value instanceof Long) {
+            return (Long) value;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        String text = value.toString().trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(text);
+        } catch (NumberFormatException e) {
+            throw new SecurityException("In a multi-tenancy environment, cross-tenant data access is not allowed: {0}", row);
         }
     }
 

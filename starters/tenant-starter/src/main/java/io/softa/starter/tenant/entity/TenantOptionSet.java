@@ -30,6 +30,7 @@ import io.softa.framework.orm.enums.IdStrategy;
         activeControl = true,
         businessKey = {"optionSetCode"},
         displayName = {"label"},
+        searchName = {"optionSetCode", "label"},
         description = "Tenant-authored option sets (per-tenant dropdown domains)"
 )
 @Index(indexName = "uk_tenant_option_set", fields = {"tenantId", "optionSetCode"}, unique = true,
