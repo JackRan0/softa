@@ -9,11 +9,14 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.jdbc.pipeline.DataUpdatePipeline;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
@@ -117,5 +120,38 @@ class ChangeLogContextFieldsTest {
         assertThat(forPipeline.get(1L)).containsOnlyKeys("id", "startDay");
         // The log's copy keeps them.
         assertThat(read.get(1L)).containsKeys("holidayCalendarId", "name");
+    }
+
+    /**
+     * The log reads the originals after the update has run, and the diff replaces every original it is
+     * handed with the changed columns alone. Run through the real diff, with and without context to
+     * take out: whichever it is, the log's originals must come out whole.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void theDiffLeavesTheLogItsOriginalsWithOrWithoutContextToTakeOut(boolean contextToTakeOut) {
+        Map<Serializable, Map<String, Object>> read = new HashMap<>(Map.of(1L, new HashMap<>(Map.of(
+                "id", 1L, "startDay", "2026-06-16", "holidayCalendarId", 9L, "name", "lg"))));
+        // A child row written through its parent carries the FK and a rule can pull in the name, so
+        // every context column may already be among the fields the update reads — nothing to take out.
+        Set<String> context = contextToTakeOut ? Set.of("holidayCalendarId", "name") : Set.of();
+        Set<String> differFields = contextToTakeOut
+                ? Set.of("startDay")
+                : Set.of("startDay", "holidayCalendarId", "name");
+
+        Map<Serializable, Map<String, Object>> forPipeline =
+                JdbcServiceImpl.originalsForPipeline(read, context, differFields);
+        // The diff is handed the patch merged onto what was read, as the pipeline merges it first.
+        Map<String, Object> merged = new HashMap<>(read.get(1L));
+        merged.put("startDay", "2026-06-17");
+        List<Map<String, Object>> changed = DataUpdatePipeline.differFromPrevious("HolidayCalendarDetail", "id",
+                differFields, List.of(merged), forPipeline);
+
+        assertThat(changed).hasSize(1);
+        // What the diff did to the originals it was handed: the changed columns alone remain.
+        assertThat(forPipeline.get(1L)).containsOnlyKeys("startDay");
+        // The log's originals are untouched — the reference and the name are still there for it.
+        assertThat(read.get(1L)).containsEntry("holidayCalendarId", 9L).containsEntry("name", "lg")
+                .containsEntry("startDay", "2026-06-16");
     }
 }

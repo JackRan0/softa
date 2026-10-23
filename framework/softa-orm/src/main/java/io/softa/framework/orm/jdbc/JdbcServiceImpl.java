@@ -390,8 +390,14 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
         // The pipeline sees exactly the originals it always did: the log's context columns ride along
         // in the same query for the change log only, and must not reach the merge and constraint
         // checks the update runs on what it read.
-        Map<Serializable, Map<String, Object>> pipelineOriginals = logContext.isEmpty()
-                ? originalRowsMap : withoutKeys(originalRowsMap, logContext, pipeline.getDifferFields());
+        //
+        // Always a copy, also when there is no context to take out: the diff replaces each original
+        // it is handed with only the columns that changed, and the log reads the originals after it.
+        // Sharing the map left the log with the changed columns alone — no reference, no name — on
+        // every update whose context columns were all among the ones it already reads (a child row
+        // written through its parent carries the FK, and a condition can pull in the rest).
+        Map<Serializable, Map<String, Object>> pipelineOriginals =
+                originalsForPipeline(originalRowsMap, logContext, pipeline.getDifferFields());
         // Get the list of changed data, keeping only the fields and row data that have changed.
         List<Map<String, Object>> differRows = pipeline.processUpdateData(rows, pipelineOriginals, updatedTime);
         int count = this.updateRows(modelName, differRows);
@@ -449,7 +455,20 @@ public class JdbcServiceImpl<K extends Serializable> implements JdbcService<K> {
         return context;
     }
 
-    /** The originals with the change log's context columns taken back out. */
+    /**
+     * What the update pipeline is handed of the originals: always its own copy, without the change
+     * log's context columns. The originals themselves stay whole for the log.
+     *
+     * <p>Its own method, rather than a call to {@link #withoutKeys} inline, so the choice can be
+     * tested against the real diff: handing over the log's map when there is nothing to take out is
+     * exactly the mistake that left the log with the changed columns alone.
+     */
+    static Map<Serializable, Map<String, Object>> originalsForPipeline(
+            Map<Serializable, Map<String, Object>> originals, Set<String> logContext, Set<String> differFields) {
+        return withoutKeys(originals, logContext, differFields);
+    }
+
+    /** A copy of the originals with the change log's context columns taken back out. */
     static Map<Serializable, Map<String, Object>> withoutKeys(
             Map<Serializable, Map<String, Object>> rows, Set<String> keys, Set<String> keep) {
         Map<Serializable, Map<String, Object>> stripped = new HashMap<>(rows.size());
