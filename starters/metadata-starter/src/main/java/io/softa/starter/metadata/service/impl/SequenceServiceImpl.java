@@ -145,7 +145,7 @@ public class SequenceServiceImpl implements SequenceService {
         Set<String> claimedKeys = new HashSet<>();
         for (String value : claimed) {
             if (value != null && !value.isBlank()) {
-                claimedKeys.add(SequenceCodeOccupancy.normalize(value.trim()));
+                claimedKeys.add(value.trim());
             }
         }
         List<Integer> pending = new ArrayList<>();
@@ -158,7 +158,7 @@ public class SequenceServiceImpl implements SequenceService {
             Set<String> inTable = sequenceCodeOccupancy.taken(code, candidates);
             List<Integer> clashes = new ArrayList<>();
             for (int i : pending) {
-                String key = SequenceCodeOccupancy.normalize(result.get(i));
+                String key = result.get(i);
                 if (inTable.contains(key) || claimedKeys.contains(key) || duplicatesAnother(result, i, key)) {
                     clashes.add(i);
                 }
@@ -185,7 +185,7 @@ public class SequenceServiceImpl implements SequenceService {
     /** Whether an earlier value in {@code result} renders the same code — only a template without {@code {seq}} can. */
     private static boolean duplicatesAnother(List<String> result, int index, String key) {
         for (int j = 0; j < index; j++) {
-            if (SequenceCodeOccupancy.normalize(result.get(j)).equals(key)) {
+            if (result.get(j).equals(key)) {
                 return true;
             }
         }

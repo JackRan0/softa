@@ -260,7 +260,6 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
                 this.getRowKeyMapFromDB(modelName, uniqueConstraints, rowKeyMap.keySet(), nestedToOneFields);
 
         // Step 3: Compare the row key map from the database and the import data, to get the data to be created and updated
-        List<Map<String, Object>> unmatched = new ArrayList<>();
         for (Map.Entry<UniqueKey, Map<String, Object>> entry : rowKeyMap.entrySet()) {
             UniqueKey key = entry.getKey();
             Map<String, Object> row = entry.getValue();
@@ -270,15 +269,8 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
                 this.linkExistingNestedRows(row, dbRow, nestedToOneFields);
                 updateDataList.add(row);
             } else {
-                unmatched.add(row);
+                createDataList.add(row);
             }
-        }
-        // Step 4: a generated code is matched ignoring case, as it is judged unique ignoring case.
-        Map<String, List<Map<String, Object>>> byLowerCode =
-                this.caseInsensitiveCandidates(modelName, uniqueConstraints, unmatched, nestedToOneFields);
-        for (Map<String, Object> row : unmatched) {
-            (this.matchCodeIgnoringCase(uniqueConstraints, row, byLowerCode, nestedToOneFields)
-                    ? updateDataList : createDataList).add(row);
         }
         return new CreateOrUpdateResult(createDataList, updateDataList);
     }
@@ -303,84 +295,6 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         }
         return split;
     }
-
-    /**
-     * Match a row whose generated code was typed in another case — {@code zk1000021} for the stored
-     * {@code ZK1000021} — to the record it names, so an import updates that record instead of trying to
-     * create a second one with the same code. Only when the unique key is that code alone. The stored
-     * spelling is kept: the row's code is replaced by it.
-     *
-     * <p>A code that matches two stored records differing only in case matches neither — there is no
-     * telling which one is meant.
-     *
-     * @param byLowerCode the candidates read for the batch, see {@link #caseInsensitiveCandidates}
-     * @return true when the row now names an existing record (its id is set)
-     */
-    private boolean matchCodeIgnoringCase(List<String> uniqueConstraints, Map<String, Object> row,
-                                          Map<String, List<Map<String, Object>>> byLowerCode,
-                                          Set<String> nestedToOneFields) {
-        if (byLowerCode.isEmpty() || !(row.get(uniqueConstraints.getFirst()) instanceof String code)) {
-            return false;
-        }
-        String field = uniqueConstraints.getFirst();
-        List<Map<String, Object>> hits = byLowerCode.getOrDefault(code.toLowerCase(Locale.ROOT), List.of());
-        if (hits.size() != 1) {
-            return false;
-        }
-        Map<String, Object> dbRow = hits.getFirst();
-        row.put(field, dbRow.get(field));
-        row.put(ModelConstant.ID, dbRow.get(ModelConstant.ID));
-        this.linkExistingNestedRows(row, dbRow, nestedToOneFields);
-        return true;
-    }
-
-    /**
-     * Stored rows whose code equals, ignoring case, a code in the batch, keyed by the lower-cased code —
-     * one query for the batch (prefix match, which is case-insensitive on every database, then compared
-     * exactly ignoring case). Empty unless the unique key is a single generated-code field.
-     */
-    private Map<String, List<Map<String, Object>>> caseInsensitiveCandidates(String modelName,
-                                                                             List<String> uniqueConstraints,
-                                                                             List<Map<String, Object>> batch,
-                                                                             Set<String> nestedToOneFields) {
-        if (batch.isEmpty() || uniqueConstraints.size() != 1
-                || !ModelManager.getModelField(modelName, uniqueConstraints.getFirst()).isAutoSequence()) {
-            return Map.of();
-        }
-        String field = uniqueConstraints.getFirst();
-        Set<String> wanted = new LinkedHashSet<>();
-        for (Map<String, Object> row : batch) {
-            if (row.get(field) instanceof String code && !code.isBlank()) {
-                wanted.add(code);
-            }
-        }
-        Map<String, List<Map<String, Object>>> byLowerCode = new HashMap<>();
-        if (wanted.isEmpty()) {
-            return byLowerCode;
-        }
-        Set<String> lower = wanted.stream().map(c -> c.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
-        List<String> fields = new ArrayList<>(List.of(ModelConstant.ID, field));
-        nestedToOneFields.stream().filter(f -> !fields.contains(f)).forEach(fields::add);
-        List<String> pending = new ArrayList<>(wanted);
-        for (int from = 0; from < pending.size(); from += CASE_INSENSITIVE_CHUNK) {
-            List<String> chunk = pending.subList(from, Math.min(from + CASE_INSENSITIVE_CHUNK, pending.size()));
-            Filters[] prefixes = chunk.stream()
-                    .map(code -> Filters.of(field, Operator.START_WITH, code))
-                    .toArray(Filters[]::new);
-            Filters filters = prefixes.length == 1 ? prefixes[0]
-                    : Filters.or(prefixes[0], prefixes[1], Arrays.copyOfRange(prefixes, 2, prefixes.length));
-            FlexQuery query = new FlexQuery(fields, filters);
-            query.setFilterControl(FilterControl.bypassAll());
-            for (Map<String, Object> dbRow : this.searchList(modelName, query)) {
-                if (dbRow.get(field) instanceof String stored && lower.contains(stored.toLowerCase(Locale.ROOT))) {
-                    byLowerCode.computeIfAbsent(stored.toLowerCase(Locale.ROOT), k -> new ArrayList<>()).add(dbRow);
-                }
-            }
-        }
-        return byLowerCode;
-    }
-
-    private static final int CASE_INSENSITIVE_CHUNK = 200;
 
     /**
      * Whether the row's unique-constraint values include a blank one on an autoSequence field.

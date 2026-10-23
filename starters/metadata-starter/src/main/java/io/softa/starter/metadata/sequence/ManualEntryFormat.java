@@ -8,7 +8,7 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum ManualEntryFormat {
-    /** No format check; only the fixed rules (no spaces, unique ignoring case). */
+    /** No format check; only the fixed rules (no spaces, unique as spelled). */
     ANY("Any"),
     /** The shape the template generates: the record's company abbreviation, the literals, and as many digits. */
     SAME_AS_AUTO_GENERATION("SameAsAutoGeneration"),

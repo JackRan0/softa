@@ -30,7 +30,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** The checks that need the database: unique ignoring case, and the record's company for the format. */
+/** The checks that need the database: unique as spelled, and the record's company for the format. */
 class ManualCodeCheckerTest {
 
     private static final String MODEL = "Employee";
@@ -55,7 +55,9 @@ class ManualCodeCheckerTest {
         when(unique.getUniqueIndex()).thenReturn(true);
         when(unique.getMessage()).thenReturn("An employee with this code already exists.");
         models.when(() -> ModelManager.getModelIndexes(MODEL)).thenReturn(List.of(unique));
-        when(occupancy.taken(eq("Employee.code"), anyCollection())).thenReturn(Set.of("zk1000021"));
+        // The field holds ZK1000021; the occupancy answers exactly, as it now compares.
+        when(occupancy.taken(eq("Employee.code"), anyCollection())).thenAnswer(inv ->
+                inv.<java.util.Collection<String>>getArgument(1).contains("ZK1000021") ? Set.of("ZK1000021") : Set.of());
     }
 
     @AfterEach
@@ -77,22 +79,34 @@ class ManualCodeCheckerTest {
     }
 
     @Test
-    void aCodeTakenInAnotherCaseIsADuplicate_inTheModelsOwnWords() {
+    void aCodeTakenIsADuplicate_inTheModelsOwnWords() {
         rule(null);
-        assertThat(check(List.of("zk1000021"), null)).containsExactly("An employee with this code already exists.");
+        assertThat(check(List.of("ZK1000021"), null)).containsExactly("An employee with this code already exists.");
     }
 
     @Test
-    void retypingOnesOwnCodeInAnotherCaseIsNotADuplicate() {
+    void aCodeDifferingOnlyInCaseIsAnotherCode() {
         rule(null);
-        assertThat(check(List.of("zk1000021"), List.of("ZK1000021"))).containsExactly((String) null);
+        assertThat(check(List.of("zk1000021"), null)).containsExactly((String) null);
+    }
+
+    @Test
+    void sendingOnesOwnCodeBackIsNotADuplicate() {
+        rule(null);
+        assertThat(check(List.of("ZK1000021"), List.of("ZK1000021"))).containsExactly((String) null);
     }
 
     @Test
     void theSecondOfTwoEqualCodesInOneBatchIsTheDuplicate() {
         rule(null);
-        assertThat(check(List.of("ZK2", "zk2"), Arrays.asList(null, null)))
+        assertThat(check(List.of("ZK2", "ZK2"), Arrays.asList(null, null)))
                 .containsExactly(null, "An employee with this code already exists.");
+    }
+
+    @Test
+    void twoCodesInOneBatchDifferingOnlyInCaseAreBothAccepted() {
+        rule(null);
+        assertThat(check(List.of("ZK2", "zk2"), Arrays.asList(null, null))).containsExactly(null, null);
     }
 
     @Test

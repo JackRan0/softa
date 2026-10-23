@@ -31,7 +31,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** Which generated codes are already in the field: exact, case-insensitive, seeing every row. */
+/** Which generated codes are already in the field: exact as spelled, seeing every row. */
 class SequenceCodeOccupancyTest {
 
     private static final String CODE = "Employee.code";
@@ -69,10 +69,17 @@ class SequenceCodeOccupancyTest {
     }
 
     @Test
-    @DisplayName("a code differing only in case is taken")
-    void caseInsensitive() {
+    @DisplayName("a code in the field is taken")
+    void exactCodeIsTaken() {
+        tableHas("ZK1000030");
+        assertThat(taken(List.of("ZK1000030", "ZK1000031"))).containsExactly("ZK1000030");
+    }
+
+    @Test
+    @DisplayName("a code differing only in case is another code — the prefix fetch ignores case, the comparison does not")
+    void aCodeInAnotherCaseIsNotTaken() {
         tableHas("zk1000030");
-        assertThat(taken(List.of("ZK1000030", "ZK1000031"))).containsExactly("zk1000030");
+        assertThat(taken(List.of("ZK1000030"))).isEmpty();
     }
 
     @Test

@@ -138,9 +138,9 @@ public class ManualCodeChecker {
             if (StringUtils.isEmpty(code) || messages[i] != null) {
                 continue;
             }
-            String key = SequenceCodeOccupancy.normalize(code);
+            String key = code;
             String own = ownCodes == null ? null : ownCodes.get(i);
-            boolean ownCode = own != null && own.equalsIgnoreCase(code);
+            boolean ownCode = own != null && own.equals(code);
             if ((taken.contains(key) && !ownCode) || !seen.add(key)) {
                 messages[i] = duplicate;
             }
@@ -200,7 +200,8 @@ public class ManualCodeChecker {
      * The message for a duplicate of this field, or null when uniqueness is not judged here.
      *
      * <p>A code unique across the tenant (a unique index on it, or on it and the tenant) is checked
-     * ignoring case, with the index's own message — "An employee with this code already exists." — so a
+     * exactly as spelled, as the index compares it — codes that differ only in case are different
+     * codes — and with the index's own message, "An employee with this code already exists.", so a
      * duplicate reads the same whether this check or the database catches it. A field with no unique
      * index is checked across the tenant too, with a generic message. A code unique only within a scope
      * (a pay group's items, a country's parameters) is left to its index: telling apart another scope's

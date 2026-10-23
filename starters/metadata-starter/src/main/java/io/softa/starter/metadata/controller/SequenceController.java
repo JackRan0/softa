@@ -109,7 +109,7 @@ public class SequenceController {
 
     @Operation(summary = "checkManualCode", description = """
             Whether a code typed by hand into a sequence-numbered field would be
-            accepted on save: the fixed rules (no spaces, unique ignoring case)
+            accepted on save: the fixed rules (no spaces, unique as spelled)
             and the sequence's Manual Entry format, judged against the form's
             current values. Returns the first message, or null. Read-only.
             """)
