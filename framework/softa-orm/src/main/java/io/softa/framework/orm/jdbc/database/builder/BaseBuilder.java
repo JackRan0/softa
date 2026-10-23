@@ -31,7 +31,7 @@ public abstract class BaseBuilder {
 
     /**
      * Parse logic field, support OneToOne and ManyToOne cascade fields, such as deptId.managerId.name.
-     * The cascade level does not exceed 3 levels (BaseConstant.CASCADE_LEVEL).
+     * The path crosses at most {@link BaseConstant#CASCADE_LEVEL} relations.
      * Note: OneToMany and ManyToMany fields are not supported here.
      * Dynamic cascaded field aliases declared on the model (`dynamic=true && cascadedField`)
      * are auto-expanded to their underlying `a.b` path before joining/aliasing,
