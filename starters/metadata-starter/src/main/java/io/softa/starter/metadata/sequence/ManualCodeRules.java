@@ -14,7 +14,7 @@ import org.apache.commons.lang3.StringUtils;
  * The checks a code typed by hand must pass, as pure functions — the write validator, the live check a
  * form calls while the user types, and the rule editor all apply these, so they cannot disagree.
  *
- * <p>Order, and only the first failure is reported: the fixed rules (no spaces; unique ignoring case,
+ * <p>Order, and only the first failure is reported: the fixed rules (no spaces; unique as spelled,
  * which needs the database and is the caller's), then the sequence's format. Within Length &amp;
  * Characters, length before characters.
  */

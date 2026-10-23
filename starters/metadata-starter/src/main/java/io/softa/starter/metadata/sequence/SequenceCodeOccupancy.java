@@ -6,7 +6,6 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -23,17 +22,17 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 
 /**
- * Which generated codes are already in use in the field a sequence fills, ignoring case.
+ * Which generated codes are already in use in the field a sequence fills.
  *
  * <p>A code can be taken before the counter reaches it: the field accepts a value typed by hand, and
  * a hand-typed {@code ZK1000030} sits waiting for the counter to arrive. Generating it again would
- * fail the insert on the unique key, or — where the database compares case-sensitively — slip in a
- * second code that differs from the first only in case. The allocator asks here and skips past.
+ * fail the insert on the unique key. The allocator asks here and skips past.
  *
- * <p>Matching is case-insensitive on every database. The candidates are fetched with
- * {@code START_WITH} (PostgreSQL {@code ILIKE}, MySQL {@code LIKE} under a case-insensitive collation)
- * and compared exactly in memory afterwards: a prefix match over-fetches — and an {@code _} in a code
- * is a LIKE wildcard that over-fetches further — but the exact comparison removes both.
+ * <p>Codes compare exactly: {@code zk1000030} and {@code ZK1000030} are two codes, so a hand-typed
+ * {@code zk1000030} does not hold back {@code ZK1000030}. The candidates are fetched with
+ * {@code START_WITH} and compared exactly in memory afterwards: a prefix match over-fetches — it
+ * ignores case on PostgreSQL ({@code ILIKE}), and an {@code _} in a code is a LIKE wildcard — but the
+ * exact comparison removes both.
  *
  * <p>The lookup sees every row the unique key does: permission checks, the active and soft-delete
  * filters and the country narrowing are all waived, since each would hide a row whose code is still
@@ -54,7 +53,7 @@ public class SequenceCodeOccupancy {
     /**
      * @param code       the sequence code, {@code "<ModelName>.<fieldName>"}
      * @param candidates generated codes about to be used
-     * @return the candidates already present in that field, lower-cased; empty when the code does not
+     * @return the candidates already present in that field, as spelled; empty when the code does not
      *         name a field of a known model, so a sequence without a backing field is not checked
      */
     public Set<String> taken(String code, Collection<String> candidates) {
@@ -71,7 +70,7 @@ public class SequenceCodeOccupancy {
         Set<String> distinct = new LinkedHashSet<>();
         for (String candidate : candidates) {
             if (candidate != null && !candidate.isEmpty()) {
-                wanted.add(normalize(candidate));
+                wanted.add(candidate);
                 distinct.add(candidate);
             }
         }
@@ -81,19 +80,14 @@ public class SequenceCodeOccupancy {
             List<String> chunk = pending.subList(from, Math.min(from + CHUNK, pending.size()));
             for (Map<String, Object> row : read(model, field, chunk)) {
                 if (row.get(field) instanceof CharSequence existing) {
-                    String key = normalize(existing.toString());
-                    if (wanted.contains(key)) {
-                        taken.add(key);
+                    String stored = existing.toString();
+                    if (wanted.contains(stored)) {
+                        taken.add(stored);
                     }
                 }
             }
         }
         return taken;
-    }
-
-    /** The comparison key: codes that differ only in case are the same code. */
-    public static String normalize(String code) {
-        return code.toLowerCase(Locale.ROOT);
     }
 
     private List<Map<String, Object>> read(String model, String field, List<String> chunk) {

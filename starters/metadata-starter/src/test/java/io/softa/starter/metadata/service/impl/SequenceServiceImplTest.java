@@ -99,8 +99,8 @@ class SequenceServiceImplTest {
         when(occupancy.taken(eq(CODE), anyCollection())).thenAnswer(inv -> {
             Set<String> hit = new HashSet<>();
             for (String c : inv.<Collection<String>>getArgument(1)) {
-                if (takenInTable.contains(SequenceCodeOccupancy.normalize(c))) {
-                    hit.add(SequenceCodeOccupancy.normalize(c));
+                if (takenInTable.contains(c)) {
+                    hit.add(c);
                 }
             }
             return hit;
@@ -153,22 +153,30 @@ class SequenceServiceImplTest {
     @DisplayName("a value already in the table is skipped; the counter moves on")
     void skipsValueInTable() {
         config("E{seq:4}", 29);
-        takenInTable.add("e0030");
+        takenInTable.add("E0030");
         assertThat(batch(rows(1), Set.of())).containsExactly("E0031");
     }
 
     @Test
-    @DisplayName("a value typed into another record of the same write is skipped, ignoring case")
+    @DisplayName("a value typed into another record of the same write is skipped")
     void skipsValueClaimedInSameBatch() {
         config("E{seq:4}", 29);
-        assertThat(batch(rows(1), List.of("e0030"))).containsExactly("E0031");
+        assertThat(batch(rows(1), List.of("E0030"))).containsExactly("E0031");
+    }
+
+    @Test
+    @DisplayName("a value differing only in case is another code, and is not skipped")
+    void aValueInAnotherCaseIsNotTaken() {
+        config("E{seq:4}", 29);
+        takenInTable.add("e0030");
+        assertThat(batch(rows(1), List.of("e0030"))).containsExactly("E0030");
     }
 
     @Test
     @DisplayName("only the clashing record is renumbered; the others keep their values")
     void othersKeepTheirValues() {
         config("E{seq:4}", 29);
-        takenInTable.add("e0030");
+        takenInTable.add("E0030");
         assertThat(batch(rows(2), Set.of())).containsExactly("E0032", "E0031");
     }
 
@@ -178,7 +186,7 @@ class SequenceServiceImplTest {
         config("{companyAbbr}{seq:4}", 29);
         List<Map<String, Object>> rows = rows(2);
         when(abbreviations.abbreviationsOf("Employee", rows)).thenReturn(List.of("ZK", "HF"));
-        takenInTable.add("zk0030");
+        takenInTable.add("ZK0030");
         assertThat(batch(rows, Set.of())).containsExactly("ZK0032", "HF0031");
     }
 
@@ -186,7 +194,7 @@ class SequenceServiceImplTest {
     @DisplayName("gives up rather than loop when every value it renders is taken")
     void givesUp() {
         config("E", 0);   // no {seq}: every allocation renders the same value
-        takenInTable.add("e");
+        takenInTable.add("E");
         assertThatThrownBy(() -> batch(rows(1), Set.of())).isInstanceOf(SequenceException.class);
     }
 
@@ -194,7 +202,7 @@ class SequenceServiceImplTest {
     @DisplayName("next(code) still works and is checked like any other allocation")
     void plainNextIsChecked() {
         config("E{seq:4}", 29);
-        takenInTable.add("e0030");
+        takenInTable.add("E0030");
         assertThat(ContextHolder.callWith(new Context(), () -> service.next(CODE))).isEqualTo("E0031");
     }
 

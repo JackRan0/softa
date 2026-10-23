@@ -12,11 +12,11 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.softa.framework.orm.domain.CreateOrUpdateResult;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
-import io.softa.framework.orm.domain.CreateOrUpdateResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,10 +24,14 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
- * An import names an existing record by its generated code; a code typed in another case still names
- * it — codes are unique ignoring case — and the record keeps its stored spelling.
+ * A generated code names a record only as it is spelled: codes that differ only in case are different
+ * codes. An import row typed {@code zk1000021} beside a stored {@code ZK1000021} is a new record, never
+ * an update of that one — matched ignoring case, a second row of a file overwrote the record the first
+ * row had just created, and the import reported both as done.
  */
 class CreateOrUpdateCodeCaseTest {
 
@@ -60,41 +64,39 @@ class CreateOrUpdateCodeCaseTest {
         return row;
     }
 
-    /** First read: the exact match; second: the case-insensitive candidates. */
-    private void stored(List<Map<String, Object>> exact, List<Map<String, Object>> ignoringCase) {
-        doReturn(exact, ignoringCase).when(service).searchList(eq(MODEL), any(FlexQuery.class));
+    @Test
+    void aCodeInAnotherCaseIsANewRecord() {
+        // The exact match finds nothing: the stored code is spelled ZK1000021.
+        doReturn(List.of()).when(service).searchList(eq(MODEL), any(FlexQuery.class));
+        Map<String, Object> typed = row("zk1000021");
+
+        CreateOrUpdateResult split = service.splitByExistence(MODEL, new ArrayList<>(List.of(typed)), KEY);
+
+        assertThat(split.created()).containsExactly(typed);
+        assertThat(split.updated()).isEmpty();
+        assertThat(typed).doesNotContainKey("id").containsEntry("code", "zk1000021");
+        verify(service, times(1)).searchList(eq(MODEL), any(FlexQuery.class));
     }
 
     @Test
-    void aCodeInAnotherCaseUpdatesTheRecordItNames_keepingItsSpelling() {
-        stored(List.of(), List.of(Map.of("id", 7L, "code", "ZK1000021")));
-        Map<String, Object> typed = row("zk1000021");
+    void twoRowsDifferingOnlyInCaseAreTwoRecords() {
+        doReturn(List.of()).when(service).searchList(eq(MODEL), any(FlexQuery.class));
+        Map<String, Object> upper = row("AI1022IMP12");
+        Map<String, Object> lower = row("ai1022imp12");
+
+        CreateOrUpdateResult split = service.splitByExistence(MODEL, new ArrayList<>(List.of(upper, lower)), KEY);
+
+        assertThat(split.created()).containsExactly(upper, lower);
+    }
+
+    @Test
+    void theExactSpellingStillUpdates() {
+        doReturn(List.of(Map.of("id", 7L, "code", "ZK1000021"))).when(service).searchList(eq(MODEL), any(FlexQuery.class));
+        Map<String, Object> typed = row("ZK1000021");
 
         CreateOrUpdateResult split = service.splitByExistence(MODEL, new ArrayList<>(List.of(typed)), KEY);
 
         assertThat(split.updated()).containsExactly(typed);
-        assertThat(split.created()).isEmpty();
-        assertThat(typed).containsEntry("id", 7L).containsEntry("code", "ZK1000021");
-    }
-
-    @Test
-    void aCodeMatchingNothingStaysACreate() {
-        stored(List.of(), List.of(Map.of("id", 7L, "code", "ZK10000210")));
-        Map<String, Object> typed = row("zk1000021");
-
-        CreateOrUpdateResult split = service.splitByExistence(MODEL, new ArrayList<>(List.of(typed)), KEY);
-
-        assertThat(split.created()).containsExactly(typed);
-        assertThat(typed).doesNotContainKey("id");
-    }
-
-    @Test
-    void aCodeMatchingTwoRecordsThatDifferOnlyInCaseMatchesNeither() {
-        stored(List.of(), List.of(Map.of("id", 7L, "code", "ZK1000021"), Map.of("id", 8L, "code", "zK1000021")));
-        Map<String, Object> typed = row("zk1000021");
-
-        CreateOrUpdateResult split = service.splitByExistence(MODEL, new ArrayList<>(List.of(typed)), KEY);
-
-        assertThat(split.created()).containsExactly(typed);
+        assertThat(typed).containsEntry("id", 7L);
     }
 }
