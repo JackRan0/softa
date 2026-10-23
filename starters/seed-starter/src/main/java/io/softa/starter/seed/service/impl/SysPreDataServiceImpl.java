@@ -1,11 +1,13 @@
-package io.softa.starter.metadata.service.impl;
+package io.softa.starter.seed.service.impl;
 
 import java.io.Serializable;
+import java.time.LocalDate;
 import java.util.*;
+import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
-import org.springframework.web.multipart.MultipartFile;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
@@ -14,21 +16,25 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.Cast;
+import io.softa.framework.base.utils.DateUtils;
 import io.softa.framework.orm.domain.FileObject;
+import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.orm.utils.FileUtils;
 import io.softa.framework.orm.utils.IdUtils;
-import io.softa.starter.metadata.entity.SysPreData;
-import io.softa.starter.metadata.service.SysPreDataService;
-import lombok.extern.slf4j.Slf4j;
+import io.softa.starter.seed.entity.SysPreData;
+import io.softa.starter.seed.service.LoadMode;
+import io.softa.starter.seed.service.SysPreDataService;
 
-import static io.softa.framework.orm.constant.ModelConstant.ID;
+import static io.softa.framework.orm.constant.ModelConstant.*;
 
 /**
  * SysPreData Model Service Implementation
@@ -46,10 +52,17 @@ import static io.softa.framework.orm.constant.ModelConstant.ID;
  * <p>
  * File-format concerns (JSON / CSV / XML) are delegated to {@link PreDataFormatParser}; this service owns the
  * predefined-data domain logic only — preId binding, main/sub-model ordering, and create-or-update reconciliation.
+ * <p>
+ * Every load runs in a {@link LoadMode}, bound for the length of the load and read wherever a row the scope
+ * already has is met: {@code OVERWRITE} rewrites it from the file, {@code ADDITIVE} writes only what the file
+ * names and leaves deletions standing.
  */
 @Slf4j
 @Service
 public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> implements SysPreDataService {
+
+    /** The mode of the load in progress. Bound around one load; unbound outside one. */
+    private static final ScopedValue<LoadMode> MODE = ScopedValue.newInstance();
 
     private final ModelService<Serializable> modelService;
     private final PreDataFormatParser formatParser = new PreDataFormatParser();
@@ -59,42 +72,35 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     }
 
     /**
-     * Load the specified list of predefined data files from the root directory: resources/data.
-     * Supports data files in JSON, XML, and CSV formats. Data files support a two-layer domain model,
-     * i.e., main model and subModel, but they will be created separately when loading.
-     * The main model is created first to generate the main model id, then the subModel data is created.
+     * Load platform-global seed files from {@code resources/data-system} at system scope. Supports JSON, XML
+     * and CSV. A row may carry the rows of its OneToMany fields: the main row is created first, so its id can
+     * back-reference into the children, then the children.
      *
-     * @param fileNames List of relative directory data file names to load
+     * @param fileNames file names relative to the directory
+     * @param mode      how rows the scope already has are treated
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void loadPreSystemData(List<String> fileNames) {
-        String dataDir = BaseConstant.PREDEFINED_DATA_SYSTEM_DIR;
-        runAsSystemScope(() -> {
-            for (String fileName : fileNames) {
-                FileObject fileObject = FileUtils.getFileObjectByPath(dataDir, fileName);
-                loadFileObject(fileObject);
-            }
-        });
+    public void loadPreSystemData(List<String> fileNames, LoadMode mode) {
+        runAsSystemScope(() -> loadFiles(BaseConstant.PREDEFINED_DATA_SYSTEM_DIR, fileNames, mode));
     }
 
     /**
-     * Load the specified list of predefined tenant data files from the root directory: resources/data-tenant.
-     * Supports data files in JSON, XML, and CSV formats. Data files support a two-layer domain model,
-     * i.e., main model and subModel, but they will be created separately when loading.
-     * The main model is created first to generate the main model id, then the subModel data is created.
+     * Load tenant seed files from {@code resources/data-tenant} into one tenant. Same formats and nesting as
+     * {@link #loadPreSystemData}.
      *
-     * @param fileNames List of relative directory tenant data file names to load
-     * @param tenantId tenant id to which the data will be loaded
+     * @param fileNames file names relative to the directory
+     * @param tenantId  tenant the rows are written to
+     * @param mode      how rows the tenant already has are treated
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void loadPreTenantData(List<String> fileNames, Long tenantId) {
+    public void loadPreTenantData(List<String> fileNames, Long tenantId, LoadMode mode) {
         if (SystemConfig.env.isEnableMultiTenancy()) {
             Assert.notNull(tenantId,
                     "Loading tenant predefined data requires a tenant id when multi-tenancy is enabled!");
         }
-        loadInTenantScope(BaseConstant.PREDEFINED_DATA_TENANT_DIR, fileNames, tenantId);
+        loadInTenantScope(BaseConstant.PREDEFINED_DATA_TENANT_DIR, fileNames, tenantId, mode);
     }
 
     /**
@@ -103,12 +109,50 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void loadPrePlatformData(List<String> fileNames) {
+    public void loadPrePlatformData(List<String> fileNames, LoadMode mode) {
         loadInTenantScope(BaseConstant.PREDEFINED_DATA_PLATFORM_DIR, fileNames,
-                BaseConstant.PLATFORM_TENANT_ID);
+                BaseConstant.PLATFORM_TENANT_ID, mode);
     }
 
-    private void loadInTenantScope(String dataDir, List<String> fileNames, Long tenantId) {
+    @Override
+    public Map<String, List<String>> filePreIds(String dataDir, String fileName) {
+        Map<String, List<String>> preIds = new LinkedHashMap<>();
+        formatParser.parse(FileUtils.getFileObjectByPath(dataDir, fileName)).forEach((model, data) -> {
+            List<Object> rows = data instanceof Map<?, ?> single ? List.of(single) : Cast.of(data);
+            List<String> modelPreIds = preIds.computeIfAbsent(model, k -> new ArrayList<>());
+            for (Object row : rows) {
+                if (row instanceof Map<?, ?> map && map.get(ID) instanceof String preId) {
+                    modelPreIds.add(preId);
+                }
+            }
+        });
+        return preIds;
+    }
+
+    /** Load each file in turn, with the mode bound for the whole of it. */
+    private void loadFiles(String dataDir, List<String> fileNames, LoadMode mode) {
+        Assert.notNull(mode, "A load mode is required.");
+        ScopedValue.where(MODE, mode).run(() -> {
+            for (String fileName : fileNames) {
+                loadFileObject(FileUtils.getFileObjectByPath(dataDir, fileName));
+            }
+        });
+    }
+
+    /**
+     * Whether the load in progress is additive. A record handed straight to {@link #handlePredefinedData} —
+     * a unit test — overwrites, as every load did before modes existed.
+     */
+    private static boolean additive() {
+        return MODE.isBound() && MODE.get() == LoadMode.ADDITIVE;
+    }
+
+    /** Run with a load mode bound, as a file load does. Package-private for the tests that drive one record. */
+    static <T> T inMode(LoadMode mode, java.util.function.Supplier<T> action) {
+        return ScopedValue.where(MODE, mode).call(action::get);
+    }
+
+    private void loadInTenantScope(String dataDir, List<String> fileNames, Long tenantId, LoadMode mode) {
         Context tenantContext = ContextHolder.cloneContext();
         tenantContext.setTenantId(tenantId);
         // Set here as well, even though this path currently works. It works only because the caller is
@@ -120,27 +164,11 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         // ContextUtils.inTenantContext expresses the same three settings, but on a `new Context()` — the
         // seeded rows would lose their createdId / createdBy. See runAsSystemScope for the full reason.
         tenantContext.setSkipPermissionCheck(true);
-        ContextHolder.runWith(tenantContext, () -> {
-            for (String fileName : fileNames) {
-                FileObject fileObject = FileUtils.getFileObjectByPath(dataDir, fileName);
-                loadFileObject(fileObject);
-            }
-        });
-    }
-
-    /**
-     * Loads predefined data from a given multipart file.
-     * This method processes the provided multipart file to load predefined data into the system.
-     * The file is expected to be in a format recognized by the implementation, such as CSV, JSON, or XML.
-     *
-     * @param file the multipart file containing the predefined data to be loaded into the system.
-     *             The file should not be null and must contain valid data as per the required format.
-     */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void loadPreSystemData(MultipartFile file) {
-        FileObject fileObject = FileUtils.getFileObject(file);
-        runAsSystemScope(() -> loadFileObject(fileObject));
+        // Cloned from the caller, so a caller running cross-tenant (inSystemContext, a background job) would
+        // hand that on: reads would lose the tenant predicate while the bindings name this tenant. The load
+        // is this tenant's, whatever its caller.
+        tenantContext.setCrossTenant(false);
+        ContextHolder.runWith(tenantContext, () -> loadFiles(dataDir, fileNames, mode));
     }
 
     /**
@@ -173,6 +201,8 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         // thing needed (write tenant_id = null, read IS NULL). Its own javadoc scopes it to background
         // orchestration rather than request-scoped work, and this is a REST call.
         systemContext.setSkipPermissionCheck(true);
+        // And not inherited from the caller either, for the same reason as the tenant path.
+        systemContext.setCrossTenant(false);
         ContextHolder.runWith(systemContext, task);
     }
 
@@ -194,6 +224,13 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      */
     private void processModelData(String model, Object predefinedData) {
         ModelManager.validateModel(model);
+        if (ModelManager.isTimelineModel(model)) {
+            List<?> rows = predefinedData instanceof List<?> listData ? listData : List.of(predefinedData);
+            checkTimelineRows(model, rows.stream()
+                    .filter(Map.class::isInstance)
+                    .map(row -> Cast.<Map<String, Object>>of(row))
+                    .toList());
+        }
         if (predefinedData instanceof List<?> listData) {
             listData.forEach(row -> {
                 if (row instanceof Map<?, ?> rowMap) {
@@ -224,6 +261,8 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      *
      * @param model Model name
      * @param row Predefined data record
+     * @return the row id, or null when an additive load left the record out — the scope deleted the row,
+     *         or the row refers to one the scope deleted — together with the children it carries
      */
     Serializable handlePredefinedData(String model, Map<String, Object> row) {
         validateSeedScope(model);
@@ -249,6 +288,10 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         }
         // Load main model data first, then the OneToMany rows it owns.
         Serializable rowId = createOrUpdateData(model, mainRow, binding);
+        if (rowId == null) {
+            // Left out by an additive load; the children it carries have nothing to hang off.
+            return null;
+        }
         loadOneToManyRows(model, rowId, oneToManyMap);
         return rowId;
     }
@@ -270,16 +313,16 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         boolean tenantScope = ContextHolder.getContext().getTenantId() != null;
         boolean tenantModel = ModelManager.getModel(model).isMultiTenant();
         Assert.notTrue(!tenantScope && tenantModel,
-                "Model {0} is multi-tenant: load its predefined data per tenant via loadPreTenantData, " +
-                "not as system data.", model);
+                "Model {0} is multi-tenant: its seed rows belong in a tenant file (data-tenant) or a platform " +
+                "tenant file (data-platform), not in a platform-global file.", model);
         Assert.notTrue(tenantScope && !tenantModel,
-                "Model {0} is a shared model: load its predefined data via loadPreSystemData, " +
-                "not as tenant data.", model);
+                "Model {0} is a shared model: its seed rows belong in a platform-global file (data-system), " +
+                "not in a tenant file.", model);
     }
 
     /**
-     * Reconcile a main row's OneToMany children with the file: the children it still declares are
-     * created or updated, the rest are deleted.
+     * Reconcile a main row's OneToMany children with the file: the children it declares are created or
+     * updated; on an overwriting load, the seeded children it no longer declares are deleted first.
      *
      * <p>Reconciliation runs BEFORE the writes, and what survives is read from the bindings — the rows
      * the file's child preIds point at — rather than from what the writes just returned. The order is
@@ -294,9 +337,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      *
      * <p>Deleting first is safe in a way the reverse is not: the whole load is one transaction, so a
      * failure anywhere puts the deleted rows back, and "survives" is decided by the file, not by
-     * write side effects. Rows the tenant added by hand still go — they carry no binding, so the file
-     * does not declare them — which is the pre-existing contract, now applied a step earlier. A
-     * frozen record never reaches here at all.
+     * write side effects. Only children that came from a seed are candidates — they carry a binding.
+     * A child added by hand has none and is kept: the file never said anything about it. An additive
+     * load deletes nothing at all. A frozen record never reaches here.
      *
      * @param model Main model name
      * @param mainId Main model row ID
@@ -318,21 +361,65 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                 childRow.put(relation.getRelatedField(), mainId);
                 childRows.add(childRow);
             }
-            // The rows the file still declares. A child whose preId has no binding yet contributes
-            // nothing here — it is about to be created, and there is no old row of its own to keep.
-            List<Serializable> keepIds = boundRowIds(childModel, preIdsOf(childModel, childRows));
-            Filters deleteFilters = new Filters().eq(relation.getRelatedField(), mainId);
-            if (!keepIds.isEmpty()) {
-                deleteFilters.notIn(ID, keepIds);
+            if (!additive()) {
+                deleteUndeclaredSeededChildren(childModel, relation.getRelatedField(), mainId, childRows);
             }
-            // Read the doomed ids before the delete: their bindings have to go with them. A binding
-            // left pointing at a deleted row is not inert — the next run finds it and tries to update
-            // a row that is gone, so dropping a child from the seed would poison every later load.
-            List<Serializable> removedIds = modelService.getIds(childModel, deleteFilters);
-            modelService.deleteByFilters(childModel, deleteFilters);
-            deleteBindings(childModel, removedIds);
             childRows.forEach(childRow -> handlePredefinedData(childModel, childRow));
         });
+    }
+
+    /**
+     * Delete the children under a main row that came from a seed and that the file no longer declares,
+     * together with their bindings.
+     *
+     * @param childModel   the OneToMany's model
+     * @param backRefField the child's field pointing at the main row
+     * @param mainId       the main row
+     * @param childRows    the children the file declares
+     */
+    private void deleteUndeclaredSeededChildren(String childModel, String backRefField, Serializable mainId,
+                                                List<Map<String, Object>> childRows) {
+        // The rows the file still declares. A child whose preId has no binding yet contributes
+        // nothing here — it is about to be created, and there is no old row of its own to keep.
+        List<Serializable> keepIds = boundRowIds(childModel, preIdsOf(childModel, childRows));
+        Filters undeclared = new Filters().eq(backRefField, mainId);
+        if (!keepIds.isEmpty()) {
+            undeclared.notIn(ID, keepIds);
+        }
+        // Of those, the seeded ones — inactive ones included: a child deactivated on the page is still the
+        // seed's, and left behind it would hold its unique key against the row the file declares in its
+        // place. Their bindings go with them: a binding left pointing at a deleted row is not inert — the
+        // next run finds it and tries to update a row that is gone.
+        FlexQuery undeclaredQuery = new FlexQuery(Set.of(ID), undeclared);
+        undeclaredQuery.setFilterControl(FilterControl.bypassActiveControl());
+        List<Serializable> undeclaredIds = modelService.searchList(childModel, undeclaredQuery).stream()
+                .map(child -> (Serializable) child.get(ID))
+                .toList();
+        List<Serializable> removedIds = seededRowIds(childModel, undeclaredIds);
+        if (!removedIds.isEmpty()) {
+            modelService.deleteByIds(childModel, removedIds);
+            deleteBindings(childModel, removedIds);
+        }
+    }
+
+    /**
+     * The rows among these that have a binding in their model's scope — the ones a seed created.
+     *
+     * @param model  model name
+     * @param rowIds candidate row ids
+     * @return the bound ones, in the given order
+     */
+    private List<Serializable> seededRowIds(String model, List<Serializable> rowIds) {
+        if (CollectionUtils.isEmpty(rowIds)) {
+            return List.of();
+        }
+        Filters filters = new Filters()
+                .eq(SysPreData::getModel, model)
+                .in(SysPreData::getRowId, rowIds.stream().map(String::valueOf).toList());
+        Set<String> bound = this.searchList(inScope(filters, bindingScopeOf(model))).stream()
+                .map(SysPreData::getRowId)
+                .collect(Collectors.toSet());
+        return rowIds.stream().filter(id -> bound.contains(String.valueOf(id))).toList();
     }
 
     /**
@@ -386,16 +473,23 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         if (CollectionUtils.isEmpty(rowIds)) {
             return;
         }
-        Long tenantId = bindingScopeOf(model);
         Filters filters = new Filters()
                 .eq(SysPreData::getModel, model)
                 .in(SysPreData::getRowId, rowIds.stream().map(String::valueOf).toList());
+        this.deleteByFilters(inScope(filters, bindingScopeOf(model)));
+    }
+
+    /**
+     * Narrow a binding query to one scope: tenantId = T selects a tenant's bindings, null the system
+     * bindings (tenant_id IS NULL).
+     */
+    private static Filters inScope(Filters filters, Long tenantId) {
         if (tenantId == null) {
             filters.isNotSet(SysPreData::getTenantId);
         } else {
             filters.eq(SysPreData::getTenantId, tenantId);
         }
-        this.deleteByFilters(filters);
+        return filters;
     }
 
     /**
@@ -407,10 +501,20 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * @param model Model name
      * @param row Predefined data record (main-model fields only)
      * @param optionalPreData this preId's binding in its scope, empty when the row is new
-     * @return Record ID created or updated
+     * @return Record ID created or updated, or null when an additive load leaves the row out
      */
     private Serializable createOrUpdateData(String model, Map<String, Object> row,
                                             Optional<SysPreData> optionalPreData) {
+        if (optionalPreData.isEmpty() && additive()) {
+            // A new row hanging off a seeded row the scope deleted — a template column under a template that
+            // is gone — would be an orphan the scope never asked for.
+            String deleted = deletedReference(model, row);
+            if (deleted != null) {
+                log.info("Seed row {} of {} left out: it refers to {}, which was deleted here.",
+                        row.get(ID), model, deleted);
+                return null;
+            }
+        }
         // Resolve the preIds of ManyToOne, OneToOne, and ManyToMany fields to row IDs (returns a new
         // map; the caller's row is left untouched).
         Map<String, Object> resolved = resolveReferencedPreIds(model, row);
@@ -429,43 +533,48 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             SysPreData preData = optionalPreData.get();
             // Update the data and return the data ID
             Serializable rowId = IdUtils.formatId(model, preData.getRowId());
-            // The update payload is `resolved` plus a null for every updatable field the file leaves
-            // out — "clear what the seed no longer says". Held apart from `resolved` because the
-            // recreate path below must not inherit those nulls: a default value is filled only when
-            // the key is ABSENT (BaseProcessor's computeIfAbsent), so creating from the cleared map
-            // would write nulls over the model's defaults and produce a row a first load never would.
+            if (ModelManager.isTimelineModel(model)) {
+                // A timeline entity is several rows — one per version, each with its own sliceId — and
+                // the binding names the entity, not a version. The seed row says which version it is by
+                // its effective start date.
+                if (rowNotExists(model, rowId)) {
+                    return additive() ? leaveDeleted(model, preData) : recreateBoundRow(model, resolved, preData);
+                }
+                writeTimelineVersion(model, rowId, preData.getPreId(), resolved);
+                return rowId;
+            }
+            // Overwriting, the update payload is `resolved` plus a null for every updatable field the file
+            // leaves out — "clear what the seed no longer says". Additive, it is `resolved` alone. Held apart
+            // from `resolved` because the recreate path below must not inherit those nulls: a default value
+            // is filled only when the key is ABSENT (BaseProcessor's computeIfAbsent), so creating from the
+            // cleared map would write nulls over the model's defaults and produce a row a first load never
+            // would.
             Map<String, Object> updatePayload = new LinkedHashMap<>(resolved);
             updatePayload.put(ID, rowId);
-            Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
-            clearedFields.removeAll(updatePayload.keySet());
-            clearedFields.forEach(fieldName -> updatePayload.put(fieldName, null));
-            boolean result = modelService.updateOne(model, updatePayload);
-            if (!result && !modelService.exist(model, rowId)) {
+            if (!additive()) {
+                Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
+                clearedFields.removeAll(updatePayload.keySet());
+                clearedFields.forEach(fieldName -> updatePayload.put(fieldName, null));
+            }
+            // A row named by its id alone — a patch reaching a parent only to add children under it — has
+            // nothing to write.
+            boolean result = updatePayload.size() > 1 && modelService.updateOne(model, updatePayload);
+            if (!result && rowNotExists(model, rowId)) {
+                if (additive()) {
+                    return leaveDeleted(model, preData);
+                }
                 // The binding outlived the row it points at. That is a normal state, not corruption:
                 // seeded rows are ordinary business data afterwards — the role wizard rewrites a
                 // role's data scopes, an admin deletes a navigation — and nothing tells sys_pre_data.
                 // Failing here made the seed permanently un-re-appliable the moment anyone touched
                 // the data. Re-create the row and re-point the binding instead, which is what
                 // create-or-update already does for a preId with no binding; this is the same case one
-                // step later. (`exist` reads through the soft-delete predicate, so a soft-deleted row
-                // counts as gone and is re-created rather than revived.)
+                // step later. (A soft-deleted row counts as gone and is re-created rather than revived.)
                 //
                 // `result` alone is not enough to conclude the row is missing: updateOne also returns
-                // false when nothing changed, which is why the row is probed before recreating.
-                log.warn("Predefined data for model {} ({}) was physically deleted; recreating it and "
-                        + "re-pointing the binding.", model, preData.getRowId());
-                // Same id rule as the create branch above: an EXTERNAL_ID model's id IS its primary
-                // key (code-as-id), so the recreated row keeps the id the binding already names. Every
-                // other strategy assigns a fresh surrogate, which the binding is re-pointed to.
-                if (ModelManager.getIdStrategy(model) == IdStrategy.EXTERNAL_ID) {
-                    resolved.put(ID, rowId);
-                } else {
-                    resolved.remove(ID);
-                }
-                Serializable recreatedId = modelService.createOne(model, resolved);
-                preData.setRowId(String.valueOf(recreatedId));
-                this.updateOne(preData);
-                return recreatedId;
+                // false when nothing changed, which is why the row is probed before recreating — past
+                // active control, see rowExists.
+                return recreateBoundRow(model, resolved, preData);
             }
             // The typed id, not `preData.getRowId()` — that column is a String. The caller injects this
             // value into each OneToMany child as the back-reference, and resolveReferencedPreIds reads a
@@ -474,6 +583,146 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
             // the untyped value, so a seed carrying children loaded once and failed on every re-run.
             return rowId;
         }
+    }
+
+    /**
+     * An additive load meeting a seeded row the scope has since deleted: the deletion stands.
+     *
+     * @return null — the row and the rows nested in it are left out
+     */
+    private Serializable leaveDeleted(String model, SysPreData preData) {
+        log.info("Seed row {} of {} left out: it was deleted here.", preData.getPreId(), model);
+        return null;
+    }
+
+    /**
+     * The first to-one reference of a row that names a seeded row since deleted in its scope, as
+     * {@code Model:preId}, or null. A reference with no binding at all is not this case: resolving it
+     * fails the load, as it always has.
+     */
+    private String deletedReference(String model, Map<String, Object> row) {
+        for (Map.Entry<String, Object> entry : row.entrySet()) {
+            if (ID.equals(entry.getKey()) || !(entry.getValue() instanceof String preId)) {
+                continue;
+            }
+            MetaField field = ModelManager.getModelField(model, entry.getKey());
+            if (!FieldType.TO_ONE_TYPES.contains(field.getFieldType())) {
+                continue;
+            }
+            String related = field.getRelatedModel();
+            Optional<SysPreData> binding = getScopedBindings(related, List.of(preId), referenceScopeOf(related))
+                    .stream().findFirst();
+            if (binding.isPresent()
+                    && rowNotExists(related, IdUtils.formatId(related, binding.get().getRowId()))) {
+                return related + ":" + preId;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether the row a binding names is still there, active or not.
+     *
+     * <p>An ordinary read adds {@code active = true} on an active-control model, and through it a seeded row
+     * someone deactivated — or one its file declares inactive — looks gone. Taken for gone, a row whose
+     * update changed nothing was re-created: a duplicate primary key on a code-as-id model, a second copy
+     * on any other. A soft-deleted row still counts as gone. Every version counts on a timeline model.
+     */
+    private boolean rowNotExists(String model, Serializable rowId) {
+        FlexQuery query = new FlexQuery(Set.of(ID), new Filters().eq(ID, rowId)).acrossTimelineData();
+        query.setFilterControl(FilterControl.bypassActiveControl());
+        query.setLimitSize(1);
+        return modelService.searchList(model, query).isEmpty();
+    }
+
+    /**
+     * Re-create a row whose binding outlived it, and re-point the binding at the new row.
+     *
+     * <p>Same id rule as the create branch: an EXTERNAL_ID model's id IS its primary key (code-as-id),
+     * so the recreated row keeps the id the binding already names. Every other strategy assigns a fresh
+     * surrogate, which the binding is re-pointed to.
+     */
+    private Serializable recreateBoundRow(String model, Map<String, Object> resolved, SysPreData preData) {
+        log.warn("Predefined data for model {} ({}) was physically deleted; recreating it and "
+                + "re-pointing the binding.", model, preData.getRowId());
+        if (ModelManager.getIdStrategy(model) == IdStrategy.EXTERNAL_ID) {
+            resolved.put(ID, IdUtils.formatId(model, preData.getRowId()));
+        } else {
+            resolved.remove(ID);
+        }
+        Serializable recreatedId = modelService.createOne(model, resolved);
+        preData.setRowId(String.valueOf(recreatedId));
+        this.updateOne(preData);
+        return recreatedId;
+    }
+
+    /**
+     * The rows of a timeline file name each version by its entity and start date, and by nothing else. A row
+     * without a start date is refused; the slice id is generated and the end date follows from the next
+     * version, so a row carrying either is refused rather than half honoured; and two rows naming the same
+     * entity and start date — the second would silently overwrite the first — are refused too. All before the
+     * file writes anything. The entity is the model's businessKey when it declares
+     * one, which is what files a new row under a stored entity, and the row's preId otherwise.
+     *
+     * <p>Package-private for the tests that drive one file's rows.
+     */
+    void checkTimelineRows(String model, List<Map<String, Object>> rows) {
+        MetaModel metaModel = ModelManager.getModel(model);
+        List<String> businessKey = metaModel == null || metaModel.getBusinessKey() == null
+                ? List.of() : metaModel.getBusinessKey();
+        Map<String, Object> versions = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object preId = row.get(ID);
+            for (String computed : List.of(SLICE_ID, EFFECTIVE_END_DATE)) {
+                Assert.notTrue(row.containsKey(computed), "Timeline model {0}: seed row {1} carries {2}. A seed row "
+                        + "names its version by effectiveStartDate alone: the slice id is generated, and the end "
+                        + "date follows from the next version.", model, preId, computed);
+            }
+            Object startDate = row.get(EFFECTIVE_START_DATE);
+            // Refused here, before anything is written: a new row without a date would be created starting on
+            // the day it loads, and every later load of the file would then fail on it.
+            Assert.notNull(startDate, "Timeline model {0}: seed row {1} has no effectiveStartDate. A timeline "
+                    + "seed row describes one version and must say from when it applies.", model, preId);
+            List<Object> entity = businessKey.isEmpty()
+                    ? List.of(String.valueOf(preId)) : businessKey.stream().map(row::get).toList();
+            Object earlier = versions.putIfAbsent(entity + "@" + startDate, preId);
+            Assert.isTrue(earlier == null, "Timeline model {0}: seed rows {1} and {2} are the same version of one "
+                    + "entity, starting on {3}. The second would overwrite the first.", model, earlier, preId, startDate);
+        }
+    }
+
+    /**
+     * Apply a seed row to the version of a timeline entity it describes.
+     *
+     * <p>A timeline seed file is the entity's history: one row per version, each with a preId of its own and
+     * the date the version starts. The entity is what the preIds share — a row with no binding yet is created,
+     * and the framework files it under the stored entity with the same businessKey as a new version — and the
+     * start date says which version a row is. So a bound row is written to its version: the stored version
+     * starting that day is corrected in place, and otherwise the version is inserted, before, between or after
+     * the stored ones (the framework's version insert cuts its neighbours to fit). Versions the file does not
+     * describe are left as they are, as rows taken out of a file are.
+     *
+     * <p>On an overwriting load, fields the file leaves out are cleared, as on any re-load, except the
+     * timeline's own: the end date is computed from the next version, so clearing it would make a version
+     * that was cut short run on under the next one. An additive load clears nothing.
+     */
+    private void writeTimelineVersion(String model, Serializable rowId, String preId, Map<String, Object> resolved) {
+        LocalDate startDate = DateUtils.dateToLocalDate(resolved.get(EFFECTIVE_START_DATE));
+        Assert.notNull(startDate, "Timeline model {0}: seed row {1} has no effectiveStartDate. A timeline "
+                + "seed row describes one version and must say from when it applies.", model, preId);
+        Map<String, Object> version = new LinkedHashMap<>(resolved);
+        version.put(ID, rowId);
+        version.put(EFFECTIVE_START_DATE, startDate);
+        version.remove(SLICE_ID);
+        version.remove(EFFECTIVE_END_DATE);
+        if (!additive()) {
+            Set<String> clearedFields = ModelManager.getModelUpdatableFieldsWithoutXToMany(model);
+            clearedFields.removeAll(version.keySet());
+            clearedFields.removeAll(TIMELINE_FIELDS);
+            clearedFields.forEach(fieldName -> version.put(fieldName, null));
+        }
+        // Same start date: the stored version is corrected in place. Any other: the version is inserted.
+        modelService.addVersion(model, version);
     }
 
     /**
@@ -523,12 +772,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      */
     private List<SysPreData> getScopedBindings(String model, List<String> preIds, Long tenantId) {
         Filters filters = new Filters().eq(SysPreData::getModel, model).in(SysPreData::getPreId, preIds);
-        if (tenantId == null) {
-            filters.isNotSet(SysPreData::getTenantId);
-        } else {
-            filters.eq(SysPreData::getTenantId, tenantId);
-        }
-        return this.searchList(filters);
+        return this.searchList(inScope(filters, tenantId));
     }
 
     /**

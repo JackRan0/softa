@@ -22,7 +22,6 @@ import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.tenant.entity.TenantInfo;
 import io.softa.starter.tenant.provisioning.ProvisionTenantRequest;
 import io.softa.starter.tenant.provisioning.TenantProvisioningService;
-import io.softa.starter.tenant.provisioning.TenantSeedPurgeService;
 import io.softa.starter.tenant.service.SubscriptionPeriodPatch;
 import io.softa.starter.tenant.service.TenantSubscriptionPeriodService;
 import io.softa.starter.tenant.service.impl.TenantInfoServiceImpl;
@@ -56,18 +55,15 @@ public class TenantInfoController {
     private final TenantInfoServiceImpl tenantInfoService;
     private final ModelService<Long> modelService;
     private final TenantSubscriptionPeriodService periodService;
-    private final TenantSeedPurgeService purgeService;
 
     public TenantInfoController(TenantProvisioningService provisioningService,
                                TenantInfoServiceImpl tenantInfoService,
                                ModelService<Long> modelService,
-                               TenantSubscriptionPeriodService periodService,
-                               TenantSeedPurgeService purgeService) {
+                               TenantSubscriptionPeriodService periodService) {
         this.provisioningService = provisioningService;
         this.tenantInfoService = tenantInfoService;
         this.modelService = modelService;
         this.periodService = periodService;
-        this.purgeService = purgeService;
     }
 
     // ─── Operational status: the only sanctioned way to change it ───
@@ -103,21 +99,12 @@ public class TenantInfoController {
         return ApiResponse.success(provisioningService.provision(request).tenantId());
     }
 
-    /**
-     * Discard a stuck or failed tenant's seed data and set it up again.
-     *
-     * <p>Only reachable for a tenant that is still initializing or whose initialization failed — the service
-     * enforces that, not this endpoint, because the safety of deleting the rows depends on it. The tenant keeps
-     * its id, code, name and the subscription periods ops recorded; everything the seeders wrote is discarded
-     * and produced again.
-     *
-     * <p>Returns what was deleted, per model. A destructive operation that reports nothing about what it
-     * removed is one nobody can safely trust or audit.
-     */
-    @Operation(summary = "Rebuild a tenant whose setup failed — discards its seed data and seeds it again")
-    @PostMapping("/rebuild")
-    public ApiResponse<Map<String, Integer>> rebuild(@RequestParam Long id) {
-        return ApiResponse.success(purgeService.rebuild(id));
+    @Operation(summary = "Retry a failed tenant setup (Draft only) — the seeders continue where they stopped; "
+            + "nothing is discarded")
+    @PostMapping("/retrySetup")
+    public ApiResponse<Boolean> retrySetup(@RequestParam Long id) {
+        provisioningService.retrySetup(id);
+        return ApiResponse.success(true);
     }
 
     // One transaction per submit: a period patch that trips a guard must not leave the tenant's own edits

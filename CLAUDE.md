@@ -54,6 +54,7 @@ softa-parent (root pom.xml)
 │   └── softa-web       # Spring WebMVC REST layer
 ├── starters/           # Optional, composable feature modules
 │   ├── metadata-starter         # Metadata-driven entity/field definitions
+│   ├── seed-starter             # Seed data: manifest, platform load, per-tenant runs, load records
 │   ├── ai-starter               # LLM integration via Spring AI 2.0 (OpenAI/Azure/OpenAI-compatible, DeepSeek, Anthropic)
 │   ├── flow-starter             # Workflow engine
 │   ├── cron-starter             # Scheduled task execution

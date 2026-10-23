@@ -15,8 +15,8 @@ import io.softa.starter.referencedata.enums.Continent;
 /**
  * Platform-level country/region master keyed by ISO 3166-1 alpha-2 code.
  * Read-only reference data — same rows serve all tenants. Seed loaded from
- * {@code data-system/CountryRegion.AllCountries.json} via metadata-starter's
- * {@code POST /SysPreData/loadPreSystemData}.
+ * {@code data-system/CountryRegion.AllCountries.json} by seed-starter's
+ * platform load ({@code POST /SeedData/platform/load}).
  *
  * <p>Code-as-id: the primary key {@link #id} <b>is</b> the ISO 3166-1 alpha-2 code
  * (EXTERNAL_ID). Tables reference a country by storing this code in an id-FK

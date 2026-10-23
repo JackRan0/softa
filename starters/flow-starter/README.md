@@ -310,6 +310,12 @@ Approval timeout strategies:
 
 `ApprovalTimeoutScheduler` handles reminders, auto actions, and escalation against persisted pending approvals.
 
+It runs off a cron row. The starter's maintenance crons (approval timeout reminders and handling, delegation
+expiry, timer sweep, stuck-instance scan, debug bundle purge) ship switched off in
+`data-system/SysCron.FlowMaintenance.json`. The app lists that file under `platform` in its
+`seed-manifest.yml`, or the rows never exist; then switch on the ones it uses. See the
+[seed-starter README](../seed-starter/README.md).
+
 ## Task Execution Model
 
 Executor-backed task nodes use `TaskNodeConfig`. The node **`FlowNodeType`**

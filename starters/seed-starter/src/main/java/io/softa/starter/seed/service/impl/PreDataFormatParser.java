@@ -1,4 +1,4 @@
-package io.softa.starter.metadata.service.impl;
+package io.softa.starter.seed.service.impl;
 
 import java.io.IOException;
 import java.io.StringReader;

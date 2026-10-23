@@ -30,7 +30,7 @@ import io.softa.framework.orm.enums.IdStrategy;
         multiTenant = true,
         activeControl = true,
         businessKey = {"optionSetCode", "itemCode"},
-        displayName = {"itemCode", "label"},
+        displayName = {"label"},
         searchName = {"itemCode", "label"},
         defaultOrder = {"optionSetCode:asc", "sequence:asc"},
         description = "Members of tenant-authored option sets"

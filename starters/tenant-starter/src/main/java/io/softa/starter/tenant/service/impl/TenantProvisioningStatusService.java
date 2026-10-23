@@ -1,22 +1,19 @@
 package io.softa.starter.tenant.service.impl;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import static io.softa.framework.base.context.ContextUtils.inSystemContext;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.tenant.config.TenantProvisioningProperties;
-import io.softa.starter.tenant.entity.TenantInfo;
 import io.softa.starter.tenant.entity.TenantSeedProgress;
 import io.softa.starter.tenant.enums.SeederStatus;
 import io.softa.starter.tenant.enums.TenantStatus;
+
+import static io.softa.framework.base.context.ContextUtils.inSystemContext;
 
 /**
  * Provisioning-status coordinator — the per-tenant "completion latch". Owns the {@link TenantSeedProgress}
@@ -77,8 +74,7 @@ public class TenantProvisioningStatusService extends EntityServiceImpl<TenantSee
     }
 
     /**
-     * A seeder reported terminal failure ({@code SeederCompletedMessage.success=false}): record per-seeder
-     * FAILED and flag the tenant.
+     * A seeder failed: record per-seeder FAILED and flag the tenant.
      *
      * <p><b>Called by each seed consumer from its catch block</b>, before it rethrows. Marking on the first
      * failure is safe because this is not a terminal state: the rethrow keeps MQ redelivering, and a later
@@ -99,22 +95,6 @@ public class TenantProvisioningStatusService extends EntityServiceImpl<TenantSee
             log.error("Tenant {} provisioning FAILED at seeder {}", tenantId, seederKey);
             return null;
         });
-    }
-
-
-    /**
-     * When this tenant last moved: the newest {@link TenantSeedProgress} write, or its creation time when no
-     * seeder has reported at all. {@code updatedTime} rather than {@code createdTime} on the progress row,
-     * because a seeder re-reporting (MQ redelivery, a rebuild) is also progress.
-     */
-    private LocalDateTime lastProgressAt(TenantInfo tenant) {
-        // `this` IS the TenantSeedProgress entity service — it is what upsertProgress writes through.
-        return searchList(new Filters().eq(TenantSeedProgress::getTenantId, tenant.getId()))
-                .stream()
-                .map(p -> p.getUpdatedTime() != null ? p.getUpdatedTime() : p.getCreatedTime())
-                .filter(Objects::nonNull)
-                .max(LocalDateTime::compareTo)
-                .orElse(tenant.getCreatedTime());
     }
 
     /**

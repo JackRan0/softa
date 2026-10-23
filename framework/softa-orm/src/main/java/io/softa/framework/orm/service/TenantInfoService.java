@@ -67,6 +67,32 @@ public interface TenantInfoService {
     }
 
     /**
+     * Ids of the tenants whose setup has finished — active, suspended or closed. A suspended or closed tenant
+     * keeps its data and may come back, so whatever keeps tenants' data current (the seed data) reaches it too.
+     *
+     * <p>Defaulted, like {@link #isTenantProvisioned}, so an implementation that predates it still compiles;
+     * the default answers with the active tenants, the closest it can tell.
+     *
+     * @return tenant ids, in no particular order
+     */
+    default List<Long> getProvisionedTenantIds() {
+        return getActiveTenantIds();
+    }
+
+    /**
+     * The tenant's default country — its operating country — as an ISO 3166-1 alpha-2 code.
+     *
+     * <p>Default {@code null} so an implementation that predates this method still compiles; callers must
+     * tolerate an unknown country.
+     *
+     * @param tenantId tenant id
+     * @return the country code, or null when unknown
+     */
+    default String getDefaultCountry(Long tenantId) {
+        return null;
+    }
+
+    /**
      * Suspend a tenant — ACTIVE → SUSPENDED. See {@link #activate} for the contract these three share.
      *
      * @param tenantId tenant id

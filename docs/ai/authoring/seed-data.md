@@ -3,14 +3,55 @@
 Part of the [Softa app authoring guide](../README.md). How to ship reference data
 (countries, currencies, default categories, …) as JSON files alongside your app.
 
-These files are loaded **on demand** by an operator calling
-`POST /SysPreData/loadPreSystemData` — they are **not** auto-loaded at boot. The
-*table structure* comes from your entity annotations ([entities.md](entities.md));
-this is just the *rows*.
+The files are **not** auto-loaded at boot. Each one is registered in the app's
+`seed-manifest.yml`, and [seed-starter](../../../starters/seed-starter/README.md)
+loads it: platform files when the platform admin loads them after a deploy,
+tenant files when a tenant is set up (and on the admin's **Run** for tenants that
+already exist). The *table structure* comes from your entity annotations
+([entities.md](entities.md)); this is just the *rows*.
 
 Place files in your module's resources:
-- `src/main/resources/data-system/*.json` — shared/platform data (all tenants)
-- `src/main/resources/data-tenant/*.json` — per-tenant defaults (loaded via `/SysPreData/loadPreTenantData`)
+- `src/main/resources/data-system/*.json` — shared data, one copy for all tenants (`PLATFORM_GLOBAL`)
+- `src/main/resources/data-platform/*.json` — the platform tenant's own rows on multi-tenant models (`PLATFORM_TENANT`)
+- `src/main/resources/data-tenant/*.json` — per-tenant defaults, one copy per tenant (`TENANT`)
+
+---
+
+## Register the file
+
+A file that is not in `seed-manifest.yml` never loads. List a platform file
+(`data-system/`, `data-platform/`) under `platform`, and a tenant file
+(`data-tenant/`) under `tenant`, in the group of tenants it is for — always
+**after** every file whose rows it refers to (the order is the load order):
+
+```yaml
+platform:
+  - data-system/Currency.AllCurrencies.json
+  - data-system/CountryRegion.AllCountries.json   # refers to Currency
+tenant:
+  - files:                      # every tenant
+      - data-tenant/LeaveType.Default.json
+  - module: leave               # plan module; omit when every plan gets it
+    countries: [NZ]             # omit for every country
+    files:
+      - data-tenant/LeaveType.NZ.json
+```
+
+How a change to a file reaches data that is already loaded depends on its level:
+
+- **Platform files** are the data. When one changes, the next platform load
+  loads it again, whole: a field the file no longer names is cleared, and a
+  seeded child the file no longer lists is deleted.
+- **Tenant files run once per tenant**, and what a tenant changes afterwards is
+  the tenant's. **Once released, a tenant file is never edited.** An edit would
+  reach only tenants created after it, so put new rows in a new file (a patch),
+  registered after the original. The admin's next **Run** gives the patch to
+  every existing tenant. A patch only adds rows and deletes nothing. A row
+  tenants already have is theirs: changing it is a data migration in the
+  release, not a seed file.
+- `overwrite: true` (tenant files only) makes a tenant file behave like a
+  platform file: it runs again, whole, whenever it changes. Use it only for rows
+  nobody in a tenant edits, such as the built-in roles.
 
 ---
 
@@ -70,12 +111,41 @@ Rules:
 - **Omit audit fields** (`createdTime`, `createdBy`, `updatedTime`, …) — the
   loader fills them.
 
+### Timeline models
+
+A timeline model (`@Model(timeline = true)`: a rate or a parameter that changes
+from a date) keeps its whole history in the file, **one row per version**, each
+with an `id` of its own and the date the version starts:
+
+```json
+{
+  "PlatformPayrollParameter": [
+    { "id": "payroll.param.sg.OW_Ceiling.2025-01-01", "countryPayrollPackageId": "payroll.package.sg",
+      "code": "OW_Ceiling", "value": 7400, "effectiveStartDate": "2025-01-01" },
+    { "id": "payroll.param.sg.OW_Ceiling.2026-01-01", "countryPayrollPackageId": "payroll.package.sg",
+      "code": "OW_Ceiling", "value": 8000, "effectiveStartDate": "2026-01-01" }
+  ]
+}
+```
+
+- The rows are versions of one entity because they share the model's
+  `businessKey` (here the package and the code), not because of their ids. A
+  new version gets a new `id`; a date in the `id` is only part of the name.
+- Never write `sliceId` (the database generates it) or `effectiveEndDate` (it is
+  the day before the next version starts). The loader refuses a row that carries
+  either.
+- A version is its start date. Changing a row's values corrects that version on
+  the next load, and a new date inserts a version where it falls. Two rows of one
+  entity starting on the same day are refused.
+- A version taken out of the file stays in the database, as any row taken out of
+  a file does.
+
 ---
 
 ## Recipes
 
-**Add a row** — insert it in the right file (keep stable `id` order), validate,
-build:
+**Add a row to a platform file**: insert it in the right file (keep stable `id`
+order), validate, build. The next platform load picks the changed file up:
 ```json
 { "id": "SS", "name": "South Sudan", "alpha3Code": "SSD",
   "dialCode": "211", "currencyCode": "SSP", "continent": "AF" }
@@ -83,13 +153,35 @@ build:
 If it references data that doesn't exist yet (currency `SSP`), add that **first**
 in its own file — there's no DB FK, so a dangling reference loads silently.
 
-**Update a row** — edit the fields, keep `id` unchanged. Changing `id` changes
-the seed `preId`, so the loader treats it as a different seed row. Reload applies
-the UPDATE to the row currently bound to that `preId`.
+**Update a row in a platform file**: edit the fields and keep `id` unchanged.
+Changing `id` changes the seed `preId`, so the loader treats it as a different
+seed row. The next platform load rewrites the row currently bound to that
+`preId`.
 
-**Per-tenant defaults** — put them in `data-tenant/` (not `data-system/`); they
-load per tenant via `/SysPreData/loadPreTenantData`, stamping the caller's tenant.
-Each tenant gets its own `preId` bindings, so the same file loads once per tenant
+**Add rows for existing tenants**: write a new tenant file and register it
+after the original, instead of editing the released one. Every row in it has
+an `id` of its own; an existing row is referred to by its `preId`, never
+repeated — a new option item names its set in `optionSetId`. The admin's next
+**Run** creates the rows in every existing tenant, and new tenants run the
+original and the patch.
+
+**Change a row tenants already have**: not with a seed file. Once loaded, the
+row is the tenant's, and tenants may have changed it; ship the change as a data
+migration (SQL) in the release. A tenant file that repeats an earlier file's
+`id` would also defeat the environment's initialization
+(`POST /SeedData/initialize`), which records a file as run wherever a tenant
+holds one of its rows — the app's manifest test should reject it (hcm's
+`SeedManifestTest` does).
+
+**Remove a row**: taking a top-level row out of a file does not delete it from
+any database. Only seeded *children* (rows of a `ONE_TO_MANY` nested under a
+row) that a platform file no longer lists are deleted on its next load. Delete
+the row in the app, or with a data migration.
+
+**Per-tenant defaults** — put them in `data-tenant/` (not `data-system/`) and
+register them at level `TENANT`. Each tenant runs the file once, when it is set
+up, and the rows are stamped with that tenant. Each tenant gets its own `preId`
+bindings, so the same file loads once per tenant
 without touching other tenants' rows. When multi-tenancy is enabled, **what a file
 may seed** is enforced in both directions — `data-tenant` files may only seed
 `multiTenant = true` models, `data-system` files only shared models, and the loader
@@ -108,7 +200,14 @@ for f in src/main/resources/data-system/*.json; do jq . "$f" >/dev/null && echo 
 # duplicate seed preIds in a file
 jq '.CountryRegion[].id' CountryRegion.AllCountries.json | sort | uniq -d
 ```
-Then, after deploy, an operator loads the file(s) and checks the row count.
+The app's startup check rejects a manifest entry whose file is missing. Start the
+app once to confirm, and run the app's own manifest tests (every seed file
+registered, no released tenant file edited, no tenant file repeating another's
+row). After deploy, the Seed Data page lists the file as pending. The platform
+admin loads the platform files, then runs the tenants, and checks the row count.
+An environment is initialized once before any of that, through the API
+(`POST /SeedData/initialize`, see the seed-starter README); until then the
+platform load and tenant runs are refused.
 
 ---
 
@@ -130,6 +229,18 @@ Then, after deploy, an operator loads the file(s) and checks the row count.
    exist first; otherwise the file fails with "preIDs … do not exist".
 10. **A system seed naming a multi-tenant model's `preId`** — unresolvable, since
     that binding exists once per tenant; use the row's actual id.
+11. **A file missing from `seed-manifest.yml`**: it never loads. A file listed
+    before a file it refers to fails, because manifest order is load order.
+12. **Editing a released tenant file**: tenants that ran it never run it again
+    (the page shows it as changed after load), so only new tenants get the
+    edit. Write a patch file instead.
+13. **`overwrite: true` on rows tenants edit**: every change to the file resets
+    every tenant's copy, edits included.
+14. **Running tenants before the platform load**: tenant files refer to
+    platform rows, so after a deploy, load the platform files first.
+15. **A patch that repeats an existing row's `id`** to change it: the row is the
+    tenant's once loaded. Change it with a data migration, and keep the patch
+    to new rows.
 
 Not for: test fixtures (use `src/test/resources/`), or data that needs
 transformation from an old schema (write a service-layer migration job instead).

@@ -4,8 +4,9 @@ import io.softa.framework.base.enums.ResponseCode;
 
 /**
  * No {@code sys_sequence} row exists for the current tenant + code.
- * Most likely cause: the tenant has not been bootstrapped with the default
- * sequence (run {@code loadPreTenantData}), or the code is misspelled.
+ * Most likely cause: the tenant has not run the seed file that declares the
+ * sequence (seed-starter: run the tenant's pending files), or the code is
+ * misspelled.
  */
 public class SequenceNotFoundException extends SequenceException {
 

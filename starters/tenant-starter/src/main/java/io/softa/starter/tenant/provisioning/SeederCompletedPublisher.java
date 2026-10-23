@@ -26,13 +26,17 @@ public class SeederCompletedPublisher {
         this.pulsarTemplate = pulsarTemplate;
     }
 
-    public void publish(Long tenantId, String seederKey, boolean success, boolean rebuild) {
+    /**
+     * Report that the seeder finished seeding the tenant. Called on success only: a seeder that fails marks
+     * itself failed ({@code TenantProvisioningStatusService.markSeederFailed}) and rethrows instead.
+     */
+    public void publish(Long tenantId, String seederKey) {
         if (topic == null || topic.isBlank()) {
             log.debug("seeder-completed topic unconfigured; skipping publish for tenant {} seeder {}",
                     tenantId, seederKey);
             return;
         }
-        SeederCompletedMessage message = new SeederCompletedMessage(tenantId, seederKey, success, rebuild);
+        SeederCompletedMessage message = new SeederCompletedMessage(tenantId, seederKey);
         pulsarTemplate.sendAsync(topic, message).whenComplete((__, ex) -> {
             if (ex != null) {
                 log.error("failed to publish seeder-completed for tenant {} seeder {}", tenantId, seederKey, ex);

@@ -23,9 +23,9 @@ import lombok.EqualsAndHashCode;
  *   <li>{@code code} matches {@code "<ModelName>.<fieldName>"} for
  *       fields participating in auto-fill (see SequenceProcessor).</li>
  *   <li>{@code incrementStep == 1}.</li>
- *   <li>{@code code} is not changed after creation; rows are provisioned via
- *       the framework's {@code loadPreTenantData} on JSON files for tenant
- *       bootstrap, not created ad hoc through the API.</li>
+ *   <li>{@code code} is not changed after creation; rows are provisioned by a
+ *       tenant seed file, which seed-starter runs when the tenant is set up,
+ *       not created ad hoc through the API.</li>
  * </ul>
  *
  * <p>There is no {@code status} column: a row's existence equals "active".
@@ -81,11 +81,11 @@ public class SysSequence extends AuditableModel {
      * error on the business table, with the code field left blank on screen.
      *
      * <p>Omitting it from the seed is necessary but not sufficient, which is what {@code readonly}
-     * is here for. {@code loadPreTenantData}'s update branch is a whole-row reconcile: it writes an
-     * explicit null for every updatable field the file does NOT mention, so leaving the counter out
-     * used to null it — the mirror of the rewind above, and worse, because a NULL counter can no
-     * longer advance ({@code current_value + step} is NULL) and reads as a fresh row, re-issuing
-     * numbers from {@code startValue}. Marked readonly, it is not an updatable field, so no re-load
+     * is here for. {@code loadPreTenantData}'s update branch, in an overwrite load, is a whole-row
+     * reconcile: it writes an explicit null for every updatable field the file does NOT mention, so
+     * leaving the counter out used to null it — the mirror of the rewind above, and worse, because a
+     * NULL counter can no longer advance ({@code current_value + step} is NULL) and reads as a fresh
+     * row, re-issuing numbers from {@code startValue}. Marked readonly, it is not an updatable field, so no re-load
      * can touch it either way — a readonly field is dropped from the write payload rather than
      * rejected, so the loader's null never reaches the column. The allocator is unaffected: it
      * advances the counter in its own {@code UPDATE} through {@code JdbcProxy}, below the field

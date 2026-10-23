@@ -22,6 +22,7 @@ starters) — see [config.md](config.md):
 | `message-starter` | SMS / email + Pulsar messaging — templates, OAuth2 mail, delivery pipeline, retry, dead-letter, provider routing | [message-starter README](../../../starters/message-starter/README.md) |
 | `file-starter` | File management — upload/download, object storage (MinIO / OSS). Backs the `File` / `MultiFile` field types (see [entities.md](entities.md), [queries.md](queries.md)) | [file-starter README](../../../starters/file-starter/README.md) |
 | `reference-data-starter` | ISO reference masters — countries (3166-1), currencies (4217), subdivisions (3166-2) | [reference-data-starter README](../../../starters/reference-data-starter/README.md) |
+| `seed-starter` | Seed data — a manifest of the app's seed files, the platform load, per-tenant runs, the record of every load (see [seed-data.md](seed-data.md)) | [seed-starter README](../../../starters/seed-starter/README.md) |
 | `ai-starter` | LLM chat — multi-provider (OpenAI / Azure / DeepSeek / Anthropic / OpenAI-compatible), conversations, streaming | [ai-starter README](../../../starters/ai-starter/README.md) |
 | `cron-starter` | Scheduled task execution | starters/cron-starter README |
 | `es-starter` | Elasticsearch CRUD + query | starters/es-starter README |

@@ -6,10 +6,13 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.context.ApplicationEventPublisher;
 
+import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.tenant.entity.Plan;
@@ -35,6 +38,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -258,6 +262,47 @@ class TenantProvisioningServiceTest {
         assertThat(captor.getValue().code()).isEqualTo("acme-corp");
     }
 
+    // ─── retrying a failed setup ───
+
+    @Test
+    @DisplayName("a Draft tenant is announced again — after its axis reopens, under its own id, code and name")
+    void retry_announcesADraftTenantAgain() {
+        when(tenantInfoService.getById(TENANT_ID)).thenReturn(Optional.of(tenantIn(TenantStatus.DRAFT)));
+
+        service.retrySetup(TENANT_ID);
+
+        // The same order as provision(), for the same reason: a fast seeder's report must find the axis open.
+        InOrder order = inOrder(provisioningStatusService, eventPublisher);
+        order.verify(provisioningStatusService).beginProvisioning(TENANT_ID);
+        ArgumentCaptor<TenantProvisionedEvent> captor = ArgumentCaptor.forClass(TenantProvisionedEvent.class);
+        order.verify(eventPublisher).publishEvent(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new TenantProvisionedEvent(TENANT_ID, "acme-corp", "Acme Corp"));
+    }
+
+    @Test
+    @DisplayName("a retry writes nothing of its own: the tenant, its subscription and its periods stay as they are")
+    void retry_writesNothingItself() {
+        when(tenantInfoService.getById(TENANT_ID)).thenReturn(Optional.of(tenantIn(TenantStatus.DRAFT)));
+
+        service.retrySetup(TENANT_ID);
+
+        verify(tenantInfoService, never()).createOne(any(TenantInfo.class));
+        verify(subscriptionService, never()).createOne(any(TenantSubscription.class));
+        verifyNoInteractions(periodService);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TenantStatus.class, names = "DRAFT", mode = EnumSource.Mode.EXCLUDE)
+    @DisplayName("only a Draft tenant can retry: an Initializing one is still running, the others finished")
+    void retry_refusesAnyOtherStatus(TenantStatus status) {
+        when(tenantInfoService.getById(TENANT_ID)).thenReturn(Optional.of(tenantIn(status)));
+
+        assertThatThrownBy(() -> service.retrySetup(TENANT_ID)).isInstanceOf(BusinessException.class);
+
+        verify(provisioningStatusService, never()).beginProvisioning(anyLong());
+        verify(eventPublisher, never()).publishEvent(any(TenantProvisionedEvent.class));
+    }
+
     // ─── the code slug ───
 
     @Test
@@ -309,6 +354,15 @@ class TenantProvisioningServiceTest {
         TenantInfo tenant = new TenantInfo();
         tenant.setId(TENANT_ID);
         tenant.setSubscriptionId(SUB_ID);
+        return tenant;
+    }
+
+    /** An existing tenant in the given status. */
+    private TenantInfo tenantIn(TenantStatus status) {
+        TenantInfo tenant = provisionedTenant();
+        tenant.setName("Acme Corp");
+        tenant.setCode("acme-corp");
+        tenant.setStatus(status);
         return tenant;
     }
 }

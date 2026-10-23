@@ -78,12 +78,9 @@ public class AdminProvisioningService {
         // Readiness gate, and it runs BEFORE any write.
         //
         // An admin may only be created for a tenant that finished provisioning. This is stricter than the
-        // TENANT_ADMIN-role check below, which is the precise prerequisite for *this* method — and that
-        // precision was the earlier rationale for gating on the role alone. What changed is the remedy for a
-        // failed seed: discarding the seed output and setting the tenant up again. That is only safe while the
-        // tenant contains nothing but seeder output, and an account created mid-seed breaks exactly that — the
-        // rebuild would either destroy a real person's credentials or have to preserve the account while its
-        // role grants point at roles that no longer exist.
+        // TENANT_ADMIN-role check below, which is the precise prerequisite for *this* method: until every
+        // seeder has reported, the roles an admin is granted, and the masters a personnel record refers to,
+        // may not exist yet.
         //
         // Waiting costs little (seeding is seconds), and ops already had to wait for the role seed.
         if (tenantInfoService != null && !tenantInfoService.isTenantProvisioned(request.getTenantId())) {

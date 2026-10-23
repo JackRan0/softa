@@ -25,9 +25,9 @@ import io.softa.framework.base.annotation.OptionSet;
 @AllArgsConstructor
 @OptionSet
 public enum TenantStatus {
-    /** Created, not built — or built and it failed. The rebuild action starts from here. */
+    /** Created, not built — or built and it failed. Retrying the setup starts from here. */
     DRAFT("Draft"),
-    /** Seeders are running. Not usable yet, and the rebuild action is refused so it cannot double-run. */
+    /** Seeders are running. Not usable yet, and a retry is refused so the setup cannot double-run. */
     INITIALIZING("Initializing"),
     /** Fully set up and usable. */
     ACTIVE("Active"),

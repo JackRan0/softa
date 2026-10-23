@@ -1,0 +1,261 @@
+# Seed Starter
+
+Seed data is the set of rows an application ships with: navigation, permissions, built-in roles, reference
+masters, default leave types, and so on. The rows live in JSON or CSV files on the classpath. This
+starter lists those files in a manifest, loads them when someone asks, and records every load file by file,
+so it can always say which files have run where.
+
+How to write the files themselves (row format, `id` as the seed `preId`, references, scopes) is covered in
+[docs/ai/authoring/seed-data.md](../../docs/ai/authoring/seed-data.md). This README covers how the files are
+registered, loaded and recorded.
+
+```xml
+<dependency>
+    <groupId>io.softa</groupId>
+    <artifactId>seed-starter</artifactId>
+    <version>${softa.version}</version>
+</dependency>
+```
+
+The starter's models (`SysPreData`, `SeedLoadBatch`, `SeedLoadRecord`) live in `io.softa.starter.seed`. An
+environment whose `scanner-scope` lists packages one by one has to include that package, or the scanner never
+creates their tables. An environment that runs with an empty `scanner-scope` creates nothing at boot: add the
+`seed_load_batch` and `seed_load_record` tables, with their catalog rows, the way that environment adds new
+models, before the first load. `sys_pre_data` needs nothing — only the entity's package moved.
+
+## Two kinds of file, two rules
+
+| | Platform file | Tenant file |
+|---|---|---|
+| Directory | `data-system/` (`PLATFORM_GLOBAL`), `data-platform/` (`PLATFORM_TENANT`) | `data-tenant/` (`TENANT`) |
+| Whose rows | Shared models, or the platform tenant (-1) | Each tenant's own copy |
+| Loaded by | The platform admin, from the Seed Data page, after a deploy (the first time, by initializing the environment) | Each new tenant's setup, and the platform admin's **Run** for tenants that are already set up |
+| When it changes | Loads again, whole (`OVERWRITE`) | Never runs again in a tenant that ran it; new tenants get the new version. A file marked `overwrite: true` runs again, whole |
+| Write mode | `OVERWRITE` | `ADDITIVE`; `OVERWRITE` for `overwrite: true` files |
+
+Every decision is made per **file**: a file is loaded in a scope or it is not, and no row-level state is
+consulted to decide whether to load it. The two write modes (`LoadMode`) apply once a file loads:
+
+- **`OVERWRITE`**: the file is the data. A row the scope already has is rewritten whole, so a field the
+  file leaves out is cleared. A seeded row the scope deleted is created again. Seeded children that the
+  file no longer lists are deleted; children added by hand carry no binding and are kept.
+- **`ADDITIVE`**: a row the scope already has gets only the fields the file names. No child is deleted, and
+  a seeded row the scope deleted stays deleted, together with the rows nested in it and any new row that
+  refers to it.
+
+An inactive row (`active = false`) is not a deleted one: in both modes it is written like any other row the
+scope has, and never inserted a second time.
+
+A row whose `SysPreData` binding is `frozen` is skipped in both modes, together with its children.
+
+**Timeline models** keep their history in the file. Each version is a row of its own, with its own preId and
+the date it starts (`effectiveStartDate`), and the model's businessKey is what files the versions under one
+entity. A load writes each version the file names: the stored version starting that day is corrected, and any
+other date is inserted where it falls, its neighbours cut to fit. Versions the file does not name are left
+alone, like rows taken out of a file. A row never carries `sliceId` (the database generates it) or
+`effectiveEndDate` (it follows from the next version), and two rows of one entity may not start on the same
+day; the loader refuses a file that breaks either rule.
+
+**A released tenant file is never edited.** Tenants that already ran it would never see the edit, so the
+same file would describe different data in old and new tenants. New rows for existing tenants go in a new
+file (a patch) registered after the original. The next **Run** gives that file to every tenant, and new
+tenants run both. A patch only adds rows: each has an `id` of its own, and refers to existing rows by their
+`preId`. A seeded row a tenant has is the tenant's, so changing it is a data migration in the release, not a
+seed file — and initializing an environment relies on no tenant file repeating another's row. Mark a file
+`overwrite: true` only when nobody inside a tenant edits its rows, as with the built-in roles. Running it
+again resets them to the file.
+
+## The manifest
+
+`seed-manifest.yml` at the classpath root lists every seed file the application loads. It is read at startup,
+and startup fails when the manifest is missing or broken. All of its problems are reported in one message,
+so a broken manifest can be fixed in one pass.
+
+```yaml
+platform:                                   # loaded whole, on the platform admin's load
+  - data-system/Navigation.json             # shared rows
+  - data-system/Permission.json
+  - data-platform/MailTemplate.Platform.json  # the platform tenant's own rows
+tenant:                                     # run once in each tenant
+  - files:                                  # every tenant
+      - data-tenant/SysSequence.json
+      - file: data-tenant/Role.Tenant.json
+        overwrite: true                     # run again whenever the file changes
+  - module: leave                           # tenants whose plan includes the module
+    countries: [NZ]                         # and that work in one of these countries
+    files:
+      - data-tenant/LeaveType.NZ.json
+```
+
+- **Two lists, and the directory says the rest.** A platform file sits in `data-system/` (shared rows) or
+  `data-platform/` (the platform tenant's own rows) and is listed under `platform`; a tenant file sits in
+  `data-tenant/` and is listed under `tenant`. An entry is the file's path, or a map with the path under
+  `file` when it carries a flag.
+- **Order is load order.** A platform load takes the `platform` list in order, and each tenant runs the
+  `tenant` files in order. A file that refers to rows of another file is listed after that file.
+- **`tenant` groups** say which tenants run their files. `module`: only a tenant whose plan entitles the
+  module (`EntitlementService`; with no entitlement service, every module's files are due). `countries`: only
+  a tenant working in one of them — its default country or a company's. A group with neither is for every
+  tenant. Platform files have no group: they are not handed out per tenant.
+- **`overwrite`** is for tenant files only; platform files always reload.
+- **Rejected at startup**: an unknown key (a misspelled `countrys` would otherwise be silently ignored), a key
+  written twice (YAML would keep the second and drop the first one's files), a file in a directory its list
+  does not take, a file that is not `.json` or `.csv`, `overwrite` on a platform file, the same file name
+  registered twice (the load records name a file by its name), a file that is not on the classpath, a
+  `module` that is not one name (a group is for one module), a country that is not a two-letter upper-case
+  code (quote `"NO"`: YAML reads it bare as false), and blank or repeated entries.
+
+The manifest does not reject a seed file that it fails to list. The application checks that in its own
+tests, because only the application knows which files on its classpath are seeds and which are templates.
+`metadata-starter`'s `data-tenant/SysSequence_default.json`, for one, does not load as it stands.
+
+## Where a file stands
+
+The state of a file in a scope (the platform, or one tenant) comes from the scope's load records and the
+checksum (SHA-256) of the file in the running build, with CRLF line endings read as LF — a checkout that
+converts line endings does not make every file look changed:
+
+| State | Meaning | Picked up next time |
+|---|---|---|
+| `NOT_LOADED` | Never loaded here | yes |
+| `LOADED` | Loaded, and unchanged since | no |
+| `CHANGED` | Loaded, then changed, and it reloads: a platform file, or an `overwrite` tenant file | yes |
+| `CHANGED_AFTER_LOAD` | Loaded, then changed, and it does not reload: a run-once tenant file. Its change reaches new tenants only | no |
+| `LOADED_BY_NEWER_BUILD` | A file that reloads, last loaded by a build made after the one running, and different here: an older build is deployed, after a rollback. Loading it would put older content over newer | no |
+| `FAILED` | The latest attempt failed | yes |
+
+Each record carries the build time of the instance that wrote it (Spring Boot's `BuildProperties`, so the
+application's `spring-boot-maven-plugin` needs the `build-info` goal). Without build times on both sides
+there is nothing to compare, and a changed file is simply `CHANGED`. To load the older content on purpose
+after a rollback, delete every record of that file in that scope (`SeedLoadRecord`, by file name, and tenant
+for a tenant file): it then reads as `NOT_LOADED` and loads whole on the next load. Deleting only the newer
+build's records is not enough — the older build's record becomes the latest, its checksum matches, and the
+file reads as `LOADED` while the database still holds the newer content.
+
+## Platform load
+
+`GET /SeedData/platform` lists the platform files with their states, the running build (version, build
+time, start time) and the latest platform load. `POST /SeedData/platform/load` loads the pending files.
+Its body `{"fileNames": [...]}` loads only the named files, which must all be pending, in manifest order;
+the files left out stay pending. With no body (or no `fileNames`), every pending file loads. An empty list is
+refused, because a caller that sends one picked nothing, and so is a file a newer build loaded
+(`LOADED_BY_NEWER_BUILD`).
+
+The files load **in one transaction**: either all of them load or none does. A failure names the file and
+the cause, and is recorded against the file. Afterwards the permission snapshots (`perm:*`) and
+entitlements (`entl:*`) cached in Redis are cleared. **Then restart the instances.** What an instance built
+in memory at startup (the endpoint index, sensitive field sets, navigation, cron schedules) is rebuilt only
+by a restart. The status response says when a load ended after the instance started, so the page can ask
+for the restart.
+
+Loading is meant for one person, once per deploy. There is no lock beyond refusing to start while another
+seed operation is running.
+
+## Tenant runs
+
+- **A new tenant**: the application's setup listener calls `TenantSeedRunner.provision(tenantId)`. The
+  tenant runs every file it is due, in the caller's thread. A failure is recorded and thrown, so the
+  message is redelivered, and the retry continues where the failed attempt stopped. Once redelivery gives up
+  the tenant is left in Draft; tenant-starter's `POST /TenantInfo/retrySetup` announces it again, and the
+  run continues from the file that failed.
+- **Tenants already set up** (active, suspended or closed): `POST /SeedData/tenants/run` with
+  `{"tenantIds": [...]}`, or with no body for every one of them (an empty list is refused, as above). It
+  runs in the background, one tenant
+  after another; `GET /SeedData/batches/running` follows its progress. The platform tenant (-1) is never
+  one of them: its rows are the `PLATFORM_TENANT` files, which load with the platform's.
+
+Each file runs in a transaction of its own, and its record is written in the same transaction as its data.
+A tenant stops at its first failure, because later files may refer to the failed one's rows; the other
+tenants carry on. A run that was interrupted, or one that failed and has since been fixed, is simply run
+again: only what has not succeeded runs. A batch that stops making progress for 10 minutes is treated as
+interrupted (its instance went down), and the next operation closes it as `INTERRUPTED`.
+
+When a tenant runs any file, the cached permission snapshots of its users (`perm:{tenantId}:*`) are cleared.
+
+After a deploy, load the platform files before running the tenants. Tenant files refer to platform rows
+(roles to permissions, leave types to countries), and a reference to a row that is not loaded yet fails the
+file.
+
+`GET /SeedData/tenants/pending` counts the tenants and files a run of every tenant would cover.
+`GET /SeedData/tenants/summary?tenantIds=…` returns per-tenant counts, and
+`GET /SeedData/tenants/detail?tenantId=…` lists the files one tenant is due and the state of each.
+
+## Initializing an environment
+
+Every environment is initialized once, before anything else is loaded or run, by calling
+`POST /SeedData/initialize` as the platform admin. There is no button for it: until it has run, the Seed Data
+page is not even in the menu, and the platform load and tenant runs are refused. Setting up a new tenant does
+not wait for it. The call does two things, in this order, in the caller, and answers with what it did:
+
+1. **It records the tenant files tenants already have.** An environment that held seed data before this
+   starter recorded loads has tenants with rows but no records, so the first run would load every tenant
+   file again over what the tenants changed since. For each tenant, every tenant file it already has rows of
+   (it holds a `SysPreData` binding for one of the file's `preId`s) is recorded as run. **No data is
+   changed.** A file a tenant has nothing of is left for the next run, and `overwrite` files are skipped
+   because they run again anyway. In a new environment there is nothing to record. This step is what
+   initializes the environment: when it fails outright nothing is loaded, and the call can be made again.
+2. **It loads the platform files** — the environment's first platform load, whole and in one transaction
+   like any other:
+   - **A new environment** sends no body, and every platform file loads.
+   - **An environment that already holds platform seed data** (system-scope bindings from an earlier
+     loader) has to name the files to load, `{"fileNames": [...]}`; no body is refused there, because
+     loading every file would put each one over what was changed on the pages since. It names the files the
+     Seed Data page itself needs (its menu and permissions), and after the restart loads the rest from that
+     page, where the files changed on the pages can be left out.
+
+   When this load fails, the environment is initialized all the same: the files load from the page later.
+
+Then restart every instance. The call is refused once the environment is initialized.
+
+## Records
+
+Every operation is a `SeedLoadBatch`: its type (`Platform` / `Tenant` / `Provision` / `Initialize`), status
+(`Running` / `Succeeded` / `PartiallyFailed` / `Failed` / `Interrupted`), counts, time span and the build
+version that ran it. Every file run in one scope is a `SeedLoadRecord`: the batch, tenant (none for the
+platform), file, checksum, status and error. Both models are read through the generic model API
+(`/SeedLoadBatch/searchPage`, …), and the records are what the file states are computed from. Deleting
+records puts files back to pending.
+
+## Endpoints
+
+All of them require the platform admin (`@RequireRole(SYSTEM_ROLE_ADMIN)`). The platform load and tenant runs
+are refused until the environment is initialized.
+
+| Method | Path | Does |
+|---|---|---|
+| GET | `/SeedData/platform` | Platform files, their states, the build, the latest load |
+| POST | `/SeedData/platform/load` | Load the pending platform files, all or the named ones |
+| GET | `/SeedData/tenants/pending` | Tenants and files a run of every tenant would cover |
+| GET | `/SeedData/tenants/summary` | Per-tenant counts for the given tenants |
+| GET | `/SeedData/tenants/detail` | One tenant's due files and their states |
+| POST | `/SeedData/tenants/run` | Run the pending tenant files, in the given tenants or in all, in the background |
+| POST | `/SeedData/initialize` | Once per environment, before anything else and through the API only: record the tenant files tenants already have, then load the platform files — every one in a new environment, the named ones where platform data is held |
+| GET | `/SeedData/batches/running` | The operation in progress, or null |
+
+## The seed ledger (`SysPreData`)
+
+One binding row per seeded business row: `(model, tenantId, preId) → rowId`. A binding's scope follows the
+seeded model's tenancy: a shared model binds once at system scope, and a multi-tenant model binds once per
+tenant. A deleted row keeps its binding, which is how an `OVERWRITE` load knows to create it again and an
+`ADDITIVE` one knows to leave it deleted. `frozen = true` on a binding protects the row from every load.
+The ledger is read through the generic model API, so treat `/SysPreData/*` as operator-only.
+
+## Replaced
+
+- `POST /SysPreData/loadPreSystemData`, `/loadPreTenantData`, `/loadPrePlatformData` and
+  `/loadSystemDataByUpload` are removed. Loading goes through the manifest and the endpoints above.
+  `SysPreDataService` keeps the loader methods, which now take a `LoadMode`.
+- Tenant rebuild (`POST /TenantInfo/rebuild`, which purged a tenant's seed rows and set it up again) is
+  removed. A failed setup is retried instead (`POST /TenantInfo/retrySetup`, Draft tenants), which discards
+  nothing and continues from the file that failed. Bring an existing tenant up to date with **Run**, and an
+  environment that predates the records by initializing it (`POST /SeedData/initialize`).
+- For code built against the earlier classes, the changes are:
+  - `SysPreData`, `SysPreDataService` (and its implementation) and `PreDataFormatParser` moved from
+    `io.softa.starter.metadata` to `io.softa.starter.seed`, and the loader methods take a `LoadMode`.
+    metadata-starter no longer brings `commons-csv` with it.
+  - `TenantProvisionedMessage`, `SeederCompletedMessage` and `TenantProvisionedEvent` lost `rebuild`, and
+    `SeederCompletedMessage` lost `success` too: it is sent on success only, and a seeder that fails calls
+    `TenantProvisioningStatusService.markSeederFailed`, as it already did. `SeederCompletedPublisher.publish`
+    takes `(tenantId, seederKey)`. `TenantSeedPurgeService` and `TenantSeedCleaner` are gone, and so is the
+    unused `softa.tenant.provisioning.ready-timeout-seconds` property.
+  - `CacheService` gained `clearByPrefix`; a custom `CacheService` implementation has to add it.

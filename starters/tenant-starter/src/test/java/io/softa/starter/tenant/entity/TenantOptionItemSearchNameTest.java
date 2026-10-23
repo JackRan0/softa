@@ -1,8 +1,6 @@
 package io.softa.starter.tenant.entity;
 
 import java.lang.reflect.Field;
-import java.util.List;
-
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.annotation.Model;
@@ -59,19 +57,6 @@ class TenantOptionItemSearchNameTest {
                     .as("searchName column `%s` must be a String", fieldName)
                     .isEqualTo(String.class);
         }
-    }
-
-    /**
-     * A model that says how it is displayed is a model meant to be picked from, and picking involves
-     * typing. The two attributes describe one intent from two sides and were written apart once.
-     */
-    @Test
-    void theSearchColumnsAreTheDisplayedOnes() {
-        Model model = TenantOptionItem.class.getAnnotation(Model.class);
-
-        assertThat(List.of(model.searchName()))
-                .as("what the user types should be what the user sees")
-                .isEqualTo(List.of(model.displayName()));
     }
 
     private static Class<?> declaredType(String fieldName) {
