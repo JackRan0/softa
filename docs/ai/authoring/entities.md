@@ -439,7 +439,9 @@ private String employeeNo;
   `computed`, `dynamic`, and non-RDBMS models.
 - The number format lives in a **`sys_sequence` row** whose `code` is
   `"<ModelName>.<fieldName>"` (e.g. `"Employee.employeeNo"`), provisioned per
-  tenant via `loadPreTenantData`. The row holds the template
+  tenant by a tenant seed file (`data-tenant/SysSequence.*.json`, listed in the
+  app's `seed-manifest.yml`; a new field's row goes in a new file, see
+  [seed-data.md](seed-data.md)). The row holds the template
   (`EMP-{yyyy}-{seq:5}`), reset cadence, and gap policy. **The row must exist**
   — an insert with no matching row fails with `SequenceNotFoundException`
   (fail-closed; there is no silent fallback).

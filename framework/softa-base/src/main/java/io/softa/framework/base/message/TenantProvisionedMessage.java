@@ -6,11 +6,12 @@ package io.softa.framework.base.message;
  * legal entity / cost centre / department named after the tenant. A framework DTO in {@code base.message}
  * so producer (tenant-starter) and consumers (any business module) share it without a module cycle.
  *
+ * <p>It is broadcast again when a Draft tenant's setup is retried, and MQ delivers at least once, so a
+ * subscriber meets the same tenant more than once: it continues what is missing and leaves what is done.
+ *
  * @param tenantId the newly provisioned tenant's id
  * @param code     the tenant code (as supplied, or slug-generated)
  * @param name     the tenant display name (business modules name their seeded masters after it)
- * @param rebuild  true only when a tenant's setup is being deliberately restarted; seeders discard
- *                 their own previous output first when it is set, and never otherwise
  */
-public record TenantProvisionedMessage(Long tenantId, String code, String name, boolean rebuild) {
+public record TenantProvisionedMessage(Long tenantId, String code, String name) {
 }

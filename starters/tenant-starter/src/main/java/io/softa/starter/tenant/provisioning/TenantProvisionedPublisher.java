@@ -36,7 +36,7 @@ public class TenantProvisionedPublisher {
             return;
         }
         TenantProvisionedMessage message =
-                new TenantProvisionedMessage(event.tenantId(), event.code(), event.name(), event.rebuild());
+                new TenantProvisionedMessage(event.tenantId(), event.code(), event.name());
         pulsarTemplate.sendAsync(topic, message).whenComplete((__, ex) -> {
             if (ex != null) {
                 log.error("failed to publish tenant-provisioned for tenant {}", event.tenantId(), ex);

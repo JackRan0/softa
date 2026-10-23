@@ -1,6 +1,8 @@
-package io.softa.starter.metadata.service.impl;
+package io.softa.starter.seed.service.impl;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,6 +11,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,20 +24,26 @@ import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
-import io.softa.starter.metadata.entity.SysPreData;
+import io.softa.starter.seed.entity.SysPreData;
+import io.softa.starter.seed.service.LoadMode;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -64,6 +73,8 @@ class SysPreDataOneToManyTest {
     private ModelService<Serializable> modelService;
     private SysPreDataServiceImpl service;
 
+    private static boolean previousMultiTenancy;
+
     @BeforeAll
     static void ensureSystemConfig() {
         // Framework exception construction reaches I18n via BaseException, which requires a non-null
@@ -71,7 +82,15 @@ class SysPreDataOneToManyTest {
         if (SystemConfig.env == null) {
             SystemConfig.env = new SystemConfig();
         }
+        // Restored afterwards: the flag is global and the surefire JVM is shared with tests that
+        // read it, so leaving it flipped would make their outcome depend on class ordering.
+        previousMultiTenancy = SystemConfig.env.isEnableMultiTenancy();
         SystemConfig.env.setEnableMultiTenancy(true);
+    }
+
+    @AfterAll
+    static void restoreSystemConfig() {
+        SystemConfig.env.setEnableMultiTenancy(previousMultiTenancy);
     }
 
     @BeforeEach
@@ -100,24 +119,146 @@ class SysPreDataOneToManyTest {
     }
 
     @Test
-    void childrenAreReconciledBeforeTheyAreWritten() {
-        // Nothing is bound: the parent and the child are both created, and one stale child row is
-        // sitting under the parent. The order is what matters — a renamed child's old row has to go
-        // before its replacement is written, or the child model's unique key rejects the write.
-        bindings();
-        when(modelService.createOne(eq(PARENT), anyMap())).thenReturn(TYPED_ROW_ID);
+    void aSeededChildTheFileNoLongerDeclaresIsDeletedBeforeTheWrite() {
+        // The parent is bound; under it sits a seeded child the file no longer declares (999, bound under an
+        // old preId). The order is what matters — a renamed child's old row has to go before its replacement
+        // is written, or the child model's unique key rejects the write.
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false),
+                binding(CHILD, "tenant_option_item.OrganizationType.Old", "999", false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(true);
+        storedChildren(true, 999L);
         when(modelService.createOne(eq(CHILD), anyMap())).thenReturn(555L);
-        when(modelService.getIds(eq(CHILD), any(Filters.class))).thenReturn(List.of(999L));
 
         withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow(childRow()))));
 
         InOrder inOrder = Mockito.inOrder(modelService, service);
-        inOrder.verify(modelService).getIds(eq(CHILD), any(Filters.class));
-        inOrder.verify(modelService).deleteByFilters(eq(CHILD), any(Filters.class));
+        inOrder.verify(modelService).searchList(eq(CHILD), any(FlexQuery.class));
+        inOrder.verify(modelService).deleteByIds(CHILD, List.of(999L));
         // The bindings of the rows just deleted go with them, or the next run finds a binding
         // pointing at nothing and dies trying to update it.
         inOrder.verify(service).deleteByFilters(any(Filters.class));
         inOrder.verify(modelService).createOne(eq(CHILD), anyMap());
+    }
+
+    @Test
+    void aChildAddedByHandSurvivesAnOverwrite() {
+        // 999 sits under the seeded parent with no binding: someone added it on the page. The file never said
+        // anything about it, so overwriting the file leaves it alone.
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(true);
+        storedChildren(true, 999L);
+        when(modelService.createOne(eq(CHILD), anyMap())).thenReturn(555L);
+
+        withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow(childRow()))));
+
+        verify(modelService, never()).deleteByIds(eq(CHILD), anyList());
+        verify(modelService).createOne(eq(CHILD), anyMap());
+    }
+
+    @Test
+    void aSeededChildDeactivatedOnThePageIsDeletedLikeAnyOther() {
+        // 999 is the seed's and the file no longer declares it; someone also deactivated it. Left behind, it
+        // would keep its unique key against the row the file declares in its place.
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false),
+                binding(CHILD, "tenant_option_item.OrganizationType.Old", "999", false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(true);
+        storedChildren(false, 999L);
+        when(modelService.createOne(eq(CHILD), anyMap())).thenReturn(555L);
+
+        withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow(childRow()))));
+
+        verify(modelService).deleteByIds(CHILD, List.of(999L));
+    }
+
+    @Test
+    void anAdditiveLoadWritesOnlyWhatTheFileNames() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(true);
+
+        withMetadata(() -> inTenant(() -> additive(() -> service.handlePredefinedData(PARENT, parentRow()))));
+
+        ArgumentCaptor<Map<String, Object>> updated = captor();
+        verify(modelService).updateOne(eq(PARENT), updated.capture());
+        assertEquals("Organization Type", updated.getValue().get("label"));
+        // What the tenant set on a field the file does not name is the tenant's.
+        assertFalse(updated.getValue().containsKey("description"), updated.getValue().toString());
+    }
+
+    @Test
+    void anAdditiveLoadDeletesNoChild() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false),
+                binding(CHILD, "tenant_option_item.OrganizationType.Old", "999", false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(true);
+        when(modelService.createOne(eq(CHILD), anyMap())).thenReturn(555L);
+
+        withMetadata(() -> inTenant(() -> additive(() -> service.handlePredefinedData(PARENT, parentRow(childRow())))));
+
+        verify(modelService, never()).searchList(eq(CHILD), any(FlexQuery.class));
+        verify(modelService, never()).deleteByIds(eq(CHILD), anyList());
+        verify(modelService, never()).deleteByFilters(eq(CHILD), any(Filters.class));
+        verify(modelService).createOne(eq(CHILD), anyMap());
+    }
+
+    @Test
+    void anAdditiveLoadLeavesADeletedRowDeleted() {
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        // The tenant deleted the seeded row.
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(false);
+        when(modelService.searchList(eq(PARENT), any(FlexQuery.class))).thenReturn(List.of());
+
+        Serializable rowId = withMetadata(() ->
+                inTenant(() -> additive(() -> service.handlePredefinedData(PARENT, parentRow(childRow())))));
+
+        assertNull(rowId);
+        verify(modelService, never()).createOne(eq(PARENT), anyMap());
+        // Nor are the rows nested in it created: they would hang off nothing.
+        verify(modelService, never()).createOne(eq(CHILD), anyMap());
+    }
+
+    @Test
+    void anAdditiveLoadLeavesOutANewRowReferringToADeletedRow() {
+        // The parent is bound, but the tenant deleted it; a new child names it by preId.
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        when(modelService.searchList(eq(PARENT), any(FlexQuery.class))).thenReturn(List.of());
+        Map<String, Object> child = new LinkedHashMap<>(childRow());
+        child.put(CHILD_FK, "tenant_option_set.OrganizationType");
+
+        Serializable rowId = withMetadata(() -> inTenant(() -> additive(() -> service.handlePredefinedData(CHILD, child))));
+
+        assertNull(rowId);
+        verify(modelService, never()).createOne(eq(CHILD), anyMap());
+    }
+
+    @Test
+    void anAdditiveLoadWritesANewRowReferringToADeactivatedRow() {
+        // The tenant deactivated the parent rather than deleting it, and a patch adds a child under it.
+        // Deactivated is not deleted: the child goes in.
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        storedRow(PARENT, TYPED_ROW_ID, false);
+        when(modelService.createOne(eq(CHILD), anyMap())).thenReturn(555L);
+        Map<String, Object> child = new LinkedHashMap<>(childRow());
+        child.put(CHILD_FK, "tenant_option_set.OrganizationType");
+
+        Serializable rowId = withMetadata(() -> inTenant(() -> additive(() -> service.handlePredefinedData(CHILD, child))));
+
+        assertEquals(555L, rowId);
+    }
+
+    @Test
+    void anAdditiveLoadReachingAParentByIdAloneWritesNothingToIt() {
+        // A patch adding an item under an existing option set names the set by its id only.
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        storedRow(PARENT, TYPED_ROW_ID, true);
+        when(modelService.createOne(eq(CHILD), anyMap())).thenReturn(555L);
+        Map<String, Object> parent = new LinkedHashMap<>();
+        parent.put("id", "tenant_option_set.OrganizationType");
+        parent.put("optionItems", List.of(childRow()));
+
+        Serializable rowId = withMetadata(() -> inTenant(() -> additive(() -> service.handlePredefinedData(PARENT, parent))));
+
+        assertEquals(TYPED_ROW_ID, rowId);
+        verify(modelService, never()).updateOne(eq(PARENT), anyMap());
+        verify(modelService).createOne(eq(CHILD), anyMap());
     }
 
     @Test
@@ -130,10 +271,28 @@ class SysPreDataOneToManyTest {
         assertEquals(TYPED_ROW_ID, rowId);
         // A freeze covers the record, not half of it. The destructive half of a re-load is exactly
         // this child sync — it deletes every child the file no longer declares.
-        verify(modelService, never()).getIds(eq(CHILD), any(Filters.class));
+        verify(modelService, never()).searchList(eq(CHILD), any(FlexQuery.class));
         verify(modelService, never()).deleteByFilters(eq(CHILD), any(Filters.class));
         verify(modelService, never()).createOne(eq(CHILD), anyMap());
         verify(modelService, never()).updateOne(eq(PARENT), anyMap());
+    }
+
+    @Test
+    void anInactiveRowTheReloadLeavesUnchangedIsNotInsertedAgain() {
+        // The seeded row is inactive — deactivated on the page, or declared so by its own file — and the
+        // re-load changes nothing in it, so the update reports no change. Read the ordinary way, which adds
+        // `active = true`, the row looked gone and was inserted a second time: a duplicate primary key on a
+        // code-as-id model, a second copy on any other.
+        bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
+        when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(false);
+        storedRow(PARENT, TYPED_ROW_ID, false);
+
+        Serializable rowId = withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow())));
+
+        assertEquals(TYPED_ROW_ID, rowId);
+        verify(modelService, never()).createOne(eq(PARENT), anyMap());
+        // Nor is the binding re-pointed.
+        verify(service, never()).updateOne(any(SysPreData.class));
     }
 
     @Test
@@ -141,7 +300,7 @@ class SysPreDataOneToManyTest {
         bindings(binding(PARENT, "tenant_option_set.OrganizationType", STORED_ROW_ID, false));
         // The row the binding names is gone — someone deleted the seeded row through the ordinary UI.
         when(modelService.updateOne(eq(PARENT), anyMap())).thenReturn(false);
-        when(modelService.exist(PARENT, TYPED_ROW_ID)).thenReturn(false);
+        when(modelService.searchList(eq(PARENT), any(FlexQuery.class))).thenReturn(List.of());
         when(modelService.createOne(eq(PARENT), anyMap())).thenReturn(999L);
 
         Serializable rowId = withMetadata(() -> inTenant(() -> service.handlePredefinedData(PARENT, parentRow())));
@@ -193,9 +352,45 @@ class SysPreDataOneToManyTest {
         return preData;
     }
 
-    /** What the binding ledger answers with, for every lookup this load makes. */
+    /**
+     * The binding ledger: a lookup answers with the bindings of its model whose preId — or row id, for the
+     * lookups that ask which rows a seed created — it names.
+     */
     private void bindings(SysPreData... found) {
-        doReturn(List.of(found)).when(service).searchList(any(Filters.class));
+        List<SysPreData> ledger = new ArrayList<>(List.of(found));
+        doAnswer(call -> {
+            String filter = call.getArgument(0).toString();
+            return ledger.stream()
+                    .filter(b -> filter.contains("\"" + b.getModel() + "\""))
+                    .filter(b -> filter.contains("\"" + b.getPreId() + "\"") || filter.contains("\"" + b.getRowId() + "\""))
+                    .toList();
+        }).when(service).searchList(any(Filters.class));
+    }
+
+    /** The row a binding names, as the database holds it. */
+    private void storedRow(String model, Serializable rowId, boolean active) {
+        when(modelService.searchList(eq(model), reading(String.valueOf(rowId), active)))
+                .thenReturn(List.of(Map.of("id", rowId)));
+    }
+
+    /** The children stored under the parent, as the database holds them. */
+    private void storedChildren(boolean active, Long... ids) {
+        when(modelService.searchList(eq(CHILD), reading(CHILD_FK, active)))
+                .thenReturn(Arrays.stream(ids).<Map<String, Object>>map(id -> Map.of("id", id)).toList());
+    }
+
+    /**
+     * A read that finds the rows: its filters name {@code subject}, and — the rows being inactive — it goes past
+     * active control, as an ordinary read adds {@code active = true} and does not see them.
+     */
+    private static FlexQuery reading(String subject, boolean active) {
+        return argThat(query -> query != null
+                && (active || query.getFilterControl().isSkipActiveControl())
+                && query.getFilters().toString().contains(subject));
+    }
+
+    private static Serializable additive(Supplier<Serializable> action) {
+        return SysPreDataServiceImpl.inMode(LoadMode.ADDITIVE, action);
     }
 
     @SuppressWarnings("unchecked")

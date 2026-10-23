@@ -1,4 +1,4 @@
-package io.softa.starter.metadata.service.impl;
+package io.softa.starter.seed.service.impl;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;

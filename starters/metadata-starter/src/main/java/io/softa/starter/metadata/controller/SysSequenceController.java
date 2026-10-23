@@ -29,8 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code updateOne} should only change template / startValue / mode / cadence /
  * description — never {@code code} (orphans the field binding) or
  * {@code currentValue} / {@code lastResetKey} (corrupts the counter). Tenant
- * bootstrap is done via {@code SysPreDataService.loadPreTenantData} on the
- * JSON files in {@code resources/data-tenant/}. The DB-level backstop is the
+ * bootstrap is a tenant seed file in {@code resources/data-tenant/}, which
+ * seed-starter runs when the tenant is set up. The DB-level backstop is the
  * unique {@code (tenant_id, code)} index.
  */
 @Tag(name = "SysSequence")

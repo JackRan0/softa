@@ -186,8 +186,10 @@ checker-only environments strand the data in an orphaned column instead.
   [../authoring/config.md](../authoring/config.md) /
   [../authoring/seed-data.md](../authoring/seed-data.md)): the scanner reconciles
   `sys_*` against the **primary** datasource only (even for `@Model(dataSource=…)`
-  models — only their business table goes elsewhere); seed data is **platform-wide**
-  (same for all tenants), distinct from Studio no-code rows.
+  models — only their business table goes elsewhere); seed data is business rows
+  that seed-starter loads from the files in the app's `seed-manifest.yml` (platform
+  files on the admin's load, tenant files once per tenant), distinct from Studio
+  no-code rows.
 
 ## When to escalate (don't auto-fix)
 

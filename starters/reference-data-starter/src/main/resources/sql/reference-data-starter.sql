@@ -5,10 +5,11 @@
 --   currency             — ISO 4217 active currencies (~180 rows when seeded)
 --   country_subdivision  — ISO 3166-2 subdivisions (empty until address feature lands)
 --
--- All three are platform-level (no tenant_id column). Data is seeded via
--- metadata-starter's POST /SysPreData/loadPreSystemData using the JSON
--- files under src/main/resources/data-system/. There is NO auto-load on
--- startup — operators trigger loading explicitly.
+-- All three are platform-level (no tenant_id column). Data is seeded by
+-- seed-starter's platform load (POST /SeedData/platform/load) from the JSON
+-- files under src/main/resources/data-system/, once the app lists them in
+-- its seed-manifest.yml. There is NO auto-load on startup — the platform
+-- admin triggers loading explicitly.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS country_region

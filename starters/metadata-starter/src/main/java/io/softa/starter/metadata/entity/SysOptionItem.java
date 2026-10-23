@@ -4,12 +4,12 @@ import java.io.Serial;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import io.softa.framework.base.enums.OptionItemIcon;
+import io.softa.framework.base.enums.OptionItemTone;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
-import io.softa.framework.base.enums.OptionItemIcon;
-import io.softa.framework.base.enums.OptionItemTone;
 import io.softa.framework.orm.enums.FieldType;
 
 /**
@@ -22,6 +22,7 @@ import io.softa.framework.orm.enums.FieldType;
 @Model(
         label = "System Option Item",
         activeControl = true,
+        displayName = {"label"},
         businessKey = {"optionSetCode", "itemCode"},
         description = "Metadata catalog of option items"
 )

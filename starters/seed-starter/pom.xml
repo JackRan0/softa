@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.softa</groupId>
+        <artifactId>starters</artifactId>
+        <version>2.7.9</version>
+    </parent>
+
+    <name>Softa Seed Starter</name>
+    <artifactId>seed-starter</artifactId>
+    <description>Seed data: the seed manifest, the preId ledger and its loader, and the Seed Data operations —
+        loading the platform files, running the tenant files, and the record of every load.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>softa-web</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- CSV seed files. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.14.1</version>
+        </dependency>
+
+        <!-- Reads seed-manifest.yml. Version managed by the Spring Boot parent. -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+        </dependency>
+    </dependencies>
+
+</project>

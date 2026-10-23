@@ -34,13 +34,7 @@ public class SeederCompletedCoordinator {
         if (message == null || message.tenantId() == null || message.seederKey() == null) {
             return;
         }
-        if (message.success()) {
-            statusService.markSeederReady(message.tenantId(), message.seederKey());
-        } else {
-            // Not reached today: seeders publish only success=true (a failure is an exception, answered by
-            // redelivery; an exhausted message goes to a dead-letter topic nobody reads). Retained because it
-            // is the branch a dead-letter listener would activate — see markSeederFailed.
-            statusService.markSeederFailed(message.tenantId(), message.seederKey());
-        }
+        // Every completion is a success: a seeder that fails marks itself failed from its catch block instead.
+        statusService.markSeederReady(message.tenantId(), message.seederKey());
     }
 }

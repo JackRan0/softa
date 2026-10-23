@@ -18,7 +18,7 @@ and a separate commerce sub-domain (service catalog, orders, payments).
 
 Depends on `softa-web`, `reference-data-starter` (for `Currency` / `CountryRegion`
 lookups on `TenantInfo`), `stripe-java` (payments), and `cron-starter` (**optional** — powers the built-in
-`TenantMaintenanceCronConsumer` for the provisioning-timeout guard + subscription-expiry; a deployment
+`TenantMaintenanceCronConsumer` for subscription-expiry; a deployment
 on a different scheduler omits it, the consumer stays dormant via `@ConditionalOnClass`, and the app
 drives the jobs itself). Auto-configured by
 `io.softa.starter.tenant.TenantAutoConfiguration` (component-scan). Requires
@@ -148,8 +148,13 @@ run, `ACTIVE` once they are all in.
 There used to be a second, orthogonal `provisioningStatus` axis (`INITIALIZING` / `READY` / `FAILED`)
 alongside it. It was merged away: two columns described one tenant, so "is this tenant usable" needed both
 and the pair could disagree. `READY` became `ACTIVE`, and `FAILED` became `DRAFT` — a tenant that was never
-built and one whose build failed are the same thing to look at, and `DRAFT` is where the rebuild starts
-from. Unlike the old axis this one **does** gate login: a tenant mid-setup is refused with "still being set
+built and one whose build failed are the same thing to look at. There is no rebuild: a seeder is expected to
+be idempotent, so a failed setup is finished by running the seeders again, not by discarding what they wrote.
+**`POST /TenantInfo/retrySetup?id=`** does that for a `DRAFT` tenant: it reopens the status and announces the
+tenant again exactly as provisioning did, and each seeder continues where it stopped — seed-starter runs only
+the seed files the tenant has not run successfully, and the business seeders skip what they find in place.
+An `INITIALIZING` tenant is refused, because its seeders are still running. Unlike the old
+axis this one **does** gate login: a tenant mid-setup is refused with "still being set
 up" rather than a generic failure, checked before the active check so that specific message survives.
 
 - **`TenantProvisioningStatusService`** — the per-tenant completion latch. Owns `TenantSeedProgress`
@@ -159,14 +164,18 @@ up" rather than a generic failure, checked before the active check so that speci
   `seederKey` strings, never imports a business module.
 - **Dependency gate** — `dependenciesSatisfied(tenantId, dependsOn, justCompletedKey)` = `doneKeys ⊇
   dependsOn` (set-containment, order-independent), so a downstream seeder can wait on its upstreams.
-- **Timeout guard (authoritative failure source)** — `failTimedOut()` sweeps tenants stuck in
-  `INITIALIZING` past `readyTimeoutSeconds` (default 600s) → `DRAFT` (idempotent, self-heals back to
-  `ACTIVE` if the seed later completes). Triggered by tenant-starter's own `TenantMaintenanceCronConsumer`
-  (`ProvisioningTimeout` sys_cron, shipped in `data-system/SysCron.TenantMaintenance.json`) — softa
-  self-sufficient, no dependency on an app-side DLQ. The same consumer also carries `SubscriptionExpiry`.
-  **cron-starter is optional** (`@ConditionalOnClass` on the consumer + `<optional>true</optional>` in the
-  pom): a deployment on a different scheduler (Quartz, `@Scheduled`, XXL-Job, …) omits cron-starter — the
-  consumer stays dormant and the app drives `failTimedOut()` / `SubscriptionProjectionJob` from its own trigger.
+- **Failure** — each seed consumer calls `markSeederFailed` from its catch block, so a failing seed puts the
+  tenant in `DRAFT` within seconds, with the seeder named on its progress row; `markSeederReady` brings it on
+  to `ACTIVE` once the seed completes, whether by MQ redelivery or by a retry. There is **no timeout sweep**:
+  the `ProvisioningTimeout` cron that once moved a tenant stuck in `INITIALIZING` to `DRAFT` was removed, so a
+  seed that never reaches a catch block (message lost, consumer down) leaves the tenant `INITIALIZING`. Find
+  such a tenant by querying `INITIALIZING` rows, and set it to `DRAFT` by hand before retrying its setup.
+- **`TenantMaintenanceCronConsumer`** carries `SubscriptionExpiry` (shipped in
+  `data-system/SysCron.TenantMaintenance.json`, which the app lists under `platform` in its `seed-manifest.yml`;
+  an unlisted file never loads, and the cron never runs). **cron-starter is optional** (`@ConditionalOnClass` on the
+  consumer + `<optional>true</optional>` in the pom): a deployment on a different scheduler (Quartz,
+  `@Scheduled`, XXL-Job, …) omits cron-starter — the consumer stays dormant and the app drives
+  `SubscriptionProjectionJob` from its own trigger.
 
 ## How isolation works
 

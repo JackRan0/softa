@@ -50,6 +50,26 @@ public class TenantInfoServiceImpl extends EntityServiceImpl<TenantInfo, Long> i
         return tenantIds;
     }
 
+    /** Read from the table rather than the active-id cache: suspended and closed tenants are not in that one. */
+    @Override
+    public List<Long> getProvisionedTenantIds() {
+        return jdbcService.selectMetaEntityList(TenantInfo.class, null).stream()
+                .filter(tenant -> tenant.getStatus() == TenantStatus.ACTIVE
+                        || tenant.getStatus() == TenantStatus.SUSPENDED
+                        || tenant.getStatus() == TenantStatus.CLOSED)
+                .map(TenantInfo::getId)
+                .toList();
+    }
+
+    @Override
+    public String getDefaultCountry(Long tenantId) {
+        if (tenantId == null) {
+            return null;
+        }
+        TenantInfo tenantInfo = getTenantInfo(tenantId);
+        return tenantInfo == null ? null : tenantInfo.getDefaultCountry();
+    }
+
     @Override
     public String getTenantName(Long tenantId) {
         if (tenantId == null) {

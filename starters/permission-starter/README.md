@@ -182,7 +182,9 @@ standalone service with DB access needs no extra wiring.
 
 Scope **types are data**; their compilation is **code only where it must be**.
 
-- **Type registry (data)** — `DataScopeType` (seed `data-system/DataScopeType.Builtin.json`)
+- **Type registry (data)** — `DataScopeType` (seed `data-system/DataScopeType.Builtin.json`; it and
+  `data-system/ModelDefaultScope.Builtin.json` are platform files the app lists under `platform` in its
+  `seed-manifest.yml`, since an unlisted file never loads)
   holds each scope type's metadata: `appliesToAll` (ALL / CUSTOM); for **identity
   types** a `filter` template (+ `identityModel` / `identityFilter` for the model-swap);
   for **code-contributor types** an explicit `applicableFields`.
@@ -514,7 +516,7 @@ box.
      consultant's menus are the tenant's subscription in full. Two rules that agree
      today, not one rule.
    An **unregistered** endpoint passes SUPER_ADMIN only — the platform's own
-   operations (pre-data loading, cron triggers, upgrades) are such endpoints. A
+   operations (seed data loading, cron triggers, upgrades) are such endpoints. A
    tenant admin and a consultant are refused it like anyone else, so a new controller
    or model verb is closed inside a tenant until a permission lists it.
    `EndpointCoverageValidator` logs every endpoint no permission lists.

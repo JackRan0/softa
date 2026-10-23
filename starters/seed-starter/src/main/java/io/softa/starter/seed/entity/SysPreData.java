@@ -1,4 +1,4 @@
-package io.softa.starter.metadata.entity;
+package io.softa.starter.seed.entity;
 
 import java.io.Serial;
 import lombok.Data;

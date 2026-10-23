@@ -91,7 +91,7 @@ not enforce physical FKs because reference data is loaded as denormalized seed.
 (the ISO code). Cache is mandatory in production. Cache is invalidated
 automatically on `updateOne` / `deleteById` paths through the service.
 
-## Seed Data — JSON + SysPreData
+## Seed Data — platform seed files
 
 Seed data lives in `src/main/resources/data-system/`:
 
@@ -103,26 +103,24 @@ Seed data lives in `src/main/resources/data-system/`:
 **Seed data is NOT auto-loaded at application startup.** This is by design:
 
 1. Operators retain control over which environments load seed data and when.
-2. Reference data may be edited in admin UI (`frozen=true` on `SysPreData`
-   protects operator overrides from being overwritten on re-load).
-3. Multi-instance deployments avoid load-time race conditions on first start.
+2. Reference data may be edited in admin UI (`frozen=true` on the row's
+   `SysPreData` binding protects an operator override from the next load).
+3. One person loads, once per deploy — no load-time race between instances.
 
-To load seed data, call the `metadata-starter` endpoint:
+The app lists both files under `platform` in its `seed-manifest.yml`
+(`data-system/Currency.AllCurrencies.json`, `data-system/CountryRegion.AllCountries.json`),
+**Currency first**: a platform load runs in list order, and
+`CountryRegion.currencyCode` references `Currency.id`. The platform
+admin then loads them with the other pending platform files from the Seed Data
+page (`POST /SeedData/platform/load`) — see the
+[seed-starter README](../seed-starter/README.md).
 
-```bash
-# Load order matters: Currency first, CountryRegion second
-# (CountryRegion.currencyCode references Currency.id).
-curl -X POST http://localhost:8080/SysPreData/loadPreSystemData \
-  -H 'Content-Type: application/json' \
-  -d '["Currency.AllCurrencies.json","CountryRegion.AllCountries.json"]'
-```
+A platform file is the data: it loads again, whole, whenever it changes in a
+later build. Frozen rows are preserved untouched.
 
-Idempotent: second call detects existing `preId → rowId` mappings and updates
-non-frozen rows in place. Frozen rows are preserved untouched.
-
-**Without `metadata-starter` on the classpath**, the JSON files still ship in
-the jar but cannot be loaded via the `/SysPreData` endpoint. Ops must seed
-the tables through some other path (direct SQL, custom script).
+**Without `seed-starter` on the classpath**, the JSON files still ship in the
+jar but nothing loads them. Ops must seed the tables through some other path
+(direct SQL, custom script).
 
 ## Continent enum
 

@@ -1,4 +1,4 @@
-package io.softa.starter.metadata.service.impl;
+package io.softa.starter.seed.service.impl;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

@@ -37,10 +37,11 @@ import io.softa.starter.user.service.RoleService;
 
 /**
  * Permission registry sanity check — runs once after the application context
- * is fully ready (i.e. after SysPreDataService loaded navigation /
- * permission / sensitive_field_set + RoleService seed). Each rule walks
- * data that's already in memory, so the whole pass is O(n) over the
- * pre-loaded sets.
+ * is fully ready, over the navigation / permission / sensitive_field_set and
+ * role rows the platform seed put in the database (seed-starter loads it on
+ * request, and the instances restart afterwards — which is when this runs
+ * against the new rows). Each rule walks data that's already in memory, so
+ * the whole pass is O(n) over the pre-loaded sets.
  *
  * <p>Any violation logs ERROR + accumulates into a single
  * {@link IllegalStateException} thrown at the end — startup fails fast so
