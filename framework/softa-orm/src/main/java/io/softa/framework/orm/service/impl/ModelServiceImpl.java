@@ -660,7 +660,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
     public Map<String, Object> getCopyableFields(String modelName, K id) {
         Assert.isTrue(ModelManager.isCopyableModel(modelName),
                 "Model {0} is not copyable, the copy APIs are disabled for it!", modelName);
-        Map<String, Object> value = this.getById(modelName, id, Collections.emptyList())
+        // As a form reads a row — references with their display names — because that is what fills
+        // the copy's form: a bare id has nothing to show in a picker whose first page lacks it.
+        Map<String, Object> value = this.getById(modelName, id, Collections.emptyList(), null, ConvertType.REFERENCE)
                 .orElseThrow(() -> new IllegalArgumentException("The data of model {0} with id {1} does not exist!", modelName, id));
         List<String> copyableFields = ModelManager.getModelCopyableFields(modelName);
         value.keySet().retainAll(copyableFields);
