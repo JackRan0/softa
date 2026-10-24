@@ -1192,7 +1192,9 @@ public class ModelManager {
                             || FieldType.ONE_TO_ONE.equals(metaField.getFieldType())
                             || FieldType.FILE.equals(metaField.getFieldType())
                             || FieldType.MULTI_FILE.equals(metaField.getFieldType())
-                            || ModelConstant.AUDIT_FIELDS.contains(fieldName)) {
+                            || ModelConstant.AUDIT_FIELDS.contains(fieldName)
+                            // A copy belongs to the tenant making it, which the write stamps itself.
+                            || ModelConstant.TENANT_ID.equals(fieldName)) {
                         return false;
                     } else if (isTimeline) {
                         // Exclude every timeline structural key (id / sliceId / effective dates):
