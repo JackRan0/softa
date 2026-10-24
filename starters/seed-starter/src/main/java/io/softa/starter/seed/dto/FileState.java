@@ -20,7 +20,7 @@ public enum FileState {
     CHANGED,
     /**
      * Loaded, then changed, and it does not reload — a tenant file that runs once. The change reaches new
-     * tenants only; reaching existing ones takes a new file.
+     * tenants only; existing ones get new rows from a patch file and changed rows from a data migration.
      */
     CHANGED_AFTER_LOAD,
     /**

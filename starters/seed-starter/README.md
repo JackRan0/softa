@@ -56,14 +56,16 @@ alone, like rows taken out of a file. A row never carries `sliceId` (the databas
 `effectiveEndDate` (it follows from the next version), and two rows of one entity may not start on the same
 day; the loader refuses a file that breaks either rule.
 
-**A released tenant file is never edited.** Tenants that already ran it would never see the edit, so the
-same file would describe different data in old and new tenants. New rows for existing tenants go in a new
-file (a patch) registered after the original. The next **Run** gives that file to every tenant, and new
-tenants run both. A patch only adds rows: each has an `id` of its own, and refers to existing rows by their
-`preId`. A seeded row a tenant has is the tenant's, so changing it is a data migration in the release, not a
-seed file — and initializing an environment relies on no tenant file repeating another's row. Mark a file
-`overwrite: true` only when nobody inside a tenant edits its rows, as with the built-in roles. Running it
-again resets them to the file.
+**A tenant runs a file once.** An edit to a released tenant file reaches only the tenants created after it:
+the tenants that already ran it never run it again, and the page shows the file there as changed after load.
+What those tenants need goes out another way. New rows go in a new file (a patch) registered after the
+original; the next **Run** gives that file to every tenant, and new tenants run both. A patch only adds rows:
+each has an `id` of its own, and refers to existing rows by their `preId`. A repeated row would be written over
+every tenant's copy of it, and initializing an environment relies on no tenant file repeating another's row. To
+change or remove rows tenants already have, edit the file that declares them, for the tenants created after,
+and ship a data migration in the release, for the tenants that have them. Mark a file `overwrite: true` only
+when nobody inside a tenant edits its rows, as with the built-in roles. Running it again resets them to the
+file.
 
 ## The manifest
 
@@ -120,7 +122,7 @@ converts line endings does not make every file look changed:
 | `NOT_LOADED` | Never loaded here | yes |
 | `LOADED` | Loaded, and unchanged since | no |
 | `CHANGED` | Loaded, then changed, and it reloads: a platform file, or an `overwrite` tenant file | yes |
-| `CHANGED_AFTER_LOAD` | Loaded, then changed, and it does not reload: a run-once tenant file. Its change reaches new tenants only | no |
+| `CHANGED_AFTER_LOAD` | Loaded, then changed, and it does not reload: a run-once tenant file. Its change reaches new tenants only; existing tenants get new rows from a patch and changed rows from a data migration | no |
 | `LOADED_BY_NEWER_BUILD` | A file that reloads, last loaded by a build made after the one running, and different here: an older build is deployed, after a rollback. Loading it would put older content over newer | no |
 | `FAILED` | The latest attempt failed | yes |
 
