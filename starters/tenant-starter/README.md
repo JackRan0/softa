@@ -164,9 +164,14 @@ up" rather than a generic failure, checked before the active check so that speci
   `seederKey` strings, never imports a business module.
 - **Dependency gate** — `dependenciesSatisfied(tenantId, dependsOn, justCompletedKey)` = `doneKeys ⊇
   dependsOn` (set-containment, order-independent), so a downstream seeder can wait on its upstreams.
-- **Failure** — each seed consumer calls `markSeederFailed` from its catch block, so a failing seed puts the
-  tenant in `DRAFT` within seconds, with the seeder named on its progress row; `markSeederReady` brings it on
-  to `ACTIVE` once the seed completes, whether by MQ redelivery or by a retry. There is **no timeout sweep**:
+- **Failure** — each seed consumer calls `markSeederFailed(tenantId, seederKey, redeliveryCount)` from its
+  catch block, passing the failed message's Pulsar redelivery count, then rethrows. Every failure names the
+  seeder on its progress row at once. While MQ still has deliveries left (the `tenantSeedRetryPolicy` cap) the
+  tenant stays `INITIALIZING`; the last delivery's failure moves it to `DRAFT`, where Retry Setup takes it — so
+  a retry never runs beside a redelivery of the same setup. Only an `INITIALIZING` tenant is moved, by one
+  conditional update, and a failure reported for a tenant past setup (`ACTIVE`, `SUSPENDED`, `CLOSED`) — which
+  can only come from a duplicate message — changes nothing. `markSeederReady` brings a tenant on to `ACTIVE`
+  once the seed completes. There is **no timeout sweep**:
   the `ProvisioningTimeout` cron that once moved a tenant stuck in `INITIALIZING` to `DRAFT` was removed, so a
   seed that never reaches a catch block (message lost, consumer down) leaves the tenant `INITIALIZING`. Find
   such a tenant by querying `INITIALIZING` rows, and set it to `DRAFT` by hand before retrying its setup.

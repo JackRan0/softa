@@ -16,8 +16,9 @@ import io.softa.framework.base.annotation.OptionSet;
 public enum SeederStatus {
     DONE("Done"),
     // Written by each seed consumer from its catch block (TenantProvisioningStatusService.markSeederFailed),
-    // so the row names which seeder failed while the tenant itself only shows Draft. Not terminal: the
-    // consumer rethrows, MQ redelivers, and a later success overwrites this row with DONE.
+    // so the row names which seeder failed while the tenant itself only shows Initializing or Draft. Not
+    // terminal: the consumer rethrows, MQ redelivers or Retry Setup runs it again, and a later success
+    // overwrites this row with DONE.
     FAILED("Failed"),
     ;
 

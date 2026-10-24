@@ -272,4 +272,42 @@ class TenantInfoServiceImplTest {
         t.setStatus(status);
         return t;
     }
+
+    // ─── a failed setup: INITIALIZING to DRAFT, and from nowhere else ───
+
+    @Test
+    @DisplayName("a failed setup moves only a tenant still setting up, in one conditional update")
+    void markSetupFailed_movesOnlyAnInitializingTenant() {
+        TenantInfoServiceImpl svc = Mockito.spy(new TenantInfoServiceImpl());
+        CacheService cache = mock(CacheService.class);
+        ReflectionTestUtils.setField(svc, "cacheService", cache);
+        org.mockito.ArgumentCaptor<io.softa.framework.orm.domain.Filters> filters =
+                org.mockito.ArgumentCaptor.forClass(io.softa.framework.orm.domain.Filters.class);
+        org.mockito.ArgumentCaptor<TenantInfo> patch = org.mockito.ArgumentCaptor.forClass(TenantInfo.class);
+        doReturn(1).when(svc).updateByFilter(filters.capture(), patch.capture());
+
+        assertTrue(svc.markSetupFailed(1L));
+
+        // The condition is the whole point: the status is checked by the update itself, so a tenant that went
+        // ACTIVE between a failure and its report is not matched and stays where it is.
+        assertTrue(filters.getValue().toString().contains("Initializing"), filters.getValue().toString());
+        assertEquals(TenantStatus.DRAFT, patch.getValue().getStatus());
+        verify(cache).clear(RedisConstant.TENANT_INFO + 1L);
+        verify(cache).clear(RedisConstant.TENANT_IDS);
+    }
+
+    @Test
+    @DisplayName("a tenant no longer setting up is left as it is, its caches too")
+    void markSetupFailed_leavesATenantPastSetup() {
+        TenantInfoServiceImpl svc = Mockito.spy(new TenantInfoServiceImpl());
+        CacheService cache = mock(CacheService.class);
+        ReflectionTestUtils.setField(svc, "cacheService", cache);
+        doReturn(0).when(svc).updateByFilter(any(io.softa.framework.orm.domain.Filters.class), any(TenantInfo.class));
+
+        assertFalse(svc.markSetupFailed(1L));
+
+        verify(svc, never()).updateOne(any(TenantInfo.class));
+        verify(cache, never()).clear(anyString());
+        assertThrows(IllegalArgumentException.class, () -> svc.markSetupFailed(BaseConstant.PLATFORM_TENANT_ID));
+    }
 }
