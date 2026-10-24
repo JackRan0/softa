@@ -61,6 +61,10 @@ public enum WidgetType {
     @OptionItem(label = "Multiple Images")
     MULTI_IMAGE("MultiImage"),
 
+    // Integer, Long holding a calendar year: shown as 2026, never as the quantity 2,026
+    @OptionItem(label = "Year")
+    YYYY("yyyy"),
+
     // Date, DateTime use the corresponding default widget
     @OptionItem(label = "Year-Month picker")
     YYYY_MM("yyyy-MM"),
