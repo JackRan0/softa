@@ -10,8 +10,9 @@ package io.softa.framework.base.message;
  * share it without a cycle.
  *
  * <p>It is published on success only. A seeder that fails marks itself failed from its catch block
- * ({@code TenantProvisioningStatusService.markSeederFailed}), which puts the tenant back to Draft, and
- * rethrows so MQ redelivers; Retry Setup starts a Draft tenant's setup again.
+ * ({@code TenantProvisioningStatusService.markSeederFailed}) and rethrows so MQ redelivers. The tenant stays
+ * Initializing while deliveries remain; the last one's failure moves it to Draft, where Retry Setup starts its
+ * setup again.
  *
  * @param tenantId  the tenant being seeded
  * @param seederKey the reporting seeder's opaque key (e.g. "pre-data", "corehr")

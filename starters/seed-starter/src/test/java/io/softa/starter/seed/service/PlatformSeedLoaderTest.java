@@ -14,6 +14,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.seed.dto.FileState;
 import io.softa.starter.seed.dto.PlatformLoadResult;
@@ -42,7 +43,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Platform files load whole, all pending ones or the ones picked, in manifest order and one transaction.
+ * Platform files load whole, all pending ones or the ones picked, in manifest order and one transaction. An
+ * environment's first load initializes it first: the tenant files tenants already have are recorded as run.
  */
 class PlatformSeedLoaderTest {
 
@@ -57,6 +59,7 @@ class PlatformSeedLoaderTest {
     private SeedLoadLog loadLog;
     private SysPreDataService preDataService;
     private CacheService cacheService;
+    private TenantSeedRunner tenantRunner;
     private PlatformSeedLoader loader;
 
     @BeforeAll
@@ -72,13 +75,15 @@ class PlatformSeedLoaderTest {
         when(catalog.manifest()).thenReturn(MANIFEST);
         when(catalog.checksum(any(SeedFile.class))).thenReturn("v2");
         loadLog = mock(SeedLoadLog.class);
-        // An initialized environment: its first platform load is the initialization's.
+        // An initialized environment; the tests of the first load say otherwise.
         when(loadLog.initialized()).thenReturn(true);
         when(loadLog.platformRecords()).thenReturn(Map.of());
         when(loadLog.start(any(), any(), any())).thenReturn(42L);
         preDataService = mock(SysPreDataService.class);
         cacheService = mock(CacheService.class);
-        loader = new PlatformSeedLoader(catalog, loadLog, preDataService, cacheService,
+        tenantRunner = mock(TenantSeedRunner.class);
+        when(tenantRunner.recordExistingFiles()).thenReturn(recorded(SeedLoadStatus.SUCCEEDED));
+        loader = new PlatformSeedLoader(catalog, loadLog, preDataService, cacheService, tenantRunner,
                 mock(PlatformTransactionManager.class));
     }
 
@@ -171,25 +176,85 @@ class PlatformSeedLoaderTest {
         verify(cacheService, never()).clearByPrefix(any());
     }
 
+    // ─────────────────────────── the first load initializes ───────────────────────────
+
     @Test
-    void noPlatformLoadBeforeTheEnvironmentIsInitialized() {
-        // The first platform load is part of the initialization, which names what an environment already
-        // holding platform data loads; a plain load would replay every file over what was changed since.
-        when(loadLog.initialized()).thenReturn(false);
-        pending("Navigation.json", "Permission.json");
+    void theFirstLoadRecordsTheTenantsAndThenLoads() {
+        firstLoad(false);
+        pending("Navigation.json", "Permission.json", "MailTemplate.Platform.json");
+
+        PlatformLoadResult result = loader.load(null);
+
+        // The recording first: it is what initializes the environment.
+        InOrder inOrder = inOrder(tenantRunner, preDataService);
+        inOrder.verify(tenantRunner).recordExistingFiles();
+        inOrder.verify(preDataService).loadPreSystemData(List.of("Navigation.json"), LoadMode.OVERWRITE);
+        assertTrue(result.succeeded());
+        assertEquals(42L, result.batchId());
+        assertEquals(41L, result.initialization().batchId());
+        assertEquals(SeedLoadStatus.SUCCEEDED, result.initialization().status());
+        assertEquals(12, result.initialization().recordedFiles());
+    }
+
+    @Test
+    void theFirstLoadWherePlatformDataIsHeldPicksItsFiles() {
+        // Every file loaded here would go over what was changed on the pages since the old loader ran.
+        firstLoad(true);
+        pending("Navigation.json", "Permission.json", "MailTemplate.Platform.json");
 
         BusinessException refused = assertThrows(BusinessException.class, () -> loader.load(null));
 
-        assertTrue(refused.getMessage().contains("POST /SeedData/initialize"), refused.getMessage());
-        verify(loadLog, never()).start(any(), any(), any());
+        assertTrue(refused.getMessage().contains("Pick the files to load"), refused.getMessage());
+        verify(tenantRunner, never()).recordExistingFiles();
         verify(preDataService, never()).loadPreSystemData(anyList(), any());
     }
 
     @Test
-    void initializationTakesWhatIsPendingAndNothingPendingIsNotAnError() {
-        pending();
+    void thePickedFilesLoadOnTheFirstLoadWherePlatformDataIsHeld() {
+        firstLoad(true);
+        pending("Navigation.json", "Permission.json", "MailTemplate.Platform.json");
 
-        assertTrue(loader.pendingForInitialization(null).isEmpty());
+        PlatformLoadResult result = loader.load(List.of("Navigation.json", "Permission.json"));
+
+        verify(tenantRunner).recordExistingFiles();
+        assertEquals(List.of("Navigation.json", "Permission.json"), result.loadedFiles());
+        verify(preDataService, never()).loadPrePlatformData(anyList(), any());
+    }
+
+    @Test
+    void aNameThatIsNotPendingIsRefusedBeforeAnythingIsRecorded() {
+        firstLoad(true);
+        pending("Navigation.json");
+
+        assertThrows(BusinessException.class, () -> loader.load(List.of("Navigaton.json")));
+
+        verify(tenantRunner, never()).recordExistingFiles();
+        verify(loadLog, never()).start(any(), any(), any());
+    }
+
+    @Test
+    void aRecordingThatFailsOutrightLoadsNothingSoTheNextLoadTriesAgain() {
+        firstLoad(false);
+        pending("Navigation.json");
+        when(tenantRunner.recordExistingFiles()).thenReturn(recorded(SeedLoadStatus.FAILED));
+
+        PlatformLoadResult result = loader.load(null);
+
+        assertFalse(result.succeeded());
+        assertNull(result.batchId());
+        assertEquals(SeedLoadStatus.FAILED, result.initialization().status());
+        verify(loadLog, never()).start(eq(SeedLoadType.PLATFORM), any(), any());
+        verify(preDataService, never()).loadPreSystemData(anyList(), any());
+    }
+
+    @Test
+    void aLaterLoadRecordsNothing() {
+        pending("Navigation.json");
+
+        PlatformLoadResult result = loader.load(null);
+
+        assertNull(result.initialization());
+        verify(tenantRunner, never()).recordExistingFiles();
     }
 
     @Test
@@ -198,7 +263,7 @@ class PlatformSeedLoaderTest {
         PlatformTransactionManager unavailable = mock(PlatformTransactionManager.class);
         when(unavailable.getTransaction(any())).thenThrow(new CannotCreateTransactionException("pool exhausted"));
         PlatformSeedLoader noTransaction = new PlatformSeedLoader(catalog, loadLog, preDataService, cacheService,
-                unavailable);
+                tenantRunner, unavailable);
 
         PlatformLoadResult result = noTransaction.load(null);
 
@@ -219,6 +284,16 @@ class PlatformSeedLoaderTest {
 
         assertTrue(failure.getMessage().contains("empty entry"), failure.getMessage());
         verify(loadLog, never()).start(any(), any(), any());
+    }
+
+    /** An environment not initialized yet, which held platform seed data before the records, or did not. */
+    private void firstLoad(boolean holdsPlatformData) {
+        when(loadLog.initialized()).thenReturn(false);
+        when(preDataService.exist(any(Filters.class))).thenReturn(holdsPlatformData);
+    }
+
+    private static TenantSeedRunner.BatchOutcome recorded(SeedLoadStatus status) {
+        return new TenantSeedRunner.BatchOutcome(41L, status, 3, status == SeedLoadStatus.FAILED ? 3 : 0, 12);
     }
 
     /** The named platform files are pending; the others are loaded. */

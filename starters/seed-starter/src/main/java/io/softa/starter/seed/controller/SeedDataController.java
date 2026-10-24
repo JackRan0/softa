@@ -10,13 +10,12 @@ import io.softa.framework.orm.annotation.RequireRole;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.seed.dto.*;
 import io.softa.starter.seed.service.PlatformSeedLoader;
-import io.softa.starter.seed.service.SeedInitializer;
 import io.softa.starter.seed.service.SeedLoadLog;
 import io.softa.starter.seed.service.TenantSeedRunner;
 
 /**
- * Seed data operations, for the platform admin only: initialize an environment, once, through the API; then
- * load the platform files and run the tenant files, which the Seed Data page does. The record of every operation
+ * Seed data operations, for the platform admin only: load the platform files and run the tenant files, which the
+ * Seed Data page does. An environment's first platform load initializes it as well. The record of every operation
  * is the {@code SeedLoadBatch} / {@code SeedLoadRecord} models, read through the generic model API.
  */
 @Tag(name = "Seed Data")
@@ -26,14 +25,12 @@ public class SeedDataController {
 
     private final PlatformSeedLoader platformLoader;
     private final TenantSeedRunner tenantRunner;
-    private final SeedInitializer initializer;
     private final SeedLoadLog loadLog;
 
     public SeedDataController(PlatformSeedLoader platformLoader, TenantSeedRunner tenantRunner,
-                              SeedInitializer initializer, SeedLoadLog loadLog) {
+                              SeedLoadLog loadLog) {
         this.platformLoader = platformLoader;
         this.tenantRunner = tenantRunner;
-        this.initializer = initializer;
         this.loadLog = loadLog;
     }
 
@@ -45,7 +42,8 @@ public class SeedDataController {
     }
 
     @Operation(summary = "Load the pending platform files — all of them, or the ones named — in one transaction; "
-            + "restart the instances afterwards")
+            + "restart the instances afterwards. An environment's first load initializes it first: it records the "
+            + "tenant files tenants already have rows of as run, changing no data")
     @PostMapping("/platform/load")
     @RequireRole(SystemRole.SYSTEM_ROLE_ADMIN)
     public ApiResponse<PlatformLoadResult> loadPlatform(@RequestBody(required = false) PlatformLoadRequest request) {
@@ -79,15 +77,6 @@ public class SeedDataController {
     @RequireRole(SystemRole.SYSTEM_ROLE_ADMIN)
     public ApiResponse<BatchStarted> runTenants(@RequestBody(required = false) TenantRunRequest request) {
         return ApiResponse.success(new BatchStarted(tenantRunner.run(request == null ? null : request.tenantIds())));
-    }
-
-    @Operation(summary = "Once per environment, before anything else: record the tenant files tenants already have "
-            + "rows of as run, changing no data, then load the platform files — every pending one in a new "
-            + "environment, the named ones in one that holds platform seed data; restart afterwards")
-    @PostMapping("/initialize")
-    @RequireRole(SystemRole.SYSTEM_ROLE_ADMIN)
-    public ApiResponse<InitializeResult> initialize(@RequestBody(required = false) InitializeRequest request) {
-        return ApiResponse.success(initializer.initialize(request == null ? null : request.fileNames()));
     }
 
     @Operation(summary = "The platform load, tenant run or initialization in progress, or null")

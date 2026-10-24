@@ -141,7 +141,8 @@ time, start time) and the latest platform load. `POST /SeedData/platform/load` l
 Its body `{"fileNames": [...]}` loads only the named files, which must all be pending, in manifest order;
 the files left out stay pending. With no body (or no `fileNames`), every pending file loads. An empty list is
 refused, because a caller that sends one picked nothing, and so is a file a newer build loaded
-(`LOADED_BY_NEWER_BUILD`).
+(`LOADED_BY_NEWER_BUILD`). An environment's first load initializes it before loading anything (see
+*Initializing an environment*).
 
 The files load **in one transaction**: either all of them load or none does. A failure names the file and
 the cause, and is recorded against the file. Afterwards the permission snapshots (`perm:*`) and
@@ -184,30 +185,30 @@ file.
 
 ## Initializing an environment
 
-Every environment is initialized once, before anything else is loaded or run, by calling
-`POST /SeedData/initialize` as the platform admin. There is no button for it: until it has run, the Seed Data
-page is not even in the menu, and the platform load and tenant runs are refused. Setting up a new tenant does
-not wait for it. The call does two things, in this order, in the caller, and answers with what it did:
+An environment is initialized once, by its first platform load — from the Seed Data page, like any later load.
+Until then tenant runs are refused; setting up a new tenant does not wait for it. The page works before its own
+menu and permissions are loaded: the platform admin reaches it by its address, and reaches endpoints no
+permission lists yet. Before loading anything, that first load **records the tenant files tenants already
+have**:
 
-1. **It records the tenant files tenants already have.** An environment that held seed data before this
-   starter recorded loads has tenants with rows but no records, so the first run would load every tenant
-   file again over what the tenants changed since. For each tenant, every tenant file it already has rows of
-   (it holds a `SysPreData` binding for one of the file's `preId`s) is recorded as run. **No data is
-   changed.** A file a tenant has nothing of is left for the next run, and `overwrite` files are skipped
-   because they run again anyway. In a new environment there is nothing to record. This step is what
-   initializes the environment: when it fails outright nothing is loaded, and the call can be made again.
-2. **It loads the platform files** — the environment's first platform load, whole and in one transaction
-   like any other:
-   - **A new environment** sends no body, and every platform file loads.
-   - **An environment that already holds platform seed data** (system-scope bindings from an earlier
-     loader) has to name the files to load, `{"fileNames": [...]}`; no body is refused there, because
-     loading every file would put each one over what was changed on the pages since. It names the files the
-     Seed Data page itself needs (its menu and permissions), and after the restart loads the rest from that
-     page, where the files changed on the pages can be left out.
+- An environment that held seed data before this starter recorded loads has tenants with rows but no records,
+  so the first run would load every tenant file again over what the tenants changed since. For each tenant,
+  every tenant file it already has rows of (it holds a `SysPreData` binding for one of the file's `preId`s) is
+  recorded as run, in an `Initialize` batch. **No data is changed.** A file a tenant has nothing of is left for
+  the next run, and `overwrite` files are skipped because they run again anyway. In a new environment there is
+  nothing to record.
+- The recording is what initializes the environment, and the load's response says what it did
+  (`initialization`). When it fails outright nothing is loaded, and the next load tries again. When the files
+  then fail to load, the environment is initialized all the same.
 
-   When this load fails, the environment is initialized all the same: the files load from the page later.
+Which files the first load takes:
 
-Then restart every instance. The call is refused once the environment is initialized.
+- **A new environment** loads every platform file.
+- **An environment that already holds platform seed data** (system-scope bindings from an earlier loader)
+  leaves out the files whose rows were changed on the pages: loading them would put each one over what was
+  changed. A first load that names no file is refused there.
+
+Then restart every instance.
 
 ## Records
 
@@ -220,18 +221,17 @@ records puts files back to pending.
 
 ## Endpoints
 
-All of them require the platform admin (`@RequireRole(SYSTEM_ROLE_ADMIN)`). The platform load and tenant runs
-are refused until the environment is initialized.
+All of them require the platform admin (`@RequireRole(SYSTEM_ROLE_ADMIN)`). Tenant runs are refused until the
+environment is initialized, which its first platform load does.
 
 | Method | Path | Does |
 |---|---|---|
 | GET | `/SeedData/platform` | Platform files, their states, the build, the latest load |
-| POST | `/SeedData/platform/load` | Load the pending platform files, all or the named ones |
+| POST | `/SeedData/platform/load` | Load the pending platform files, all or the named ones; the first load initializes the environment |
 | GET | `/SeedData/tenants/pending` | Tenants and files a run of every tenant would cover |
 | GET | `/SeedData/tenants/summary` | Per-tenant counts for the given tenants |
 | GET | `/SeedData/tenants/detail` | One tenant's due files and their states |
 | POST | `/SeedData/tenants/run` | Run the pending tenant files, in the given tenants or in all, in the background |
-| POST | `/SeedData/initialize` | Once per environment, before anything else and through the API only: record the tenant files tenants already have, then load the platform files — every one in a new environment, the named ones where platform data is held |
 | GET | `/SeedData/batches/running` | The operation in progress, or null |
 
 ## The seed ledger (`SysPreData`)
@@ -249,8 +249,8 @@ The ledger is read through the generic model API, so treat `/SysPreData/*` as op
   `SysPreDataService` keeps the loader methods, which now take a `LoadMode`.
 - Tenant rebuild (`POST /TenantInfo/rebuild`, which purged a tenant's seed rows and set it up again) is
   removed. A failed setup is retried instead (`POST /TenantInfo/retrySetup`, Draft tenants), which discards
-  nothing and continues from the file that failed. Bring an existing tenant up to date with **Run**, and an
-  environment that predates the records by initializing it (`POST /SeedData/initialize`).
+  nothing and continues from the file that failed. Bring an existing tenant up to date with **Run**; an
+  environment that predates the records is initialized by its first platform load.
 - For code built against the earlier classes, the changes are:
   - `SysPreData`, `SysPreDataService` (and its implementation) and `PreDataFormatParser` moved from
     `io.softa.starter.metadata` to `io.softa.starter.seed`, and the loader methods take a `LoadMode`.

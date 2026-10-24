@@ -173,10 +173,9 @@ release. Once loaded, the row is the tenant's, and tenants may have changed it:
 the migration decides what to overwrite. Existing tenants show the edited file
 as changed after load — expected, the migration carried the change. Never
 repeat the row in a later file: it would be written over every tenant's copy,
-and it would defeat the environment's initialization
-(`POST /SeedData/initialize`), which records a file as run wherever a tenant
-holds one of its rows — the app's manifest test should reject it (hcm's
-`SeedManifestTest` does).
+and it would defeat the environment's initialization (its first platform
+load), which records a file as run wherever a tenant holds one of its rows —
+the app's manifest test should reject it (hcm's `SeedManifestTest` does).
 
 **Remove a row**: taking a top-level row out of a file does not delete it from
 any database. Only seeded *children* (rows of a `ONE_TO_MANY` nested under a
@@ -213,9 +212,9 @@ app once to confirm, and run the app's own manifest tests (every seed file
 registered, no tenant file repeating another's row). After deploy, the Seed
 Data page lists the file as pending. The platform admin loads the platform
 files, then runs the tenants, and checks the row count.
-An environment is initialized once before any of that, through the API
-(`POST /SeedData/initialize`, see the seed-starter README); until then the
-platform load and tenant runs are refused.
+An environment's first platform load initializes it: before loading, it
+records the tenant files tenants already have as run (see the seed-starter
+README); until then tenant runs are refused.
 
 ---
 
