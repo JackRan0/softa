@@ -257,7 +257,9 @@ The ledger is read through the generic model API, so treat `/SysPreData/*` as op
     metadata-starter no longer brings `commons-csv` with it.
   - `TenantProvisionedMessage`, `SeederCompletedMessage` and `TenantProvisionedEvent` lost `rebuild`, and
     `SeederCompletedMessage` lost `success` too: it is sent on success only, and a seeder that fails calls
-    `TenantProvisioningStatusService.markSeederFailed`, as it already did. `SeederCompletedPublisher.publish`
+    `TenantProvisioningStatusService.markSeederFailed(tenantId, seederKey, redeliveryCount)` — the redelivery
+    count decides whether the failure is final (the tenant moves to `DRAFT`) or MQ still retries it (the tenant
+    stays `INITIALIZING`). `SeederCompletedPublisher.publish`
     takes `(tenantId, seederKey)`. `TenantSeedPurgeService` and `TenantSeedCleaner` are gone, and so is the
     unused `softa.tenant.provisioning.ready-timeout-seconds` property.
   - `CacheService` gained `clearByPrefix`; a custom `CacheService` implementation has to add it.

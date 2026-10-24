@@ -11,6 +11,7 @@ import tools.jackson.core.type.TypeReference;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.base.utils.Assert;
+import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
@@ -206,6 +207,39 @@ public class TenantInfoServiceImpl extends EntityServiceImpl<TenantInfo, Long> i
         this.updateOne(tenant);
         cacheService.clear(RedisConstant.TENANT_INFO + tenantId);
         cacheService.clear(RedisConstant.TENANT_IDS);
+    }
+
+    /**
+     * Record that a tenant's setup failed: INITIALIZING becomes DRAFT, and nothing else moves.
+     *
+     * <p>A seeder reports its failure from an MQ consumer, and the message it failed on may be a duplicate
+     * running beside the one that set the tenant up — a redelivery, or a retry announced while the first round
+     * was still going. Written as {@link #markStatus} writes, that late failure turned a tenant that had just
+     * become ACTIVE back into DRAFT and refused its users at login. So the move is one conditional update on
+     * the current status rather than a read followed by a write: a tenant that is no longer setting up is left
+     * as it is, however the two rounds interleave.
+     *
+     * <p>Only the status is written. A tenant in INITIALIZING carries none of the three status timestamps, and
+     * DRAFT carries none either, so there is nothing to clear.
+     *
+     * @param tenantId the tenant whose setup failed
+     * @return whether this call moved the tenant to DRAFT
+     */
+    public boolean markSetupFailed(Long tenantId) {
+        Assert.notTrue(BaseConstant.PLATFORM_TENANT_ID.equals(tenantId),
+                "The platform tenant's status cannot be changed.");
+        TenantInfo patch = new TenantInfo();
+        patch.setStatus(TenantStatus.DRAFT);
+        int moved = this.updateByFilter(new Filters()
+                .eq(TenantInfo::getId, tenantId)
+                .eq(TenantInfo::getStatus, TenantStatus.INITIALIZING), patch);
+        if (moved == 0) {
+            return false;
+        }
+        cacheService.clear(RedisConstant.TENANT_INFO + tenantId);
+        cacheService.clear(RedisConstant.TENANT_IDS);
+        log.info("Tenant {} status {} -> {}", tenantId, TenantStatus.INITIALIZING, TenantStatus.DRAFT);
+        return true;
     }
 
     /**
