@@ -13,12 +13,16 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import io.softa.framework.base.constant.RedisConstant;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.seed.dto.FileState;
 import io.softa.starter.seed.dto.PlatformFileStatus;
 import io.softa.starter.seed.dto.PlatformLoadResult;
 import io.softa.starter.seed.dto.PlatformSeedStatus;
+import io.softa.starter.seed.dto.SeedInitialization;
+import io.softa.starter.seed.entity.SysPreData;
 import io.softa.starter.seed.enums.SeedLoadStatus;
 import io.softa.starter.seed.enums.SeedLoadType;
 import io.softa.starter.seed.enums.SeedRecordStatus;
@@ -32,6 +36,12 @@ import io.softa.starter.seed.manifest.SeedLevel;
  * pending files load in one transaction, in manifest order: either all of them or none. Afterwards the
  * permission snapshots and entitlements cached in Redis are cleared; what each instance built in memory at
  * startup (endpoint index, sensitive field sets, navigation, cron schedules) is rebuilt by restarting it.
+ *
+ * <p>An environment's first load initializes it, before loading anything: in every set-up tenant it records as
+ * run the tenant files the tenant already has rows of, changing no data, so the first tenant run does not load
+ * them again over what the tenants changed since. Tenant runs are refused until then; setting up a new tenant
+ * is not. The Seed Data page is the way in even before its own menu and permissions are loaded: the platform
+ * administrator reaches it by its address, and reaches endpoints no permission lists yet.
  */
 @Slf4j
 @Service
@@ -44,14 +54,17 @@ public class PlatformSeedLoader {
     private final SeedLoadLog loadLog;
     private final SysPreDataService preDataService;
     private final CacheService cacheService;
+    private final TenantSeedRunner tenantRunner;
     private final TransactionTemplate transaction;
 
     public PlatformSeedLoader(SeedCatalog catalog, SeedLoadLog loadLog, SysPreDataService preDataService,
-                              CacheService cacheService, PlatformTransactionManager transactionManager) {
+                              CacheService cacheService, TenantSeedRunner tenantRunner,
+                              PlatformTransactionManager transactionManager) {
         this.catalog = catalog;
         this.loadLog = loadLog;
         this.preDataService = preDataService;
         this.cacheService = cacheService;
+        this.tenantRunner = tenantRunner;
         this.transaction = new TransactionTemplate(transactionManager);
     }
 
@@ -76,31 +89,48 @@ public class PlatformSeedLoader {
     }
 
     /**
-     * Load the pending platform files — all of them, or the ones named.
+     * Load the pending platform files — all of them, or the ones named. The environment's first load initializes
+     * it first (see the class comment).
      *
-     * <p>Refused until the environment is initialized: its first platform load is part of initializing it
-     * ({@link SeedInitializer}), where an environment that already holds platform data names what to load.
+     * <p>That first load decides on the recording: when it fails outright nothing is loaded, and the next load
+     * tries again. When the files fail to load after it, the environment is initialized all the same.
      *
      * @param fileNames pending files to load, in manifest order whatever order they are named in, the others
-     *                  staying pending; null for every pending one. An empty list is refused: whoever sends
-     *                  one picked nothing, which is the opposite of everything
+     *                  staying pending; null for every pending one — refused on the first load of an environment
+     *                  that already holds platform seed data, where loading every file would put each one over
+     *                  what was changed on the pages since. An empty list is refused: whoever sends one picked
+     *                  nothing, which is the opposite of everything
      * @return how it went; on a failure nothing is loaded
      */
     public PlatformLoadResult load(List<String> fileNames) {
-        if (!loadLog.initialized()) {
-            throw new BusinessException("Nothing was loaded: this environment has not been initialized. Its first "
-                    + "platform load is part of that: call POST /SeedData/initialize once, then restart.");
+        if (loadLog.initialized()) {
+            loadLog.requireIdle();
+            return loadFiles(selectPending(fileNames));
         }
+        if (fileNames == null && holdsPlatformSeedData()) {
+            throw new BusinessException("Nothing was loaded: this environment already holds platform seed data, and "
+                    + "loading every platform file would put each one over what was changed on the pages since. "
+                    + "Pick the files to load, leaving out the ones whose rows were changed on the pages.");
+        }
+        // The names are checked before anything is written, so a typo costs nothing.
+        List<SeedFile> files = selectPending(fileNames);
         loadLog.requireIdle();
-        return loadFiles(selectPending(fileNames, true));
+        TenantSeedRunner.BatchOutcome recorded = tenantRunner.recordExistingFiles();
+        SeedInitialization initialization = new SeedInitialization(recorded.batchId(), recorded.status(),
+                recorded.tenants(), recorded.failedTenants(), recorded.files());
+        if (recorded.status() == SeedLoadStatus.FAILED) {
+            log.error("Initialize batch {} failed; no platform file was loaded", recorded.batchId());
+            return new PlatformLoadResult(null, false, List.of(), null, "Nothing was loaded: this environment's "
+                    + "first load records the tenant files tenants already have before it loads, and that failed. "
+                    + "The error is on Initialize batch " + recorded.batchId() + ". Fix the cause and load again; "
+                    + "a tenant recorded already is not recorded twice.", initialization);
+        }
+        return loadFiles(files).initializing(initialization);
     }
 
-    /**
-     * The platform files initializing an environment loads: the named ones, which must be pending, or every
-     * pending one — none, when nothing is. Checked before the initialization writes anything.
-     */
-    List<SeedFile> pendingForInitialization(List<String> fileNames) {
-        return selectPending(fileNames, false);
+    /** Whether platform seed rows were loaded here before: bindings at system scope. */
+    private boolean holdsPlatformSeedData() {
+        return ContextUtils.inSystemContext(() -> preDataService.exist(new Filters().isNotSet(SysPreData::getTenantId)));
     }
 
     /**
@@ -109,7 +139,7 @@ public class PlatformSeedLoader {
      *
      * @return how it went; on a failure nothing is loaded
      */
-    PlatformLoadResult loadFiles(List<SeedFile> files) {
+    private PlatformLoadResult loadFiles(List<SeedFile> files) {
         Long batchId = loadLog.start(SeedLoadType.PLATFORM, null, null);
         SeedFile[] current = new SeedFile[1];
         LocalDateTime[] started = new LocalDateTime[1];
@@ -147,12 +177,8 @@ public class PlatformSeedLoader {
         return new PlatformLoadResult(batchId, true, files.stream().map(SeedFile::file).toList(), null, null);
     }
 
-    /**
-     * The pending platform files, or the named ones among them — all of which must be pending.
-     *
-     * @param requireSome whether nothing pending is refused when no file is named
-     */
-    private List<SeedFile> selectPending(List<String> fileNames, boolean requireSome) {
+    /** The pending platform files, or the named ones among them — all of which must be pending. */
+    private List<SeedFile> selectPending(List<String> fileNames) {
         if (fileNames != null && fileNames.isEmpty()) {
             throw new BusinessException("Nothing was loaded: no platform file was picked.");
         }
@@ -168,7 +194,7 @@ public class PlatformSeedLoader {
                 .map(Map.Entry::getKey)
                 .toList();
         if (fileNames == null) {
-            if (pending.isEmpty() && requireSome) {
+            if (pending.isEmpty()) {
                 throw new BusinessException("Every platform seed file is loaded already.");
             }
             return pending;

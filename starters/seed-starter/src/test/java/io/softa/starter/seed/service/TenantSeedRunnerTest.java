@@ -207,7 +207,7 @@ class TenantSeedRunnerTest {
 
         BusinessException refused = assertThrows(BusinessException.class, () -> runner.run(null));
 
-        assertTrue(refused.getMessage().contains("POST /SeedData/initialize"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("Load the platform files once"), refused.getMessage());
         verify(loadLog, never()).start(any(), any(), any());
     }
 

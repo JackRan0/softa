@@ -61,10 +61,11 @@ public class TenantSeedRunner {
     /**
      * Run the pending tenant files in the given tenants, or in every set-up tenant, in the background.
      *
-     * <p>Refused until the environment is initialized ({@link SeedInitializer}). In an environment that held
-     * seed data before the records, a run would otherwise load every tenant file again over what the tenants
-     * changed since; a new environment initializes too, recording nothing, so there is one order of steps
-     * everywhere.
+     * <p>Refused until the environment is initialized, which its first platform load does
+     * ({@link PlatformSeedLoader#load}). In an environment that held seed data before the records, a run would
+     * otherwise load every tenant file again over what the tenants changed since; a new environment initializes
+     * too, recording nothing, so there is one order of steps everywhere — and platform files load before tenant
+     * files anyway.
      *
      * @param tenantIds tenants to run; null for every one that is active, suspended or closed. An empty list
      *                  is refused: whoever sends one picked nobody, which is the opposite of everybody
@@ -78,9 +79,10 @@ public class TenantSeedRunner {
             throw new BusinessException("Nothing was run: the list of tenants holds an empty entry.");
         }
         if (!loadLog.initialized()) {
-            throw new BusinessException("Nothing was run: this environment has not been initialized. Call "
-                    + "POST /SeedData/initialize once — it records the tenant files tenants already have as run, so "
-                    + "a run does not load them again over what the tenants changed — and restart.");
+            throw new BusinessException("Nothing was run: this environment has not been initialized. Load the "
+                    + "platform files once from the Seed Data page first — that first load records the tenant files "
+                    + "tenants already have as run, so a run does not load them again over what the tenants changed."
+                    + " Then restart, and run.");
         }
         loadLog.requireIdle();
         List<Long> provisioned = planner.provisionedTenantIds();
@@ -128,8 +130,8 @@ public class TenantSeedRunner {
      * Record as run, in every set-up tenant, the tenant files it already has rows of, changing no data — so the
      * first run does not load those files again over what the tenants changed since. Files a tenant has
      * nothing of are left for the next run, and overwrite files need no recording: they run again anyway. Part
-     * of initializing an environment ({@link SeedInitializer}), which answers with what it did, so it runs in
-     * the caller.
+     * of initializing an environment, which the first platform load does ({@link PlatformSeedLoader#load}) and
+     * which answers with what it did, so it runs in the caller.
      *
      * @return how the {@code Initialize} batch ended
      */

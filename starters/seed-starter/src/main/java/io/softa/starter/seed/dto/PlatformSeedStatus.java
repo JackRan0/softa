@@ -26,8 +26,8 @@ public record PlatformSeedStatus(
                 + "startup is still the old version until it restarts")
         boolean restartRequired,
 
-        @Schema(description = "The environment has been initialized (POST /SeedData/initialize); until then platform "
-                + "loads and tenant runs are refused")
+        @Schema(description = "The environment has been initialized, which its first platform load does; until then "
+                + "tenant runs are refused")
         boolean initialized,
 
         @Schema(description = "The operation in progress, or null")
