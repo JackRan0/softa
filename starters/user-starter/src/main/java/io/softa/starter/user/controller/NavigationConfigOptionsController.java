@@ -34,6 +34,7 @@ import io.softa.starter.user.dto.NavConfigOptions;
 import io.softa.starter.user.dto.NavConfigOptions.SfsRef;
 import io.softa.starter.user.dto.RoleModelConfigOption;
 import io.softa.starter.user.service.NavigationModelResolver;
+import io.softa.starter.user.service.RoleGrantCeiling;
 import io.softa.starter.user.util.JsonArrayUtils;
 
 /**
@@ -60,12 +61,9 @@ import io.softa.starter.user.util.JsonArrayUtils;
  * total SFS / model count.
  *
  * <h3>Grant ceiling</h3>
- * Current policy: only super-admin can hit this endpoint (endpoint-gate
- * check on {@code /userAccess/*} wizard endpoints). Every caller here therefore
- * sees the full option set for each nav — no per-editor filtering. If
- * non-super-admin role editing is reintroduced, restore
- * {@code GrantCeilingValidator} to trim scope / SFS / nav options per
- * editor's own grants (grant-ceiling gap).
+ * The options are the same for every caller. What a non-administrator may actually grant is served
+ * apart by {@code GET /userAccess/grantCeiling} — their own roles' grants, read the same way the save
+ * judges them ({@link RoleGrantCeiling}) — so the wizard can grey out what the save would refuse.
  */
 @Slf4j
 @Tag(name = "Admin Navigation Config Options")
@@ -76,6 +74,7 @@ public class NavigationConfigOptionsController {
 
     private final NavigationModelResolver navResolver;
     private final ModelService<?> modelService;
+    private final RoleGrantCeiling roleGrantCeiling;
 
     /**
      * Relation kinds that trigger an INDEPENDENT query of the related model —
@@ -134,6 +133,25 @@ public class NavigationConfigOptionsController {
         }
 
         return new NavConfigOptions(model, label, scopes, sfs);
+    }
+
+    // ─────────────────── what the caller may grant ───────────────────
+
+    /**
+     * The caller's own grants, role by role, for the wizard to grey out what a save would refuse: one role
+     * has to hold an action and reach its rows, and a field set comes with the rows of the role granting it,
+     * so the roles are not merged. An administrator is unrestricted.
+     */
+    @GetMapping("/grantCeiling")
+    @Operation(summary = "Role wizard — what the caller may grant: their own roles' grants, or unrestricted for an administrator")
+    public ApiResponse<GrantCeilingView> getGrantCeiling() {
+        List<RoleGrantCeiling.Grants> grants = roleGrantCeiling.callerGrants();
+        return ApiResponse.success(grants == null ? GrantCeilingView.UNRESTRICTED : new GrantCeilingView(false, grants));
+    }
+
+    /** The caller's roles' grants, or {@code unrestricted} when no ceiling applies. */
+    public record GrantCeilingView(boolean unrestricted, List<RoleGrantCeiling.Grants> roles) {
+        static final GrantCeilingView UNRESTRICTED = new GrantCeilingView(true, List.of());
     }
 
     // ─────────────────── per-model options (role wizard data step) ───────────────────
