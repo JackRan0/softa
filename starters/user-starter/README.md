@@ -272,6 +272,10 @@ softa:
 ```
 
 - Runs on `ApplicationReadyEvent`, after the boot DDL, so every table it writes exists.
+- **First deployment only.** Once the platform tenant has any account holding `SUPER_ADMIN`, it does
+  nothing, whatever address is configured — changing the variable never mints a second all-powerful
+  account. Only a platform left with no super-administrator gets one again, which makes it the way back
+  in.
 - **Creates, never repairs.** An account with that address already in the platform tenant is left as it
   is — its password above all, or the setting would reset it on every restart — and a revoked role is not
   re-granted.

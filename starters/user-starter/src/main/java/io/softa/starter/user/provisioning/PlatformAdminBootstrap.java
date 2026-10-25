@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,12 @@ import static io.softa.framework.base.context.ContextUtils.inTenantContext;
  * after the first boot, carrying a password hash every reader of the repository could see. Here the password
  * comes from the environment, the work runs after the boot DDL has built the schema, and every row goes
  * through the same services as any other account — so a change to the user model cannot leave it behind.
+ *
+ * <p>A first-deployment bootstrap, not a way to keep adding administrators. Once the platform tenant has any
+ * account holding SUPER_ADMIN, it does nothing at all — whatever the configured address. Keyed on the
+ * address alone, changing one environment variable would mint another account that bypasses every
+ * permission check, and an environment whose first admin came from elsewhere would gain a second one. The
+ * one case it acts again is a platform left with no super-administrator, where it serves as the way back.
  *
  * <p>Creates, never repairs. An account with this address already in the platform tenant is left exactly as
  * it is — above all its password, or this configuration would quietly reset the super-administrator's
@@ -137,6 +144,12 @@ public class PlatformAdminBootstrap {
     }
 
     void createIfAbsent(String email, String password) {
+        Optional<Role> superAdmin = roleService.searchOne(
+                new Filters().eq(Role::getCode, RoleConstant.CODE_SUPER_ADMIN));
+        if (superAdmin.isPresent() && hasHolder(superAdmin.get().getId())) {
+            log.info("The platform already has a super-administrator; not creating {}.", email);
+            return;
+        }
         if (accountExists(email)) {
             log.info("Platform admin {} already exists; leaving it as it is.", email);
             return;
@@ -147,7 +160,7 @@ public class PlatformAdminBootstrap {
                     + "Configure an address no one uses yet.", email);
             return;
         }
-        Long roleId = superAdminRoleId();
+        Long roleId = superAdmin.map(Role::getId).orElseGet(this::createSuperAdminRole);
 
         UserInfo user = accountService.registerInvitedUser(email, null, null);
         UserAccount account = accountService.getById(user.getUserId()).orElseThrow(() ->
@@ -178,28 +191,29 @@ public class PlatformAdminBootstrap {
         return accountService.exist(new Filters().eq(UserAccount::getEmail, email));
     }
 
+    /** Whether any account in the current (platform) tenant holds this role. */
+    private boolean hasHolder(Long roleId) {
+        return userRoleRelService.exist(new Filters().eq(UserRoleRel::getRoleId, roleId));
+    }
+
     /**
-     * The SUPER_ADMIN role of the platform tenant, created when missing. Holders bypass every permission
-     * check, so it needs no grants of its own.
+     * Creates the platform tenant's SUPER_ADMIN role. Holders bypass every permission check, so it needs no
+     * grants of its own.
      *
      * <p>Written through the model service, not {@link RoleService}: the typed create refuses every role
      * that has a code, so that an administrator can never mint a built-in one, and has no notion of the
      * framework doing it. The write root's own guard lets this through for the same reason it lets the
      * built-in role seeds through — the permission check is skipped, which only system paths do.
      */
-    private Long superAdminRoleId() {
-        return roleService.searchOne(new Filters().eq(Role::getCode, RoleConstant.CODE_SUPER_ADMIN))
-                .map(Role::getId)
-                .orElseGet(() -> {
-                    Map<String, Object> role = new HashMap<>();
-                    role.put(LambdaUtils.getAttributeName(Role::getCode), RoleConstant.CODE_SUPER_ADMIN);
-                    role.put(LambdaUtils.getAttributeName(Role::getName), "Super Admin");
-                    role.put(LambdaUtils.getAttributeName(Role::getDescription),
-                            "Platform super-administrator. Bypasses every permission check, so it needs no grants.");
-                    role.put(LambdaUtils.getAttributeName(Role::getActive), true);
-                    Serializable id = modelService.createOne(ROLE, role);
-                    return ((Number) id).longValue();
-                });
+    private Long createSuperAdminRole() {
+        Map<String, Object> role = new HashMap<>();
+        role.put(LambdaUtils.getAttributeName(Role::getCode), RoleConstant.CODE_SUPER_ADMIN);
+        role.put(LambdaUtils.getAttributeName(Role::getName), "Super Admin");
+        role.put(LambdaUtils.getAttributeName(Role::getDescription),
+                "Platform super-administrator. Bypasses every permission check, so it needs no grants.");
+        role.put(LambdaUtils.getAttributeName(Role::getActive), true);
+        Serializable id = modelService.createOne(ROLE, role);
+        return ((Number) id).longValue();
     }
 
     private static String require(String value, String property) {

@@ -175,6 +175,42 @@ class PlatformAdminBootstrapTest {
     }
 
     @Test
+    void doesNothingOnceThePlatformHasASuperAdminWhateverTheConfiguredAddress() {
+        // The configured address has no account, but someone already holds SUPER_ADMIN: changing an
+        // environment variable must not mint a second account that bypasses every permission check.
+        when(roleService.searchOne(any(Filters.class))).thenReturn(Optional.of(superAdminRole()));
+        when(userRoleRelService.exist(any(Filters.class))).thenReturn(true);
+        when(accountService.exist(any(Filters.class))).thenReturn(false);
+
+        bootstrap.onApplicationReady();
+
+        verify(accountService, never()).registerInvitedUser(anyString(), any(), any());
+        verify(identityService, never()).setPassword(any(UserAccount.class), anyString());
+        verify(userRoleRelService, never()).createOne(any(UserRoleRel.class));
+        verifyNoInteractions(modelService);
+    }
+
+    @Test
+    void aPlatformLeftWithNoSuperAdminGetsOneBack() {
+        // The role exists but nobody holds it any more: the bootstrap is the way back in.
+        when(roleService.searchOne(any(Filters.class))).thenReturn(Optional.of(superAdminRole()));
+        when(userRoleRelService.exist(any(Filters.class))).thenReturn(false);
+        when(accountService.exist(any(Filters.class))).thenReturn(false);
+        when(identityService.findByLoginIdentifier(EMAIL)).thenReturn(Optional.empty());
+        UserAccount account = new UserAccount();
+        account.setId(5L);
+        when(accountService.registerInvitedUser(EMAIL, null, null)).thenReturn(userInfo(5L));
+        when(accountService.getById(5L)).thenReturn(Optional.of(account));
+
+        bootstrap.onApplicationReady();
+
+        ArgumentCaptor<UserRoleRel> grant = ArgumentCaptor.forClass(UserRoleRel.class);
+        verify(userRoleRelService).createOne(grant.capture());
+        assertEquals(9L, grant.getValue().getRoleId(), "the existing role is reused, not duplicated");
+        verifyNoInteractions(modelService);
+    }
+
+    @Test
     void leavesAnExistingAdminAndItsPasswordAlone() {
         // Otherwise this configuration would reset the super-administrator's password on every restart.
         when(accountService.exist(any(Filters.class))).thenReturn(true);
