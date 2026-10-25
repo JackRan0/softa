@@ -186,10 +186,17 @@ softa:
 ```
 
 The row is written through JDBC rather than the model layer, because its id is fixed and `IdProcessor`
-replaces the id of every insert unless the global `enableInsertId` switch is on. `PlatformTenantCreatorTest`
-holds the column list to the entity, so a new required `TenantInfo` field fails the build instead of the next
-fresh deployment. user-starter's `PlatformAdminBootstrap` calls it before creating the first
-super-administrator.
+replaces the id of every insert unless the global `enableInsertId` switch is on. What that bypass could let
+drift is held in place:
+
+- **A new required `TenantInfo` field** without a default fails `PlatformTenantCreatorTest`, which holds the
+  inserted fields to the entity — the build breaks instead of the next fresh deployment.
+- **A renamed field** fails to compile: the field names come from `TenantInfo`'s getters.
+- **A renamed table or column** needs nothing: both are read from the metadata.
+
+user-starter's `PlatformAdminBootstrap` calls it before creating the first super-administrator, and nothing
+else does. These keys are read only when the row has to be inserted, so once it exists they can be removed
+without affecting startup.
 
 ## How isolation works
 

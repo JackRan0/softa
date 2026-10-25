@@ -12,10 +12,12 @@ import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.enums.Language;
 import io.softa.framework.base.enums.Timezone;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.jdbc.JdbcProxy;
 import io.softa.framework.orm.jdbc.database.SqlParams;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.tenant.config.PlatformTenantProperties;
+import io.softa.starter.tenant.entity.TenantInfo;
 import io.softa.starter.tenant.enums.TenantStatus;
 
 import static io.softa.framework.base.constant.BaseConstant.PLATFORM_TENANT_ID;
@@ -39,7 +41,8 @@ import static io.softa.framework.orm.constant.ModelConstant.UPDATED_TIME;
  * <p>What bypassing the model layer costs is that nothing checks this column list against the model.
  * {@link #INSERTED_FIELDS} is that list, and a test holds it to the entity — every stored required field
  * without a default must be in it — so adding one to {@code TenantInfo} breaks the build here instead of the
- * next fresh deployment. Table and column names are read from the metadata, so a rename needs nothing.
+ * next fresh deployment. Field names come from {@code TenantInfo}'s getters, so renaming a field fails to
+ * compile here; table and column names are read from the metadata, so renaming those needs nothing.
  */
 @Slf4j
 @Component
@@ -47,10 +50,18 @@ public class PlatformTenantCreator {
 
     static final String MODEL = "TenantInfo";
 
+    private static final String NAME = LambdaUtils.getAttributeName(TenantInfo::getName);
+    private static final String CODE = LambdaUtils.getAttributeName(TenantInfo::getCode);
+    private static final String STATUS = LambdaUtils.getAttributeName(TenantInfo::getStatus);
+    private static final String ACTIVATED_TIME = LambdaUtils.getAttributeName(TenantInfo::getActivatedTime);
+    private static final String DEFAULT_LANGUAGE = LambdaUtils.getAttributeName(TenantInfo::getDefaultLanguage);
+    private static final String DEFAULT_TIMEZONE = LambdaUtils.getAttributeName(TenantInfo::getDefaultTimezone);
+    private static final String DEFAULT_COUNTRY = LambdaUtils.getAttributeName(TenantInfo::getDefaultCountry);
+
     /** Every field this insert writes, in column order. Held to {@code TenantInfo} by a test. */
     static final List<String> INSERTED_FIELDS = List.of(
-            ID, "name", "code", "status", "activatedTime",
-            "defaultLanguage", "defaultTimezone", "defaultCountry", SOFT_DELETED_FIELD,
+            ID, NAME, CODE, STATUS, ACTIVATED_TIME,
+            DEFAULT_LANGUAGE, DEFAULT_TIMEZONE, DEFAULT_COUNTRY, SOFT_DELETED_FIELD,
             CREATED_TIME, CREATED_ID, CREATED_BY, UPDATED_TIME, UPDATED_ID, UPDATED_BY);
 
     /** Who the audit columns name. No user exists yet when this runs; the marker matches other system writes. */
@@ -119,13 +130,13 @@ public class PlatformTenantCreator {
         LocalDateTime now = LocalDateTime.now();
         Map<String, Object> row = new LinkedHashMap<>();
         row.put(ID, PLATFORM_TENANT_ID);
-        row.put("name", properties.getName());
-        row.put("code", properties.getCode());
-        row.put("status", TenantStatus.ACTIVE.getStatus());
-        row.put("activatedTime", now);
-        row.put("defaultLanguage", language == null ? null : language.getCode());
-        row.put("defaultTimezone", timezone.getTimezone());
-        row.put("defaultCountry", country.trim().toUpperCase());
+        row.put(NAME, properties.getName());
+        row.put(CODE, properties.getCode());
+        row.put(STATUS, TenantStatus.ACTIVE.getStatus());
+        row.put(ACTIVATED_TIME, now);
+        row.put(DEFAULT_LANGUAGE, language == null ? null : language.getCode());
+        row.put(DEFAULT_TIMEZONE, timezone.getTimezone());
+        row.put(DEFAULT_COUNTRY, country.trim().toUpperCase());
         row.put(SOFT_DELETED_FIELD, false);
         row.put(CREATED_TIME, now);
         row.put(CREATED_ID, SYSTEM_USER_ID);

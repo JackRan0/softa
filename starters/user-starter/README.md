@@ -285,7 +285,22 @@ softa:
   policy. Several instances starting together on a fresh database race safely.
 - Under multi-tenancy the admin belongs to the platform tenant, which it creates first through
   `TenantInfoService.ensurePlatformTenant` — see tenant-starter's `softa.tenant.platform`.
-- It loads no seed data; the administrator it creates is the one who does.
+- The role and the grant are written through `ModelService`: the typed `RoleService` and
+  `UserRoleRelService` refuse a coded role and a `SUPER_ADMIN` binding whoever asks, while the write root's
+  validators let system paths through. Fields are added through the same services, so they get their
+  defaults and validation from the metadata; only a new required field without a default on one of these
+  models stops the boot, naming the field.
+
+A fresh deployment, end to end:
+
+1. Start with the three variables set, and under multi-tenancy `softa.tenant.platform`. The scanner creates
+   the tables, then the platform tenant and the administrator are created.
+2. Sign in as that administrator.
+3. Load the platform seed data — the Seed Data page, or `POST /SeedData/platform/load` — and restart every
+   instance (see seed-starter's *Platform load*). It loads no seed data itself; the administrator it creates
+   is the one who does.
+4. Unset the password, or set `PLATFORM_ADMIN_BOOTSTRAP` back to `false`. Startup does not depend on these
+   keys afterwards: disabled, it returns before reading anything.
 
 Apart from that, there are no `softa.user.*` keys — password and login policy live in
 `UserSecurityPolicy` rows, not in `application.yml`.
