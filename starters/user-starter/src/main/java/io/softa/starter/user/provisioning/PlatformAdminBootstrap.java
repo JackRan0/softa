@@ -64,6 +64,7 @@ import static io.softa.framework.base.context.ContextUtils.inTenantContext;
 public class PlatformAdminBootstrap {
 
     private static final String ROLE = "Role";
+    private static final String USER_ROLE_REL = "UserRoleRel";
 
     private final PlatformAdminProperties properties;
     private final UserAccountService accountService;
@@ -173,12 +174,16 @@ public class PlatformAdminBootstrap {
         account.setActivationTime(LocalDateTime.now());
         accountService.updateOne(account);
 
-        UserRoleRel grant = new UserRoleRel();
-        grant.setUserId(account.getId());
-        grant.setRoleId(roleId);
+        // Through the model service for the same reason as the role: the typed create refuses every
+        // SUPER_ADMIN binding, whoever asks, while the write root's guard lets system paths through. What the
+        // typed create adds on top — evicting the holder's cached permissions — has nothing to evict for an
+        // account that did not exist a moment ago.
+        Map<String, Object> grant = new HashMap<>();
+        grant.put(LambdaUtils.getAttributeName(UserRoleRel::getUserId), account.getId());
+        grant.put(LambdaUtils.getAttributeName(UserRoleRel::getRoleId), roleId);
         // MANUAL, so the dynamic role sync never mistakes it for one of its own and revokes it.
-        grant.setSource(UserRoleSource.MANUAL);
-        userRoleRelService.createOne(grant);
+        grant.put(LambdaUtils.getAttributeName(UserRoleRel::getSource), UserRoleSource.MANUAL);
+        modelService.createOne(USER_ROLE_REL, grant);
         log.info("Created platform admin {}.", email);
     }
 

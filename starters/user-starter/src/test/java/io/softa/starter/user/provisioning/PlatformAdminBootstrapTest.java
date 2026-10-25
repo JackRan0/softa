@@ -147,11 +147,10 @@ class PlatformAdminBootstrapTest {
         assertEquals(AccountStatus.ACTIVE, account.getStatus(), "no mail exists yet to activate it the usual way");
         assertNotNull(account.getActivationTime());
         verify(accountService).updateOne(account);
-        ArgumentCaptor<UserRoleRel> grant = ArgumentCaptor.forClass(UserRoleRel.class);
-        verify(userRoleRelService).createOne(grant.capture());
-        assertEquals(5L, grant.getValue().getUserId());
-        assertEquals(77L, grant.getValue().getRoleId());
-        assertEquals(UserRoleSource.MANUAL, grant.getValue().getSource(), "or the dynamic role sync revokes it");
+        Map<String, Object> grant = grant();
+        assertEquals(5L, grant.get("userId"));
+        assertEquals(77L, grant.get("roleId"));
+        assertEquals(UserRoleSource.MANUAL, grant.get("source"), "or the dynamic role sync revokes it");
     }
 
     @Test
@@ -168,10 +167,8 @@ class PlatformAdminBootstrapTest {
 
         bootstrap.onApplicationReady();
 
-        verify(modelService, never()).createOne(anyString(), anyMap());
-        ArgumentCaptor<UserRoleRel> grant = ArgumentCaptor.forClass(UserRoleRel.class);
-        verify(userRoleRelService).createOne(grant.capture());
-        assertEquals(9L, grant.getValue().getRoleId());
+        verify(modelService, never()).createOne(eq("Role"), anyMap());
+        assertEquals(9L, grant().get("roleId"));
     }
 
     @Test
@@ -186,7 +183,6 @@ class PlatformAdminBootstrapTest {
 
         verify(accountService, never()).registerInvitedUser(anyString(), any(), any());
         verify(identityService, never()).setPassword(any(UserAccount.class), anyString());
-        verify(userRoleRelService, never()).createOne(any(UserRoleRel.class));
         verifyNoInteractions(modelService);
     }
 
@@ -204,10 +200,8 @@ class PlatformAdminBootstrapTest {
 
         bootstrap.onApplicationReady();
 
-        ArgumentCaptor<UserRoleRel> grant = ArgumentCaptor.forClass(UserRoleRel.class);
-        verify(userRoleRelService).createOne(grant.capture());
-        assertEquals(9L, grant.getValue().getRoleId(), "the existing role is reused, not duplicated");
-        verifyNoInteractions(modelService);
+        assertEquals(9L, grant().get("roleId"));
+        verify(modelService, never()).createOne(eq("Role"), anyMap());
     }
 
     @Test
@@ -285,6 +279,17 @@ class PlatformAdminBootstrapTest {
     }
 
     /** An existing role, with an id — without one the code would take the create-the-role branch instead. */
+
+    /**
+     * The SUPER_ADMIN grant, written through the model service. The typed service refuses every such
+     * binding, whoever asks — a real boot failed on exactly that while the mocks here let it through.
+     */
+    private Map<String, Object> grant() {
+        verify(userRoleRelService, never()).createOne(any(UserRoleRel.class));
+        ArgumentCaptor<Map<String, Object>> grant = ArgumentCaptor.forClass(Map.class);
+        verify(modelService).createOne(eq("UserRoleRel"), grant.capture());
+        return grant.getValue();
+    }
     private static Role superAdminRole() {
         Role role = new Role();
         role.setId(9L);
