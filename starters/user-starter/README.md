@@ -273,14 +273,16 @@ softa:
 
 - Runs on `ApplicationReadyEvent`, after the boot DDL, so every table it writes exists.
 - **First deployment only.** Once the platform tenant has any account holding `SUPER_ADMIN`, it does
-  nothing, whatever address is configured — changing the variable never mints a second all-powerful
-  account. Only a platform left with no super-administrator gets one again, which makes it the way back
-  in.
-- **Creates, never repairs.** An account with that address already in the platform tenant is left as it
-  is — its password above all, or the setting would reset it on every restart — and a revoked role is not
+  nothing, whatever address is configured — changing the variable never mints a second platform
+  administrator. Only a platform left with no super-administrator gets one again, under an address that has
+  no account yet, which makes it the way back in.
+- **Creates, never repairs.** An account with that address already in the platform tenant is never touched —
+  its password above all, or the setting would reset it on every restart — and a revoked role is not
   re-granted.
 - **Refuses an address that already signs a person in.** Credentials belong to the person, not the
   account, so the configured password would replace theirs in every tenant they belong to.
+- On a platform with no super-administrator, either refusal **fails the boot** and says what to do: carrying
+  on would leave nobody able to administer the platform.
 - Fails the boot when enabled without an email or password, or when the password fails the password
   policy. Several instances starting together on a fresh database race safely.
 - Under multi-tenancy the admin belongs to the platform tenant, which it creates first through

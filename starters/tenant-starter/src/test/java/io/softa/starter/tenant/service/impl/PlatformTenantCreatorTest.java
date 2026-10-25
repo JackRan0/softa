@@ -143,6 +143,21 @@ class PlatformTenantCreatorTest {
     }
 
     @Test
+    void refusesACountryThatIsNotAnAlpha2Code() {
+        for (String country : List.of("SGP", "Singapore", "S1")) {
+            properties.setDefaultCountry(country);
+            IllegalStateException e = assertThrows(IllegalStateException.class, () -> creator.row());
+            assertTrue(e.getMessage().contains("alpha-2"), e.getMessage());
+        }
+    }
+
+    @Test
+    void normalizesTheCountryCase() {
+        properties.setDefaultCountry(" sg ");
+        assertEquals("SG", creator.row().get("defaultCountry"));
+    }
+
+    @Test
     void refusesAnUnknownTimezoneCode() {
         properties.setDefaultTimezone("Asia/Singapore");
         IllegalStateException e = assertThrows(IllegalStateException.class, () -> creator.row());

@@ -205,15 +205,17 @@ class PlatformAdminBootstrapTest {
     }
 
     @Test
-    void leavesAnExistingAdminAndItsPasswordAlone() {
-        // Otherwise this configuration would reset the super-administrator's password on every restart.
+    void anExistingAccountIsNeverTouchedAndWithNoSuperAdminTheBootStops() {
+        // Its password is not reset and a revoked role is not re-granted. But the platform is left with
+        // nobody to administer it, which the operator has to hear about now.
         when(accountService.exist(any(Filters.class))).thenReturn(true);
 
-        bootstrap.onApplicationReady();
+        IllegalStateException e = assertThrows(IllegalStateException.class, bootstrap::onApplicationReady);
 
+        assertTrue(e.getMessage().contains("grant it SUPER_ADMIN directly"), e.getMessage());
         verify(accountService, never()).registerInvitedUser(anyString(), any(), any());
         verify(identityService, never()).setPassword(any(UserAccount.class), anyString());
-        verifyNoInteractions(userRoleRelService, modelService);
+        verifyNoInteractions(modelService);
     }
 
     @Test
@@ -223,16 +225,30 @@ class PlatformAdminBootstrapTest {
         when(accountService.exist(any(Filters.class))).thenReturn(false);
         when(identityService.findByLoginIdentifier(EMAIL)).thenReturn(Optional.of(new UserIdentity()));
 
-        bootstrap.onApplicationReady();
+        IllegalStateException e = assertThrows(IllegalStateException.class, bootstrap::onApplicationReady);
 
+        assertTrue(e.getMessage().contains("Configure an address no one uses yet"), e.getMessage());
         verify(accountService, never()).registerInvitedUser(anyString(), any(), any());
         verify(identityService, never()).setPassword(any(UserAccount.class), anyString());
-        verifyNoInteractions(userRoleRelService, modelService);
+        verifyNoInteractions(modelService);
+    }
+
+    @Test
+    void findingTheWinnersAccountMidRaceIsNotAFailure() {
+        // Another replica committed between this one's two checks: no holder yet, then its account.
+        when(roleService.searchOne(any(Filters.class))).thenReturn(Optional.of(superAdminRole()));
+        when(userRoleRelService.exist(any(Filters.class))).thenReturn(false, true);
+        when(accountService.exist(any(Filters.class))).thenReturn(true);
+
+        bootstrap.onApplicationReady();   // does not throw: the platform has its admin
+
+        verifyNoInteractions(modelService);
     }
 
     @Test
     void anotherInstanceCreatingTheAdminFirstIsNotAFailure() {
-        when(accountService.exist(any(Filters.class))).thenReturn(false, true);
+        when(accountService.exist(any(Filters.class))).thenReturn(false);
+        when(userRoleRelService.exist(any(Filters.class))).thenReturn(false, true);
         when(identityService.findByLoginIdentifier(EMAIL)).thenReturn(Optional.empty());
         when(roleService.searchOne(any(Filters.class))).thenReturn(Optional.of(superAdminRole()));
         when(accountService.registerInvitedUser(EMAIL, null, null))
@@ -263,7 +279,8 @@ class PlatformAdminBootstrapTest {
     @Test
     void aSingleTenantDeploymentHasNoPlatformTenantToCreate() {
         SystemConfig.env.setEnableMultiTenancy(false);
-        when(accountService.exist(any(Filters.class))).thenReturn(true);
+        when(roleService.searchOne(any(Filters.class))).thenReturn(Optional.of(superAdminRole()));
+        when(userRoleRelService.exist(any(Filters.class))).thenReturn(true);
 
         bootstrap.onApplicationReady();
 
@@ -278,8 +295,6 @@ class PlatformAdminBootstrapTest {
         verifyNoInteractions(accountService);
     }
 
-    /** An existing role, with an id — without one the code would take the create-the-role branch instead. */
-
     /**
      * The SUPER_ADMIN grant, written through the model service. The typed service refuses every such
      * binding, whoever asks — a real boot failed on exactly that while the mocks here let it through.
@@ -290,6 +305,8 @@ class PlatformAdminBootstrapTest {
         verify(modelService).createOne(eq("UserRoleRel"), grant.capture());
         return grant.getValue();
     }
+
+    /** An existing role, with an id — without one the code would take the create-the-role branch instead. */
     private static Role superAdminRole() {
         Role role = new Role();
         role.setId(9L);

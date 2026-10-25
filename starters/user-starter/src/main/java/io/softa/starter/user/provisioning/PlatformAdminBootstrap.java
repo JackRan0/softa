@@ -46,18 +46,21 @@ import static io.softa.framework.base.context.ContextUtils.inTenantContext;
  *
  * <p>A first-deployment bootstrap, not a way to keep adding administrators. Once the platform tenant has any
  * account holding SUPER_ADMIN, it does nothing at all — whatever the configured address. Keyed on the
- * address alone, changing one environment variable would mint another account that bypasses every
- * permission check, and an environment whose first admin came from elsewhere would gain a second one. The
- * one case it acts again is a platform left with no super-administrator, where it serves as the way back.
+ * address alone, changing one environment variable would mint another platform administrator, and an
+ * environment whose first admin came from elsewhere would gain a second one. The one case it acts again is
+ * a platform left with no super-administrator, where it serves as the way back — under an address that has
+ * no account yet.
  *
- * <p>Creates, never repairs. An account with this address already in the platform tenant is left exactly as
- * it is — above all its password, or this configuration would quietly reset the super-administrator's
- * password on every restart; and a revoked role is not re-granted, because revoking it was someone's
- * decision.
+ * <p>Creates, never repairs. An account with this address already in the platform tenant is never touched —
+ * above all its password, or this configuration would quietly reset the super-administrator's password on
+ * every restart; and a revoked role is not re-granted, because revoking it was someone's decision.
  *
  * <p>An address that already signs a person in is refused too. Credentials belong to the person, not to the
  * account: creating the account would link it to that person, and setting the configured password would
  * replace theirs in every tenant they belong to.
+ *
+ * <p>Either refusal on a platform with no super-administrator stops the boot, naming the way out. Carrying on
+ * would leave nobody able to administer the platform, which is what switching this on was meant to prevent.
  */
 @Slf4j
 @Component
@@ -113,9 +116,10 @@ public class PlatformAdminBootstrap {
                     status -> inTenantContext(tenantId, () -> createIfAbsent(email, password)));
         } catch (RuntimeException e) {
             // Several replicas starting together against a fresh database all see no admin and race to create
-            // it; the losers' inserts hit the account's unique email. Not a failure if the admin exists now.
-            if (inTenantContext(tenantId, () -> accountExists(email))) {
-                log.info("Platform admin {} was created concurrently by another instance.", email);
+            // it; the losers hit the account's unique email, or find the winner's account half-way through
+            // their checks. Not a failure if the platform has its super-administrator now.
+            if (inTenantContext(tenantId, this::platformHasSuperAdmin)) {
+                log.info("The platform admin was created concurrently by another instance.");
                 return;
             }
             throw e;
@@ -145,21 +149,21 @@ public class PlatformAdminBootstrap {
     }
 
     void createIfAbsent(String email, String password) {
-        Optional<Role> superAdmin = roleService.searchOne(
-                new Filters().eq(Role::getCode, RoleConstant.CODE_SUPER_ADMIN));
+        Optional<Role> superAdmin = superAdminRole();
         if (superAdmin.isPresent() && hasHolder(superAdmin.get().getId())) {
             log.info("The platform already has a super-administrator; not creating {}.", email);
             return;
         }
+        // From here on the platform has no super-administrator, so not creating one is a failure.
         if (accountExists(email)) {
-            log.info("Platform admin {} already exists; leaving it as it is.", email);
-            return;
+            throw new IllegalStateException("The platform has no super-administrator, and " + email
+                    + " already has an account in the platform tenant. The bootstrap never changes an existing "
+                    + "account: grant it SUPER_ADMIN directly, or configure an address with no account.");
         }
         if (identityService.findByLoginIdentifier(email).isPresent()) {
-            log.warn("Not creating platform admin {}: the address already signs a person in, and the account "
-                    + "would be linked to them — the configured password would then replace theirs everywhere. "
-                    + "Configure an address no one uses yet.", email);
-            return;
+            throw new IllegalStateException("The platform has no super-administrator, and " + email
+                    + " already signs a person in: the account would be linked to them and the configured "
+                    + "password would replace theirs everywhere. Configure an address no one uses yet.");
         }
         Long roleId = superAdmin.map(Role::getId).orElseGet(this::createSuperAdminRole);
 
@@ -196,14 +200,22 @@ public class PlatformAdminBootstrap {
         return accountService.exist(new Filters().eq(UserAccount::getEmail, email));
     }
 
+    private Optional<Role> superAdminRole() {
+        return roleService.searchOne(new Filters().eq(Role::getCode, RoleConstant.CODE_SUPER_ADMIN));
+    }
+
+    private boolean platformHasSuperAdmin() {
+        return superAdminRole().map(role -> hasHolder(role.getId())).orElse(false);
+    }
+
     /** Whether any account in the current (platform) tenant holds this role. */
     private boolean hasHolder(Long roleId) {
         return userRoleRelService.exist(new Filters().eq(UserRoleRel::getRoleId, roleId));
     }
 
     /**
-     * Creates the platform tenant's SUPER_ADMIN role. Holders bypass every permission check, so it needs no
-     * grants of its own.
+     * Creates the platform tenant's SUPER_ADMIN role. It needs no grants of its own: what its holders reach is
+     * derived from the platform's navigation, not stored on the role.
      *
      * <p>Written through the model service, not {@link RoleService}: the typed create refuses every role
      * that has a code, so that an administrator can never mint a built-in one, and has no notion of the
@@ -215,7 +227,7 @@ public class PlatformAdminBootstrap {
         role.put(LambdaUtils.getAttributeName(Role::getCode), RoleConstant.CODE_SUPER_ADMIN);
         role.put(LambdaUtils.getAttributeName(Role::getName), "Super Admin");
         role.put(LambdaUtils.getAttributeName(Role::getDescription),
-                "Platform super-administrator. Bypasses every permission check, so it needs no grants.");
+                "Platform administrator. Reaches the platform's own modules, derived from the navigation; needs no grants.");
         role.put(LambdaUtils.getAttributeName(Role::getActive), true);
         Serializable id = modelService.createOne(ROLE, role);
         return ((Number) id).longValue();

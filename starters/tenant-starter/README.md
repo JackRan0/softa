@@ -180,7 +180,7 @@ when it is missing — an existing row, in any state, soft-deleted included, is 
 softa:
   tenant:
     platform:
-      default-country: SG          # required, no default — which country is the application's call
+      default-country: SG          # required, no default; ISO 3166-1 alpha-2 — which country is the application's call
       default-timezone: UTC+08:00  # required
       default-language: en-US      # optional; name / code default to Platform / platform
 ```

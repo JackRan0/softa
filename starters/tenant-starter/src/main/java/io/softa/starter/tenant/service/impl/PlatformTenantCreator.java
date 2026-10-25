@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -64,6 +65,8 @@ public class PlatformTenantCreator {
             DEFAULT_LANGUAGE, DEFAULT_TIMEZONE, DEFAULT_COUNTRY, SOFT_DELETED_FIELD,
             CREATED_TIME, CREATED_ID, CREATED_BY, UPDATED_TIME, UPDATED_ID, UPDATED_BY);
 
+    private static final Pattern ALPHA_2 = Pattern.compile("[A-Z]{2}");
+
     /** Who the audit columns name. No user exists yet when this runs; the marker matches other system writes. */
     private static final long SYSTEM_USER_ID = 0L;
     private static final String SYSTEM_USER = "system";
@@ -111,7 +114,13 @@ public class PlatformTenantCreator {
 
     /** The row to insert, keyed by field name in {@link #INSERTED_FIELDS} order. */
     Map<String, Object> row() {
-        String country = require(properties.getDefaultCountry(), "softa.tenant.platform.default-country");
+        String country = require(properties.getDefaultCountry(), "softa.tenant.platform.default-country")
+                .trim().toUpperCase();
+        // Only the shape: the countries are seed data, not loaded yet on the boot that creates this row.
+        if (!ALPHA_2.matcher(country).matches()) {
+            throw new IllegalStateException("softa.tenant.platform.default-country '"
+                    + properties.getDefaultCountry() + "' is not an ISO 3166-1 alpha-2 code (e.g. SG).");
+        }
         String timezoneCode = require(properties.getDefaultTimezone(), "softa.tenant.platform.default-timezone");
         Timezone timezone = Timezone.of(timezoneCode);
         if (timezone == null) {
@@ -136,7 +145,7 @@ public class PlatformTenantCreator {
         row.put(ACTIVATED_TIME, now);
         row.put(DEFAULT_LANGUAGE, language == null ? null : language.getCode());
         row.put(DEFAULT_TIMEZONE, timezone.getTimezone());
-        row.put(DEFAULT_COUNTRY, country.trim().toUpperCase());
+        row.put(DEFAULT_COUNTRY, country);
         row.put(SOFT_DELETED_FIELD, false);
         row.put(CREATED_TIME, now);
         row.put(CREATED_ID, SYSTEM_USER_ID);
