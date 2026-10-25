@@ -37,6 +37,8 @@ import io.softa.starter.user.service.NavigationModelResolver;
 import io.softa.starter.user.service.RoleGrantCeiling;
 import io.softa.starter.user.util.JsonArrayUtils;
 
+import static io.softa.framework.base.context.ContextUtils.inSystemContext;
+
 /**
  * Wizard stage 3 endpoint: per-navigation options the FE wizard needs to
  * render — model label, applicable scope types, applicable sensitive field
@@ -122,7 +124,7 @@ public class NavigationConfigOptionsController {
         // SFS visible on this nav row = own (SFS.model == nav.model) ∪
         // attached (SFS.attachedTo contains nav.model). Dedup by setId so a
         // SFS that accidentally points its attachedTo at its own model shows up
-        // once. Read from the SensitiveFieldSet table (约定读; super-admin only).
+        // once. Read from the SensitiveFieldSet table, in the system context (see sfs()).
         Set<String> seen = new HashSet<>();
         List<SfsRef> sfs = new ArrayList<>();
         for (String setId : sfsOwnedBy(model)) {
@@ -261,9 +263,9 @@ public class NavigationConfigOptionsController {
         return sfs().attachedByModel().getOrDefault(model, Set.of());
     }
 
-    /** Lazy cache of the {@code SensitiveFieldSet} table, indexed for the wizard.
-     *  Replaces the permission-starter {@code SensitiveFieldSetCache}; only
-     *  super-admins reach this endpoint, so the read is not scope-filtered. */
+    /** Lazy cache of the {@code SensitiveFieldSet} table, indexed for the wizard. A platform catalogue
+     *  that is the same for every caller, and the cache is shared by all of them, so it is read in the
+     *  system context: read as a role manager without a range on it, it came back empty and stayed so. */
     private volatile SfsIndex sfsIndex;
 
     private SfsIndex sfs() {
@@ -271,8 +273,8 @@ public class NavigationConfigOptionsController {
         if (idx != null) {
             return idx;
         }
-        List<SensitiveFieldSetView> rows =
-                modelService.searchList("SensitiveFieldSet", new FlexQuery(), SensitiveFieldSetView.class);
+        List<SensitiveFieldSetView> rows = inSystemContext(() ->
+                modelService.searchList("SensitiveFieldSet", new FlexQuery(), SensitiveFieldSetView.class));
         Map<String, Set<String>> owned = new HashMap<>();
         Map<String, Set<String>> attached = new HashMap<>();
         Map<String, String> names = new HashMap<>();
@@ -317,8 +319,7 @@ public class NavigationConfigOptionsController {
      * {@code DataScopeType} registry × the model's field shape — the same rule
      * {@code ScopeApplicabilityResolver} applies on the enforce side, computed
      * here from data so this wizard needs no dependency on the permission engine.
-     * {@code "ALL"} is always included. Only super-admins reach this endpoint, so
-     * the {@code DataScopeType} read is not scope-filtered.
+     * {@code "ALL"} is always included.
      */
     private List<String> applicableScopeCodes(String model) {
         Set<String> out = new LinkedHashSet<>();
@@ -342,8 +343,10 @@ public class NavigationConfigOptionsController {
         if (cached != null) {
             return cached;
         }
-        List<DataScopeTypeView> loaded =
-                modelService.searchList("DataScopeType", new FlexQuery(), DataScopeTypeView.class);
+        // The registry is the same for every caller and the cache is shared, so it is read in the system
+        // context: read as a role manager without a range on it, every model offered All alone.
+        List<DataScopeTypeView> loaded = inSystemContext(() ->
+                modelService.searchList("DataScopeType", new FlexQuery(), DataScopeTypeView.class));
         if (!loaded.isEmpty()) {
             scopeTypes = loaded;
         }

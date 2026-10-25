@@ -300,4 +300,32 @@ class NavigationConfigOptionsControllerTest {
         assertThat(view.unrestricted()).isFalse();
         assertThat(view.roles()).containsExactly(hr, self);
     }
+
+    @Test
+    void theCataloguesAreReadInTheSystemContextWhoeverAsks() {
+        // A role manager has no range on DataScopeType or SensitiveFieldSet: read as them, every model
+        // offered All alone, and the shared cache kept it that way for everyone after.
+        when(navResolver.resolvePrimaryModel("hr.employee")).thenReturn("Employee");
+        List<Boolean> skipped = new java.util.ArrayList<>();
+        when(modelService.searchList(eq("DataScopeType"), any(FlexQuery.class), eq(NavigationConfigOptionsController.DataScopeTypeView.class)))
+                .thenAnswer(inv -> {
+                    skipped.add(io.softa.framework.base.context.ContextHolder.getContext().isSkipPermissionCheck());
+                    return List.of(dst("SELF"));
+                });
+        when(modelService.searchList(eq("SensitiveFieldSet"), any(FlexQuery.class), eq(NavigationConfigOptionsController.SensitiveFieldSetView.class)))
+                .thenAnswer(inv -> {
+                    skipped.add(io.softa.framework.base.context.ContextHolder.getContext().isSkipPermissionCheck());
+                    return List.of();
+                });
+
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of());
+            io.softa.framework.base.context.Context caller = new io.softa.framework.base.context.Context();
+            io.softa.framework.base.context.ContextHolder.callWith(caller,
+                    () -> controller.getModelOptions(List.of("hr.employee")).getData());
+        }
+
+        assertThat(skipped).isNotEmpty().containsOnly(true);
+    }
 }
