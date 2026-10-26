@@ -29,8 +29,8 @@ import io.softa.framework.orm.constant.FileConstant;
  */
 public final class InFileReferences {
 
-    /** The current file's references, while its custom handler runs. */
-    private static final ScopedValue<List<Reference>> CURRENT = ScopedValue.newInstance();
+    /** The current file's references by the row that carries them, while its custom handler runs. */
+    private static final ScopedValue<Map<Map<String, Object>, List<Reference>>> CURRENT = ScopedValue.newInstance();
 
     private InFileReferences() {
     }
@@ -48,8 +48,10 @@ public final class InFileReferences {
         if (!CURRENT.isBound()) {
             return null;
         }
-        for (Reference reference : CURRENT.get()) {
-            if (reference.row() == row && reference.rootField().equals(rootField)) {
+        // Indexed by row: a handler asks once per row and again up a chain of parents, so a scan of
+        // every reference per question would make a large file quadratic.
+        for (Reference reference : CURRENT.get().getOrDefault(row, List.of())) {
+            if (reference.rootField().equals(rootField)) {
                 return reference.target();
             }
         }
@@ -61,7 +63,7 @@ public final class InFileReferences {
      * pipeline wraps every handler in it; public so a handler's own tests can set up the same scope.
      */
     public static void exposedTo(List<Reference> references, Runnable handler) {
-        ScopedValue.where(CURRENT, references == null ? List.of() : references).run(handler);
+        ScopedValue.where(CURRENT, outgoing(references == null ? List.of() : references)).run(handler);
     }
 
     /**
