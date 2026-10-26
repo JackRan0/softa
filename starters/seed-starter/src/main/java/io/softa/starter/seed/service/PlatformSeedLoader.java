@@ -142,21 +142,25 @@ public class PlatformSeedLoader {
      * there, and a change to the file is loaded from it like any other. This does not initialize the environment —
      * the first load from the page still does, after whatever the deployment runs once the new build is up.
      *
+     * <p>It does not wait for another seed operation to finish. Nothing else loads a file that never loaded, and a
+     * batch left Running by an instance that stopped part-way — killed, or its boot failed on another listener —
+     * would otherwise keep the page out of reach until it read as stale, past this start's only attempt.
+     *
      * @return how the load went, or empty when every bootstrap file has loaded here before
      */
     public Optional<PlatformLoadResult> loadBootstrapFiles() {
+        List<SeedFile> bootstrapFiles = catalog.manifest().bootstrapFiles();
+        if (bootstrapFiles.isEmpty()) {
+            return Optional.empty();
+        }
         Map<String, SeedLoadLog.FileRecords> records = loadLog.platformRecords();
-        List<SeedFile> files = catalog.manifest().bootstrapFiles().stream()
+        List<SeedFile> files = bootstrapFiles.stream()
                 .filter(file -> {
                     SeedLoadLog.FileRecords fileRecords = records.get(file.file());
                     return fileRecords == null || fileRecords.latestSuccess() == null;
                 })
                 .toList();
-        if (files.isEmpty()) {
-            return Optional.empty();
-        }
-        loadLog.requireIdle();
-        return Optional.of(loadFiles(files));
+        return files.isEmpty() ? Optional.empty() : Optional.of(loadFiles(files));
     }
 
     /** Whether platform seed rows were loaded here before: bindings at system scope. */

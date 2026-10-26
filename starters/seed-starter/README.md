@@ -170,9 +170,11 @@ The platform files marked `bootstrap: true` therefore load on their own. Once th
 `SeedBootstrap` loads, in the background, every bootstrap file that has never loaded successfully here, as one
 platform load like any other. It happens once per file: a bootstrap file that has loaded here is never loaded
 this way again, and a later change to it is loaded from the page. It does not initialize the environment — the
-first load from the page does, after whatever the deployment runs once the new build is up. A failure is logged
-and recorded against the file, and the next start tries again; until then, `POST /SeedData/platform/load`
-naming the files does the same.
+first load from the page does, after whatever the deployment runs once the new build is up. Nor does it wait for
+another seed operation: nothing else loads a file that never loaded, and a batch left running by an instance
+that stopped part-way must not hold the page out of reach. When no file is marked, startup checks nothing. A
+failure is logged and recorded against the file, and the next start tries again; until then,
+`POST /SeedData/platform/load` naming the files does the same.
 
 Mark the files that hold the page's menu and permissions and no others: a bootstrap load happens without anyone
 choosing it, which suits catalogues nobody edits on a page. Several instances starting together where the files

@@ -301,8 +301,17 @@ class PlatformSeedLoaderTest {
         verify(preDataService, never()).loadPrePlatformData(anyList(), any());
         // Initializing is the first load from the page, after what the deployment runs once the build is up.
         verify(tenantRunner, never()).recordExistingFiles();
-        verify(loadLog).requireIdle();
         verify(cacheService).clearByPrefix("perm:");
+    }
+
+    @Test
+    void aBatchLeftRunningDoesNotKeepTheBootstrapFilesOut() {
+        // An instance that stopped part-way left its batch Running; it is not stale yet.
+        doThrow(new BusinessException("A seed data operation is still running (batch 7).")).when(loadLog).requireIdle();
+
+        PlatformLoadResult result = loader.loadBootstrapFiles().orElseThrow();
+
+        assertEquals(List.of("Navigation.json", "Permission.json"), result.loadedFiles());
     }
 
     @Test
@@ -328,7 +337,6 @@ class PlatformSeedLoaderTest {
                         record(SeedRecordStatus.SUCCEEDED))));
 
         assertTrue(loader.loadBootstrapFiles().isEmpty());
-        verify(loadLog, never()).requireIdle();
         verify(loadLog, never()).start(any(), any(), any());
     }
 
