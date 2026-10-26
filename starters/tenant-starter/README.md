@@ -182,6 +182,36 @@ up" rather than a generic failure, checked before the active check so that speci
   `@Scheduled`, XXL-Job, …) omits cron-starter — the consumer stays dormant and the app drives
   `SubscriptionProjectionJob` from its own trigger.
 
+## Platform tenant
+
+Platform operators' accounts belong to the platform tenant, `BaseConstant.PLATFORM_TENANT_ID` — `-1`, not
+`0`, because `IdUtils.validId` treats `0` as no id at all. Login checks the tenant of every account, so no
+operator can sign in until this row exists and is `ACTIVE`. It is never provisioned: nothing seeds it and
+nothing moves its status, so `TenantInfoService.ensurePlatformTenant()` creates it already `ACTIVE`, and only
+when it is missing — an existing row, in any state, soft-deleted included, is left alone.
+
+```yaml
+softa:
+  tenant:
+    platform:
+      default-country: SG          # required, no default; ISO 3166-1 alpha-2 — which country is the application's call
+      default-timezone: UTC+08:00  # required
+      default-language: en-US      # optional; name / code default to Platform / platform
+```
+
+The row is written through JDBC rather than the model layer, because its id is fixed and `IdProcessor`
+replaces the id of every insert unless the global `enableInsertId` switch is on. What that bypass could let
+drift is held in place:
+
+- **A new required `TenantInfo` field** without a default fails `PlatformTenantCreatorTest`, which holds the
+  inserted fields to the entity — the build breaks instead of the next fresh deployment.
+- **A renamed field** fails to compile: the field names come from `TenantInfo`'s getters.
+- **A renamed table or column** needs nothing: both are read from the metadata.
+
+user-starter's `PlatformAdminBootstrap` calls it before creating the first super-administrator, and nothing
+else does. These keys are read only when the row has to be inserted, so once it exists they can be removed
+without affecting startup.
+
 ## How isolation works
 
 Tenant identity travels on the request `Context` (`io.softa.framework.base.context`),

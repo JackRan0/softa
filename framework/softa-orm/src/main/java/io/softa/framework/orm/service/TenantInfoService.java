@@ -129,4 +129,25 @@ public interface TenantInfoService {
      * @param tenantId tenant id
      */
     void close(Long tenantId);
+
+    /**
+     * Make sure the platform tenant exists — the row whose id is
+     * {@link io.softa.framework.base.constant.BaseConstant#PLATFORM_TENANT_ID}, ACTIVE, that platform
+     * operators' accounts belong to.
+     *
+     * <p>Login checks the tenant of every account, the platform operators' included, so their accounts
+     * cannot sign in until this row exists. It is not a provisioned tenant: nothing seeds it and nothing
+     * moves its status later, so it is created ACTIVE and only ever by this method.
+     *
+     * <p>Creates, never repairs. A row already there — in any state, soft-deleted included — is left
+     * exactly as it is; changing a live tenant is a decision for a person, not for a boot.
+     *
+     * <p>The default does nothing: an application without the tenant model has no tenant check at
+     * login, so there is no row to need.
+     *
+     * @return true when this call created the row, false when it was already there
+     */
+    default boolean ensurePlatformTenant() {
+        return false;
+    }
 }

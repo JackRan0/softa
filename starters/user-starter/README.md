@@ -259,5 +259,52 @@ social-oauth:
   linkedin: { enable: false, client-id: ..., client-secret: ... }
 ```
 
-There are no `softa.user.*` property keys — password and login policy live in
+### First platform administrator
+
+`PlatformAdminBootstrap` creates the platform's first super-administrator at startup, so a fresh
+deployment needs no hand-run SQL (prefix `softa.user.platform-admin`, bound by `PlatformAdminProperties`):
+
+```yaml
+softa:
+  user:
+    platform-admin:
+      enabled: ${PLATFORM_ADMIN_BOOTSTRAP:false}
+      email: ${PLATFORM_ADMIN_EMAIL:}
+      password: ${PLATFORM_ADMIN_PASSWORD:}   # from the environment — never commit it
+```
+
+- Runs on `ApplicationReadyEvent`, after the boot DDL, so every table it writes exists.
+- **First deployment only.** Once the platform tenant has any account holding `SUPER_ADMIN`, it does
+  nothing, whatever address is configured — changing the variable never mints a second platform
+  administrator. Only a platform left with no super-administrator gets one again, under an address that has
+  no account yet, which makes it the way back in.
+- **Creates, never repairs.** An account with that address already in the platform tenant is never touched —
+  its password above all, or the setting would reset it on every restart — and a revoked role is not
+  re-granted.
+- **Refuses an address that already signs a person in.** Credentials belong to the person, not the
+  account, so the configured password would replace theirs in every tenant they belong to.
+- On a platform with no super-administrator, either refusal **fails the boot** and says what to do: carrying
+  on would leave nobody able to administer the platform.
+- Fails the boot when enabled without an email or password, or when the password fails the password
+  policy. Several instances starting together on a fresh database race safely.
+- Under multi-tenancy the admin belongs to the platform tenant, which it creates first through
+  `TenantInfoService.ensurePlatformTenant` — see tenant-starter's `softa.tenant.platform`.
+- The role and the grant are written through `ModelService`: the typed `RoleService` and
+  `UserRoleRelService` refuse a coded role and a `SUPER_ADMIN` binding whoever asks, while the write root's
+  validators let system paths through. Fields are added through the same services, so they get their
+  defaults and validation from the metadata; only a new required field without a default on one of these
+  models stops the boot, naming the field.
+
+A fresh deployment, end to end:
+
+1. Start with the three variables set, and under multi-tenancy `softa.tenant.platform`. The scanner creates
+   the tables, then the platform tenant and the administrator are created.
+2. Sign in as that administrator.
+3. Load the platform seed data — the Seed Data page, or `POST /SeedData/platform/load` — and restart every
+   instance (see seed-starter's *Platform load*). It loads no seed data itself; the administrator it creates
+   is the one who does.
+4. Unset the password, or set `PLATFORM_ADMIN_BOOTSTRAP` back to `false`. Startup does not depend on these
+   keys afterwards: disabled, it returns before reading anything.
+
+Apart from that, there are no `softa.user.*` keys — password and login policy live in
 `UserSecurityPolicy` rows, not in `application.yml`.
