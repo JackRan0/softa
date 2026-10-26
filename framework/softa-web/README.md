@@ -31,6 +31,12 @@ A detail form hides Edit / Delete and the sections of hidden sets from the answe
 sections of read-only sets read-only. The record's answer stands on its own: it overrides what the user
 holds through some other role.
 
+## Enum Request Parameters
+
+Query, path and header parameters bind an enum by the value JSON uses for it — the `@JsonValue` field when the enum declares one, the constant name otherwise — so a parameter takes the same value that request bodies, responses and option items show: for `Status.ACTIVE("Active")`, send `?status=Active`. Matching is exact, a blank value binds as `null`, and a value naming no constant fails to bind. `BaseWebConfig.addFormatters` registers this in place of Spring's default binding, which matches the constant name only.
+
+The constant name (`?status=ACTIVE`) still binds: when the conversion fails, Spring MVC falls back to looking the text up as a constant name. That fallback is Spring's, not part of the API — send the JSON value.
+
 ## Option Sets
 Option sets provide a shared, ordered list of selectable values. The web module exposes an API to read option items
 and the ORM layer caches them for fast lookup.

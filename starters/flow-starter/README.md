@@ -134,7 +134,7 @@ Base path: `/flow/nodeDescriptors`
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/flow/nodeDescriptors` | List all node descriptors for the editor palette |
-| `GET` | `/flow/nodeDescriptors?scenario=PROCESS` | Filter descriptors by `FlowScenario` |
+| `GET` | `/flow/nodeDescriptors?scenario=Process` | Filter descriptors by `FlowScenario` |
 
 ### Runtime APIs
 

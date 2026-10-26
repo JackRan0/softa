@@ -36,7 +36,8 @@ public class BaseWebConfig implements WebMvcConfigurer {
 
     /**
      * Handles formatting during the data binding process in the Spring MVC framework.
-     * Allows passing String request parameters and serializes them into LocalDateTime, LocalDate, and LocalTime.
+     * Allows passing String request parameters and serializes them into LocalDateTime, LocalDate, and LocalTime,
+     * and binds enums by the value JSON uses for them.
      *
      * @param registry the formatter registry
      */
@@ -47,6 +48,8 @@ public class BaseWebConfig implements WebMvcConfigurer {
         registrar.setDateFormatter(TimeConstant.DATE_FORMATTER);
         registrar.setTimeFormatter(TimeConstant.TIME_FORMATTER);
         registrar.registerFormatters(registry);
+        // Registered after Spring's defaults, so it replaces their constant-name enum binding.
+        registry.addConverterFactory(new JsonValueEnumConverterFactory());
     }
 
     /**

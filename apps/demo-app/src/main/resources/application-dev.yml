@@ -115,7 +115,7 @@ mq:
     change-log:
       topic: dev_demo_change_log
 #      flow-sub: dev_demo_change_log_flow_sub
-      persist-sub: dev_demo_change_log_persist_sub
+#      persist-sub: dev_demo_change_log_persist_sub
 #    flow-async-task:
 #      topic: dev_demo_flow_async_task
 #      sub: dev_demo_flow_async_task_sub
@@ -289,3 +289,8 @@ management:
       access: read_only
     retries:
       access: read_only
+
+permission:
+  public-uri-patterns:            # bypass the interceptor entirely (login / health / …)
+    - /login/**
+    - /actuator/health
