@@ -1,12 +1,16 @@
 package io.softa.starter.file.excel.imports;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Deque;
 import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import io.softa.framework.base.exception.ValidationException;
@@ -25,7 +29,39 @@ import io.softa.framework.orm.constant.FileConstant;
  */
 public final class InFileReferences {
 
+    /** The current file's references, while its custom handler runs. */
+    private static final ScopedValue<List<Reference>> CURRENT = ScopedValue.newInstance();
+
     private InFileReferences() {
+    }
+
+    /**
+     * The row of this file that {@code row} names through {@code rootField}, or {@code null} when it
+     * names none — for a custom handler, which runs before the write fills the field in.
+     *
+     * <p>To a handler such a field reads as empty, the same as a row that names nobody: a department
+     * whose parent is listed in the same file looks like a root. Any rule that reads the field has to
+     * ask here first, or it judges the row by a value the write has not supplied yet. Only answers
+     * while a handler of this pipeline runs; elsewhere there is nothing to ask about.
+     */
+    public static Map<String, Object> targetOf(Map<String, Object> row, String rootField) {
+        if (!CURRENT.isBound()) {
+            return null;
+        }
+        for (Reference reference : CURRENT.get()) {
+            if (reference.row() == row && reference.rootField().equals(rootField)) {
+                return reference.target();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Run a custom handler with the file's references answerable through {@link #targetOf}. The import
+     * pipeline wraps every handler in it; public so a handler's own tests can set up the same scope.
+     */
+    public static void exposedTo(List<Reference> references, Runnable handler) {
+        ScopedValue.where(CURRENT, references == null ? List.of() : references).run(handler);
     }
 
     /**
@@ -142,20 +178,43 @@ public final class InFileReferences {
         return layers;
     }
 
-    private static int depthOf(Map<String, Object> row, Map<Map<String, Object>, List<Reference>> outgoing,
+    /**
+     * How many rows of the file stand above {@code row}. Iterative, with an explicit stack: a chain is
+     * as deep as the file makes it, and recursion would turn a long one into a stack overflow that
+     * fails the whole import with no row to blame.
+     */
+    private static int depthOf(Map<String, Object> start, Map<Map<String, Object>, List<Reference>> outgoing,
                                Map<Map<String, Object>, Integer> index, Map<Map<String, Object>, Integer> depth) {
-        Integer known = depth.get(row);
-        if (known != null) {
-            return known;
-        }
-        int d = 0;
-        for (Reference reference : outgoing.getOrDefault(row, List.of())) {
-            if (index.containsKey(reference.target())) {
-                d = Math.max(d, depthOf(reference.target(), outgoing, index, depth) + 1);
+        Deque<Map<String, Object>> stack = new ArrayDeque<>();
+        stack.push(start);
+        while (!stack.isEmpty()) {
+            Map<String, Object> row = stack.peek();
+            if (depth.containsKey(row)) {
+                stack.pop();
+                continue;
+            }
+            int d = 0;
+            boolean pending = false;
+            for (Reference reference : outgoing.getOrDefault(row, List.of())) {
+                Map<String, Object> target = reference.target();
+                if (!index.containsKey(target)) {
+                    continue;
+                }
+                Integer known = depth.get(target);
+                if (known == null) {
+                    // settle() has refused every loop, so a target is never already on the stack.
+                    stack.push(target);
+                    pending = true;
+                } else {
+                    d = Math.max(d, known + 1);
+                }
+            }
+            if (!pending) {
+                depth.put(row, d);
+                stack.pop();
             }
         }
-        depth.put(row, d);
-        return d;
+        return depth.get(start);
     }
 
     /** The references out of each row; a row may carry several self-referencing columns. */
@@ -167,29 +226,47 @@ public final class InFileReferences {
         return outgoing;
     }
 
-    /** The references round a loop that {@code start} lies on, starting with it, or null when it lies on none. */
+    /**
+     * The references round a loop that {@code start} lies on, starting with it, or null when it lies on
+     * none. Iterative for the same reason as {@link #depthOf}: depth-first along the references, with
+     * the path and each row's next reference to try kept on explicit stacks.
+     */
     private static List<Reference> loopFrom(Reference start, Map<Map<String, Object>, List<Reference>> outgoing) {
-        // Depth-first along the references; a row met again on the current path closes a loop.
-        Map<Map<String, Object>, Reference> path = new LinkedHashMap<>();
-        return walk(start, path, outgoing, start.row());
-    }
-
-    private static List<Reference> walk(Reference step, Map<Map<String, Object>, Reference> path,
-                                        Map<Map<String, Object>, List<Reference>> outgoing,
-                                        Map<String, Object> origin) {
-        path.put(step.row(), step);
-        if (step.target() == origin) {
-            return new ArrayList<>(path.values());
+        Map<String, Object> origin = start.row();
+        Deque<Reference> path = new ArrayDeque<>();
+        Deque<Iterator<Reference>> choices = new ArrayDeque<>();
+        Set<Map<String, Object>> onPath = Collections.newSetFromMap(new IdentityHashMap<>());
+        // Rows from which the origin cannot be reached; each is explored once.
+        Set<Map<String, Object>> deadEnds = Collections.newSetFromMap(new IdentityHashMap<>());
+        path.push(start);
+        onPath.add(origin);
+        choices.push(outgoing.getOrDefault(start.target(), List.<Reference>of()).iterator());
+        if (start.target() == origin) {
+            return List.of(start);
         }
-        if (!path.containsKey(step.target())) {
-            for (Reference next : outgoing.getOrDefault(step.target(), List.of())) {
-                List<Reference> loop = walk(next, path, outgoing, origin);
-                if (loop != null) {
-                    return loop;
-                }
+        while (!path.isEmpty()) {
+            Iterator<Reference> next = choices.peek();
+            if (!next.hasNext()) {
+                Reference done = path.pop();
+                choices.pop();
+                deadEnds.add(done.target());
+                onPath.remove(done.row());
+                continue;
             }
+            Reference step = next.next();
+            if (step.target() == origin) {
+                List<Reference> loop = new ArrayList<>(path);
+                Collections.reverse(loop);
+                loop.add(step);
+                return loop;
+            }
+            if (onPath.contains(step.target()) || deadEnds.contains(step.target())) {
+                continue;
+            }
+            path.push(step);
+            onPath.add(step.row());
+            choices.push(outgoing.getOrDefault(step.target(), List.<Reference>of()).iterator());
         }
-        path.remove(step.row());
         return null;
     }
 

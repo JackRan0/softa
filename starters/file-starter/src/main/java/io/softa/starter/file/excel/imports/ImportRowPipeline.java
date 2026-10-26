@@ -177,7 +177,10 @@ public class ImportRowPipeline {
             List<Map<String, Object>> rows = importDataDTO.getRows();
             int originalSize = rows.size();
             List<Integer> rowIdentitySnapshot = rows.stream().map(System::identityHashCode).toList();
-            handler.handleImportData(rows, importDataDTO.getEnv(), mode.isValidateOnly());
+            // The rows naming other rows of this file carry nothing in those fields yet; the handler
+            // can ask InFileReferences.targetOf which row they name rather than read them as empty.
+            InFileReferences.exposedTo(importDataDTO.getInFileReferences(),
+                    () -> handler.handleImportData(rows, importDataDTO.getEnv(), mode.isValidateOnly()));
             validateCustomHandlerContract(handlerName, rows, originalSize, rowIdentitySnapshot);
         } catch (NoSuchBeanDefinitionException e) {
             throw new IllegalArgumentException("The custom import handler `{0}` is not found.", handlerName);

@@ -165,6 +165,7 @@ The `fieldName` in ImportTemplateField (or `importFieldDTOList` in dynamic impor
   - Settled before anything is written, in the preview too: rows naming each other round a loop fail together (`Manager forms a loop within this file: E1 → E2 → E1.`), a row naming itself fails, and a row naming a row that failed fails with that reason (`Manager E1 is a row of this file that was not imported.`), transitively. A target that fails at the write takes its dependants down the same way at the next layer.
   - `skipException = true` commits layer by layer, as it already committed row by row on a failed batch. `skipException = false` writes every layer in one transaction, so the file stays all or nothing.
   - The custom handler still sees the whole file once, and `afterImportData` is called once with every layer's rows.
+  - **To the custom handler such a field reads as empty** — the write fills it in later — so a rule that reads it would mistake a department whose parent is in the file for a root. While the handler runs, `InFileReferences.targetOf(row, field)` returns the row of the file that `row` names through `field` (or `null`); a handler whose rules read a self-referencing field must ask it first.
 
 #### 1.1.1 Nested OneToOne Import (Cascade Write)
 

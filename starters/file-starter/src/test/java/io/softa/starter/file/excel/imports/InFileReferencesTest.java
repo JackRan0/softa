@@ -89,6 +89,69 @@ class InFileReferencesTest {
     }
 
     @Test
+    void aChainAsDeepAsTheFileMakesItDoesNotOverflowTheStack() {
+        // Recursion turned a long chain into a StackOverflowError that failed the whole import with no
+        // row to blame. Listed bottom up, so every row has to wait for the one after it.
+        int length = 20_000;
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < length; i++) {
+            rows.add(row("E" + (length - i)));
+        }
+        List<InFileReferences.Reference> references = new ArrayList<>();
+        for (int i = 0; i < length - 1; i++) {
+            references.add(manager(rows.get(i), rows.get(i + 1)));
+        }
+
+        InFileReferences.settle(references, true);
+        List<List<Integer>> layers = InFileReferences.layers(rows, references);
+
+        assertThat(rows).noneMatch(r -> r.containsKey(FileConstant.FAILED_REASON));
+        assertThat(layers).hasSize(length);
+        assertThat(layers.getFirst()).containsExactly(length - 1);
+        assertThat(layers.getLast()).containsExactly(0);
+    }
+
+    @Test
+    void aLongLoopIsFoundWithoutRecursingAlongIt() {
+        int length = 20_000;
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < length; i++) {
+            rows.add(row("E" + i));
+        }
+        List<InFileReferences.Reference> references = new ArrayList<>();
+        for (int i = 0; i < length; i++) {
+            references.add(manager(rows.get(i), rows.get((i + 1) % length)));
+        }
+
+        InFileReferences.settle(references, true);
+
+        assertThat(rows).allMatch(r -> r.containsKey(FileConstant.FAILED_REASON));
+    }
+
+    @Test
+    void aHandlerCanAskWhichRowOfTheFileARowNames() {
+        // Before the write fills it in, the field is empty: a department whose parent is in the same
+        // file looks like a root to any rule that reads it.
+        Map<String, Object> child = row("D2");
+        Map<String, Object> parent = row("D1");
+        List<InFileReferences.Reference> references = List.of(new InFileReferences.Reference(
+                child, "parentId", "Parent Department", List.of("code"), List.of("D1"), parent));
+        List<Object> seen = new ArrayList<>();
+
+        InFileReferences.exposedTo(references, () -> {
+            seen.add(InFileReferences.targetOf(child, "parentId"));
+            seen.add(InFileReferences.targetOf(parent, "parentId"));
+            seen.add(InFileReferences.targetOf(child, "managerId"));
+        });
+
+        assertThat(seen.get(0)).isSameAs(parent);
+        assertThat(seen.get(1)).isNull();
+        assertThat(seen.get(2)).isNull();
+        // Outside a handler there is nothing to ask about.
+        assertThat(InFileReferences.targetOf(child, "parentId")).isNull();
+    }
+
+    @Test
     void comparesKeysAsTheyReadNotAsTheCellHeldThem() {
         assertThat(InFileReferences.ownKey(Map.of("code", " E1 "), List.of("code"))).containsExactly("E1");
         assertThat(InFileReferences.ownKey(Map.of("code", 1001), List.of("code"))).containsExactly("1001");

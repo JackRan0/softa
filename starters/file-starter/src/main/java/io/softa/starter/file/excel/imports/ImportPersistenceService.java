@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -31,6 +32,7 @@ import io.softa.starter.file.dto.ImportFieldDTO;
 import io.softa.starter.file.dto.ImportTemplateDTO;
 import io.softa.starter.file.enums.ImportRule;
 
+@Slf4j
 @Component
 public class ImportPersistenceService {
 
@@ -89,6 +91,10 @@ public class ImportPersistenceService {
             return new TransactionTemplate(transactionManager)
                     .execute(ignored -> writeLayers(importTemplateDTO, importDataDTO, references, true));
         }
+        if (failFast) {
+            log.warn("No transaction manager: the fail-fast import of {} is written layer by layer, and a "
+                    + "failure in a later layer leaves the earlier layers committed.", importTemplateDTO.getModelName());
+        }
         return writeLayers(importTemplateDTO, importDataDTO, references, failFast);
     }
 
@@ -100,7 +106,10 @@ public class ImportPersistenceService {
         for (InFileReferences.Reference reference : references) {
             byRow.computeIfAbsent(reference.row(), ignored -> new ArrayList<>()).add(reference);
         }
-        // The id each written row went in under, by the values a reference names it with.
+        // The id each written row went in under, by the values a reference names it with — read back from
+        // the written rows, not followed by object: a failed batch is retried from copies. This assumes
+        // the write leaves those values as the file gave them, give or take surrounding spaces, which
+        // the comparison ignores; a field the write rewrites (an encrypted one) cannot be referenced.
         Map<List<String>, Map<List<Object>, Object>> written = new HashMap<>();
         Set<List<String>> keyFields = references.stream().map(InFileReferences.Reference::lookupFields)
                 .collect(Collectors.toSet());
