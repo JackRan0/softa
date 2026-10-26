@@ -1,5 +1,6 @@
 package io.softa.starter.file.excel.imports;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -50,7 +51,7 @@ public class ImportRowPipeline {
      * 4. Unique constraint pre-check against the database (for ONLY_CREATE rule)
      * 5. Custom handler
      * 6. Failure collection (when skipException=true) or fail-fast (when skipException=false)
-     * 7. Persistence
+     * 7. Persistence — in layers when rows name other rows of the file, see {@link InFileReferences}
      * 8. Custom handler, again, for whatever needed the rows to exist
      */
     public void importData(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
@@ -101,7 +102,7 @@ public class ImportRowPipeline {
      * 2. Relation lookup resolution (dotted-path fields -> FK ids)
      * 3. In-file duplicate suppression (first row with a given unique key wins)
      * 4. Unique constraint pre-check against the database (for ONLY_CREATE rule)
-     * 5. Custom handler
+     * 5. Custom handler, then the references to other rows of the file are settled
      * 6. Failure collection
      */
     public void validateData(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
@@ -121,7 +122,7 @@ public class ImportRowPipeline {
      * 2. Relation lookup resolution (dotted-path fields -> FK ids)
      * 3. In-file duplicate suppression (first row with a given unique key wins)
      * 4. Unique constraint pre-check against the database (for ONLY_CREATE rule)
-     * 5. Custom handler
+     * 5. Custom handler, then the references to other rows of the file are settled
      * 6. Failure collection
      *
      * <p>Every step above runs in BOTH modes — the mode reaches only the custom handler, which is the
@@ -138,8 +139,9 @@ public class ImportRowPipeline {
         List<RelationLookupResolver.LookupGroup> lookupGroups =
                 relationLookupResolver.detectLookupGroups(importTemplateDTO.getModelName(), importTemplateDTO.getImportFields());
         if (!lookupGroups.isEmpty()) {
-            relationLookupResolver.resolveRows(importTemplateDTO.getModelName(), importDataDTO.getRows(),
-                    lookupGroups, skipException);
+            List<InFileReferences.Reference> inFile = relationLookupResolver.resolveRows(
+                    importTemplateDTO.getModelName(), importDataDTO.getRows(), lookupGroups, skipException);
+            importDataDTO.setInFileReferences(inFile == null ? new ArrayList<>() : inFile);
         }
         // Keep only the first of any rows in this file sharing a unique key. Before the database
         // check, so that only sees first occurrences; after the lookup resolution, because a unique
@@ -157,6 +159,9 @@ public class ImportRowPipeline {
         // duplicate is not looked up; before the custom handler, which never sees the transient note.
         requiredOnCreateResolver.resolve(importTemplateDTO, importDataDTO.getRows(), skipException);
         executeCustomHandler(importTemplateDTO.getCustomHandler(), importDataDTO, mode);
+        // Last, so a row a check above has refused takes the rows naming it down with it — in the
+        // preview too, where nothing is written but the reader is owed the same answer.
+        InFileReferences.settle(importDataDTO.getInFileReferences(), skipException);
         importFailureCollector.collect(importDataDTO);
     }
 

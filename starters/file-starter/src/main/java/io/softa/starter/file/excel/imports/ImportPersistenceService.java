@@ -1,19 +1,26 @@
 package io.softa.starter.file.excel.imports;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.constant.FileConstant;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.CreateOrUpdateResult;
 import io.softa.framework.orm.service.ImportScope;
 import io.softa.framework.orm.meta.ModelManager;
@@ -30,14 +37,159 @@ public class ImportPersistenceService {
     @Autowired
     private ModelService<?> modelService;
 
+    /** Absent in an application with no transaction manager; a fail-fast file then writes layer by layer. */
+    @Autowired(required = false)
+    private PlatformTransactionManager transactionManager;
+
     /**
      * Persist valid import rows according to the import rule.
+     *
+     * <p>When rows name other rows of the file ({@link ImportDataDTO#getInFileReferences()}), the file is
+     * written in layers — see {@link #persistInLayers}. Otherwise in one go, as always.
      */
     public CreateOrUpdateResult persist(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
         List<Map<String, Object>> rows = importDataDTO.getRows();
         if (CollectionUtils.isEmpty(rows)) {
             return CreateOrUpdateResult.empty();
         }
+        List<InFileReferences.Reference> references = referencesAmong(rows, importDataDTO.getInFileReferences());
+        if (!references.isEmpty()) {
+            return persistInLayers(importTemplateDTO, importDataDTO, references);
+        }
+        return persistFlat(importTemplateDTO, importDataDTO);
+    }
+
+    /** The references whose row is still to be written; the rows that failed have left {@code rows}. */
+    private static List<InFileReferences.Reference> referencesAmong(List<Map<String, Object>> rows,
+                                                                  List<InFileReferences.Reference> references) {
+        if (references == null || references.isEmpty()) {
+            return List.of();
+        }
+        Set<Map<String, Object>> live = Collections.newSetFromMap(new IdentityHashMap<>());
+        live.addAll(rows);
+        return references.stream().filter(reference -> live.contains(reference.row())).toList();
+    }
+
+    /**
+     * Write the rows layer by layer, each after the rows it names.
+     *
+     * <p>A layer's references are filled from the ids the earlier layers were written under, matched on
+     * the values the reference names its target by — the row objects themselves cannot be followed, since
+     * a failed batch is retried from copies. A row whose target did not make it in is not written and
+     * fails with that reason; the rows naming it follow at the next layer.
+     *
+     * <p>A fail-fast file stays all or nothing: every layer goes in one transaction, so a later layer
+     * failing takes the earlier ones back out. A file that fails row by row commits each layer as it goes,
+     * as it already committed each row.
+     */
+    private CreateOrUpdateResult persistInLayers(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO,
+                                                 List<InFileReferences.Reference> references) {
+        boolean failFast = !Boolean.TRUE.equals(importTemplateDTO.getSkipException());
+        if (failFast && transactionManager != null) {
+            return new TransactionTemplate(transactionManager)
+                    .execute(ignored -> writeLayers(importTemplateDTO, importDataDTO, references, true));
+        }
+        return writeLayers(importTemplateDTO, importDataDTO, references, failFast);
+    }
+
+    private CreateOrUpdateResult writeLayers(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO,
+                                             List<InFileReferences.Reference> references, boolean failFast) {
+        List<Map<String, Object>> rows = importDataDTO.getRows();
+        List<Map<String, Object>> originalRows = importDataDTO.getOriginalRows();
+        Map<Map<String, Object>, List<InFileReferences.Reference>> byRow = new IdentityHashMap<>();
+        for (InFileReferences.Reference reference : references) {
+            byRow.computeIfAbsent(reference.row(), ignored -> new ArrayList<>()).add(reference);
+        }
+        // The id each written row went in under, by the values a reference names it with.
+        Map<List<String>, Map<List<Object>, Object>> written = new HashMap<>();
+        Set<List<String>> keyFields = references.stream().map(InFileReferences.Reference::lookupFields)
+                .collect(Collectors.toSet());
+
+        List<Map<String, Object>> created = new ArrayList<>();
+        List<Map<String, Object>> updated = new ArrayList<>();
+        List<Map<String, Object>> keptRows = new ArrayList<>();
+        List<Map<String, Object>> keptOriginals = new ArrayList<>();
+        List<Map<String, Object>> failedRows = importDataDTO.getFailedRows() == null
+                ? new ArrayList<>() : new ArrayList<>(importDataDTO.getFailedRows());
+
+        for (List<Integer> layer : InFileReferences.layers(rows, references)) {
+            ImportDataDTO layerData = new ImportDataDTO();
+            layerData.setEnv(importDataDTO.getEnv());
+            layerData.setRows(new ArrayList<>());
+            layerData.setOriginalRows(new ArrayList<>());
+            for (int i : layer) {
+                Map<String, Object> row = rows.get(i);
+                Map<String, Object> originalRow = originalRows.get(i);
+                String missing = fillReferences(row, byRow.getOrDefault(row, List.of()), written);
+                if (missing != null) {
+                    if (failFast) {
+                        throw new BusinessException(missing);
+                    }
+                    originalRow.put(FileConstant.FAILED_REASON, missing);
+                    failedRows.add(originalRow);
+                    continue;
+                }
+                layerData.getRows().add(row);
+                layerData.getOriginalRows().add(originalRow);
+            }
+            if (layerData.getRows().isEmpty()) {
+                continue;
+            }
+            CreateOrUpdateResult result = failFast
+                    ? persistByRule(importTemplateDTO, layerData.getRows())
+                    : persistFlat(importTemplateDTO, layerData);
+            created.addAll(result.created());
+            updated.addAll(result.updated());
+            keptRows.addAll(layerData.getRows());
+            keptOriginals.addAll(layerData.getOriginalRows());
+            if (layerData.getFailedRows() != null) {
+                failedRows.addAll(layerData.getFailedRows());
+            }
+            remember(result.created(), keyFields, written);
+            remember(result.updated(), keyFields, written);
+        }
+        importDataDTO.setRows(keptRows);
+        importDataDTO.setOriginalRows(keptOriginals);
+        importDataDTO.setFailedRows(failedRows);
+        return new CreateOrUpdateResult(created, updated);
+    }
+
+    /**
+     * Fill a row's references from the rows already written, or say which one is missing.
+     *
+     * @return null when every reference was filled, else the reason the row cannot be written
+     */
+    private static String fillReferences(Map<String, Object> row, List<InFileReferences.Reference> references,
+                                         Map<List<String>, Map<List<Object>, Object>> written) {
+        for (InFileReferences.Reference reference : references) {
+            Object id = written.getOrDefault(reference.lookupFields(), Map.of()).get(reference.key());
+            if (id == null) {
+                return reference.label() + " " + reference.keyText() + " is a row of this file that was not imported.";
+            }
+            row.put(reference.rootField(), id);
+        }
+        return null;
+    }
+
+    private static void remember(List<Map<String, Object>> rows, Set<List<String>> keyFields,
+                                 Map<List<String>, Map<List<Object>, Object>> written) {
+        for (Map<String, Object> row : rows) {
+            Object id = row.get(ModelConstant.ID);
+            if (id == null) {
+                continue;
+            }
+            for (List<String> fields : keyFields) {
+                List<Object> key = InFileReferences.ownKey(row, fields);
+                if (key != null) {
+                    written.computeIfAbsent(fields, ignored -> new HashMap<>()).putIfAbsent(key, id);
+                }
+            }
+        }
+    }
+
+    /** One write of every row, falling back to row by row when the file fails rows rather than the whole. */
+    private CreateOrUpdateResult persistFlat(ImportTemplateDTO importTemplateDTO, ImportDataDTO importDataDTO) {
+        List<Map<String, Object>> rows = importDataDTO.getRows();
         if (!Boolean.TRUE.equals(importTemplateDTO.getSkipException())) {
             return persistByRule(importTemplateDTO, rows);
         }

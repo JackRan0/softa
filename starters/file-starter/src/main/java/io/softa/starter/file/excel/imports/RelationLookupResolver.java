@@ -344,9 +344,17 @@ public class RelationLookupResolver {
      * Same, naming the importing model so that country-partitioned targets can be resolved in each
      * row's own country (the row's company reference is a field of that model). Without the model
      * name every lookup runs unbucketed.
+     *
+     * <p>Naming the model also lets a row name another row of the same file through a many-to-one onto
+     * that model — a manager, a parent department. Such a value matches nothing stored yet, since no row
+     * of the file is written before every lookup has run; when it matches a row of the file it is not a
+     * failure but a reference to fill once that row exists, and is returned for the write to settle.
+     *
+     * @return the references to other rows of this file, left unresolved
      */
-    public void resolveRows(String modelName, List<Map<String, Object>> rows, List<LookupGroup> lookupGroups,
-                            boolean skipException) {
+    public List<InFileReferences.Reference> resolveRows(String modelName, List<Map<String, Object>> rows,
+                                                        List<LookupGroup> lookupGroups, boolean skipException) {
+        List<InFileReferences.Reference> inFile = new ArrayList<>();
         // A group that resolves the row's company goes first, whatever the template's column order:
         // every country-partitioned lookup after it needs the company id already written back.
         List<LookupGroup> ordered = new ArrayList<>(lookupGroups);
@@ -357,8 +365,53 @@ public class RelationLookupResolver {
             } else if (group.toMany()) {
                 resolveToManyGroup(rows, group, skipException);
             } else {
-                resolveToOneGroup(modelName, rows, group, skipException);
+                resolveToOneGroup(modelName, rows, group, skipException, inFile);
             }
+        }
+        return inFile;
+    }
+
+    /**
+     * Whether a group names a row of the importing model itself by a business key — {@code
+     * piEmployeeId.code} on an employee, {@code parentId.code} on a department. Only a plain many-to-one
+     * does: a to-many cell names several rows and a one-to-one is the row's own sub-record.
+     */
+    static boolean isSelfReference(String modelName, LookupGroup group) {
+        return modelName != null && modelName.equals(group.relatedModel())
+                && !group.toMany() && !group.oneToOne() && group.nestedLookups().isEmpty();
+    }
+
+    /** The rows of this file by the values a self-reference names them with; the first of a repeated key wins. */
+    private static Map<List<Object>, Map<String, Object>> rowsByOwnKey(List<Map<String, Object>> rows,
+                                                                      List<String> fields) {
+        Map<List<Object>, Map<String, Object>> byKey = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            List<Object> key = InFileReferences.ownKey(row, fields);
+            if (key != null) {
+                byKey.putIfAbsent(key, row);
+            }
+        }
+        return byKey;
+    }
+
+    private static List<Object> normalizedKey(List<Object> keyValues) {
+        List<Object> key = new ArrayList<>(keyValues.size());
+        for (Object value : keyValues) {
+            Object normalized = InFileReferences.normalize(value);
+            if (normalized == null) {
+                return null;
+            }
+            key.add(normalized);
+        }
+        return key;
+    }
+
+    private static String labelOf(String modelName, String fieldName) {
+        try {
+            String label = ModelManager.getModelField(modelName, fieldName).getLabel();
+            return StringUtils.isBlank(label) ? fieldName : label;
+        } catch (RuntimeException e) {
+            return fieldName;
         }
     }
 
@@ -522,7 +575,7 @@ public class RelationLookupResolver {
      * Resolve one lookup group across all rows.
      */
     private void resolveToOneGroup(String modelName, List<Map<String, Object>> rows, LookupGroup group,
-                                   boolean skipException) {
+                                   boolean skipException, List<InFileReferences.Reference> inFile) {
         Set<List<Object>> distinctKeys = new LinkedHashSet<>();
         for (Map<String, Object> row : rows) {
             if (row.containsKey(FileConstant.FAILED_REASON)) {
@@ -548,6 +601,11 @@ public class RelationLookupResolver {
                     return keys == null ? List.of() : List.of(keys);
                 });
 
+        // Rows of this file the group may name, when it names rows of the importing model at all.
+        boolean selfReference = isSelfReference(modelName, group);
+        Map<List<Object>, Map<String, Object>> fileRows = selfReference
+                ? rowsByOwnKey(rows, group.lookupFields()) : Map.of();
+
         // Step 3: Write back the FK id and remove dotted-path columns
         for (Map<String, Object> row : rows) {
             if (row.containsKey(FileConstant.FAILED_REASON)) {
@@ -561,10 +619,22 @@ public class RelationLookupResolver {
                 continue;
             }
             Object resolvedId = lookedUp.idFor(row, keyValues);
-            if (resolvedId == null) {
-                markFailure(row, buildNotFoundMessage(group, keyValues), skipException);
-            } else {
+            if (resolvedId != null) {
                 row.put(group.rootField(), resolvedId);
+            } else {
+                List<Object> key = selfReference ? normalizedKey(keyValues) : null;
+                Map<String, Object> target = key == null ? null : fileRows.get(key);
+                if (target == row) {
+                    markFailure(row, labelOf(modelName, group.rootField()) + " cannot be the row itself.",
+                            skipException);
+                } else if (target != null) {
+                    // Left unset: the row it names gets its id when the file is written, and the write
+                    // fills it in before this row goes in.
+                    inFile.add(new InFileReferences.Reference(row, group.rootField(),
+                            labelOf(modelName, group.rootField()), group.lookupFields(), key, target));
+                } else {
+                    markFailure(row, buildNotFoundMessage(group, keyValues), skipException);
+                }
             }
             removeDottedPaths(row, group);
         }
