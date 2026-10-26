@@ -31,6 +31,11 @@ public final class SeedManifest {
         return platformFiles;
     }
 
+    /** The platform files that load on their own where they never loaded, in load order. */
+    public List<SeedFile> bootstrapFiles() {
+        return platformFiles.stream().filter(SeedFile::bootstrap).toList();
+    }
+
     /** Every tenant file, in run order. */
     public List<SeedFile> tenantFiles() {
         return tenantFiles;

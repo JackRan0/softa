@@ -100,6 +100,30 @@ class UiContextBuilderTest {
     }
 
     @Test
+    void superAdmin_platformNavigationsFromTheTable_withAncestors_notTheStartupSnapshot() {
+        // Loaded after startup: in the table, unknown to the snapshot (which holds only hr / hr.employee).
+        ReflectionTestUtils.setField(builder, "platformNavPrefixesCsv", "navigation.system.");
+        when(userRoleRelService.searchList(any(FlexQuery.class))).thenReturn(List.of(rel(42L, 1L)));
+        when(roleService.searchList(any(FlexQuery.class))).thenReturn(List.of(role(1L, "SUPER_ADMIN")));
+        when(modelService.searchList(eq("Navigation"), any(FlexQuery.class), eq(Navigation.class))).thenReturn(List.of(
+                nav("navigation.system", null, NavigationType.GROUP),
+                nav("navigation.system.platform-settings", "navigation.system", NavigationType.GROUP),
+                nav("navigation.system.platform-settings.seed-data", "navigation.system.platform-settings",
+                        NavigationType.MENU),
+                nav("navigation.core-hr.employee", null, NavigationType.MENU)));
+        when(modelService.searchList(eq("Permission"), any(FlexQuery.class))).thenReturn(List.of(
+                Map.of("id", "seed-data.view", "navigationId", "navigation.system.platform-settings.seed-data"),
+                Map.of("id", "employee.view", "navigationId", "navigation.core-hr.employee")));
+
+        UiContext out = builder.build(42L);
+
+        // The module row matches no prefix and comes in as an ancestor; the tenant module stays out.
+        assertThat(out.getNavigations()).containsExactlyInAnyOrder("navigation.system",
+                "navigation.system.platform-settings", "navigation.system.platform-settings.seed-data");
+        assertThat(out.getPermissions()).containsExactly("seed-data.view");
+    }
+
+    @Test
     void normalUser_navsWithAncestors_permissions_andSfsMap() {
         when(userRoleRelService.searchList(any(FlexQuery.class))).thenReturn(List.of(rel(42L, 100L)));
         when(roleService.searchList(any(FlexQuery.class))).thenReturn(List.of(role(100L, "HR")));

@@ -29,7 +29,7 @@ models, before the first load. `sys_pre_data` needs nothing — only the entity'
 |---|---|---|
 | Directory | `data-system/` (`PLATFORM_GLOBAL`), `data-platform/` (`PLATFORM_TENANT`) | `data-tenant/` (`TENANT`) |
 | Whose rows | Shared models, or the platform tenant (-1) | Each tenant's own copy |
-| Loaded by | The platform admin, from the Seed Data page, after a deploy (the first time, by initializing the environment) | Each new tenant's setup, and the platform admin's **Run** for tenants that are already set up |
+| Loaded by | The platform admin, from the Seed Data page, after a deploy (the first time, by initializing the environment); the bootstrap files on their own, where they never loaded | Each new tenant's setup, and the platform admin's **Run** for tenants that are already set up |
 | When it changes | Loads again, whole (`OVERWRITE`) | Never runs again in a tenant that ran it; new tenants get the new version. A file marked `overwrite: true` runs again, whole |
 | Write mode | `OVERWRITE` | `ADDITIVE`; `OVERWRITE` for `overwrite: true` files |
 
@@ -75,8 +75,10 @@ so a broken manifest can be fixed in one pass.
 
 ```yaml
 platform:                                   # loaded whole, on the platform admin's load
-  - data-system/Navigation.json             # shared rows
-  - data-system/Permission.json
+  - file: data-system/Navigation.json       # shared rows
+    bootstrap: true                         # loads on its own where it never loaded
+  - file: data-system/Permission.json
+    bootstrap: true
   - data-platform/MailTemplate.Platform.json  # the platform tenant's own rows
 tenant:                                     # run once in each tenant
   - files:                                  # every tenant
@@ -100,9 +102,12 @@ tenant:                                     # run once in each tenant
   a tenant working in one of them — its default country or a company's. A group with neither is for every
   tenant. Platform files have no group: they are not handed out per tenant.
 - **`overwrite`** is for tenant files only; platform files always reload.
+- **`bootstrap`** is for platform files only: the ones holding the Seed Data page's own menu and permissions
+  (see *Bootstrap files*).
 - **Rejected at startup**: an unknown key (a misspelled `countrys` would otherwise be silently ignored), a key
   written twice (YAML would keep the second and drop the first one's files), a file in a directory its list
-  does not take, a file that is not `.json` or `.csv`, `overwrite` on a platform file, the same file name
+  does not take, a file that is not `.json` or `.csv`, `overwrite` on a platform file, `bootstrap` on a tenant
+  file, the same file name
   registered twice (the load records name a file by its name), a file that is not on the classpath, a
   `module` that is not one name (a group is for one module), a country that is not a two-letter upper-case
   code (quote `"NO"`: YAML reads it bare as false), and blank or repeated entries.
@@ -148,11 +153,30 @@ The files load **in one transaction**: either all of them load or none does. A f
 the cause, and is recorded against the file. Afterwards the permission snapshots (`perm:*`) and
 entitlements (`entl:*`) cached in Redis are cleared. **Then restart the instances.** What an instance built
 in memory at startup (the endpoint index, sensitive field sets, navigation, cron schedules) is rebuilt only
-by a restart. The status response says when a load ended after the instance started, so the page can ask
-for the restart.
+by a restart; the platform administrator's own menus are the exception, read from the database (user-starter).
+The status response says when a load ended after the instance started, so the page can ask for the restart.
 
 Loading is meant for one person, once per deploy. There is no lock beyond refusing to start while another
 seed operation is running.
+
+### Bootstrap files
+
+The platform administrator's menus and routes are the navigation loaded in the database: user-starter derives
+them from the `Navigation` rows under the platform prefixes, and the frontend checks every route against them.
+The Seed Data page's own menu and permissions are platform files, so in an environment that never loaded them
+nothing reaches the page every file is loaded from.
+
+The platform files marked `bootstrap: true` therefore load on their own. Once the application has started,
+`SeedBootstrap` loads, in the background, every bootstrap file that has never loaded successfully here, as one
+platform load like any other. It happens once per file: a bootstrap file that has loaded here is never loaded
+this way again, and a later change to it is loaded from the page. It does not initialize the environment — the
+first load from the page does, after whatever the deployment runs once the new build is up. A failure is logged
+and recorded against the file, and the next start tries again; until then, `POST /SeedData/platform/load`
+naming the files does the same.
+
+Mark the files that hold the page's menu and permissions and no others: a bootstrap load happens without anyone
+choosing it, which suits catalogues nobody edits on a page. Several instances starting together where the files
+never loaded may each try; one of them loads them, and another's attempt fails and is recorded as failed.
 
 ## Tenant runs
 
@@ -186,10 +210,10 @@ file.
 ## Initializing an environment
 
 An environment is initialized once, by its first platform load — from the Seed Data page, like any later load.
-Until then tenant runs are refused; setting up a new tenant does not wait for it. The page works before its own
-menu and permissions are loaded: the platform admin reaches it by its address, and reaches endpoints no
-permission lists yet. Before loading anything, that first load **records the tenant files tenants already
-have**:
+Until then tenant runs are refused; setting up a new tenant does not wait for it. The page is in the platform
+administrator's menu by then: its own menu and permissions are bootstrap files, loaded once the application
+started (see *Bootstrap files*); that load does not count as the first. Before loading anything, the first load
+**records the tenant files tenants already have**:
 
 - An environment that held seed data before this starter recorded loads has tenants with rows but no records,
   so the first run would load every tenant file again over what the tenants changed since. For each tenant,
@@ -203,7 +227,7 @@ have**:
 
 Which files the first load takes:
 
-- **A new environment** loads every platform file.
+- **A new environment** loads every platform file still pending.
 - **An environment that already holds platform seed data** (system-scope bindings from an earlier loader)
   leaves out the files whose rows were changed on the pages: loading them would put each one over what was
   changed. A first load that names no file is refused there.

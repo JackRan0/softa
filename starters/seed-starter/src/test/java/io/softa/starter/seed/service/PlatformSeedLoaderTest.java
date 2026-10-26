@@ -18,6 +18,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.seed.dto.FileState;
 import io.softa.starter.seed.dto.PlatformLoadResult;
+import io.softa.starter.seed.entity.SeedLoadRecord;
 import io.softa.starter.seed.enums.SeedLoadStatus;
 import io.softa.starter.seed.enums.SeedLoadType;
 import io.softa.starter.seed.enums.SeedRecordStatus;
@@ -44,14 +45,17 @@ import static org.mockito.Mockito.when;
 
 /**
  * Platform files load whole, all pending ones or the ones picked, in manifest order and one transaction. An
- * environment's first load initializes it first: the tenant files tenants already have are recorded as run.
+ * environment's first load initializes it first: the tenant files tenants already have are recorded as run. The
+ * bootstrap files load on their own where they never loaded, without initializing.
  */
 class PlatformSeedLoaderTest {
 
     private static final SeedManifest MANIFEST = SeedManifestReader.read(new ByteArrayInputStream("""
             platform:
-              - data-system/Navigation.json
-              - data-system/Permission.json
+              - file: data-system/Navigation.json
+                bootstrap: true
+              - file: data-system/Permission.json
+                bootstrap: true
               - data-platform/MailTemplate.Platform.json
             """.getBytes(StandardCharsets.UTF_8)), "test", path -> true);
 
@@ -284,6 +288,54 @@ class PlatformSeedLoaderTest {
 
         assertTrue(failure.getMessage().contains("empty entry"), failure.getMessage());
         verify(loadLog, never()).start(any(), any(), any());
+    }
+
+    @Test
+    void theBootstrapFilesThatNeverLoadedLoadWithoutInitializing() {
+        firstLoad(false);
+
+        PlatformLoadResult result = loader.loadBootstrapFiles().orElseThrow();
+
+        assertTrue(result.succeeded());
+        assertEquals(List.of("Navigation.json", "Permission.json"), result.loadedFiles());
+        verify(preDataService, never()).loadPrePlatformData(anyList(), any());
+        // Initializing is the first load from the page, after what the deployment runs once the build is up.
+        verify(tenantRunner, never()).recordExistingFiles();
+        verify(loadLog).requireIdle();
+        verify(cacheService).clearByPrefix("perm:");
+    }
+
+    @Test
+    void aBootstrapFileThatLoadedHereOnceIsLeftAlone() {
+        // Navigation loaded once and has changed since: the page loads that. Permission only ever failed.
+        when(loadLog.platformRecords()).thenReturn(Map.of(
+                "Navigation.json", new SeedLoadLog.FileRecords(record(SeedRecordStatus.SUCCEEDED),
+                        record(SeedRecordStatus.SUCCEEDED)),
+                "Permission.json", new SeedLoadLog.FileRecords(record(SeedRecordStatus.FAILED), null)));
+
+        PlatformLoadResult result = loader.loadBootstrapFiles().orElseThrow();
+
+        assertEquals(List.of("Permission.json"), result.loadedFiles());
+        verify(preDataService, never()).loadPreSystemData(eq(List.of("Navigation.json")), any());
+    }
+
+    @Test
+    void nothingLoadsOnceEveryBootstrapFileHasLoadedHere() {
+        when(loadLog.platformRecords()).thenReturn(Map.of(
+                "Navigation.json", new SeedLoadLog.FileRecords(record(SeedRecordStatus.SUCCEEDED),
+                        record(SeedRecordStatus.SUCCEEDED)),
+                "Permission.json", new SeedLoadLog.FileRecords(record(SeedRecordStatus.SUCCEEDED),
+                        record(SeedRecordStatus.SUCCEEDED))));
+
+        assertTrue(loader.loadBootstrapFiles().isEmpty());
+        verify(loadLog, never()).requireIdle();
+        verify(loadLog, never()).start(any(), any(), any());
+    }
+
+    private static SeedLoadRecord record(SeedRecordStatus status) {
+        SeedLoadRecord record = new SeedLoadRecord();
+        record.setStatus(status);
+        return record;
     }
 
     /** An environment not initialized yet, which held platform seed data before the records, or did not. */

@@ -53,6 +53,10 @@ How a change to a file reaches data that is already loaded depends on its level:
 - `overwrite: true` (tenant files only) makes a tenant file behave like a
   platform file: it runs again, whole, whenever it changes. Use it only for rows
   nobody in a tenant edits, such as the built-in roles.
+- `bootstrap: true` (platform files only) marks the files holding the Seed Data
+  page's own menu and permissions. They load on their own once the application
+  has started in an environment where they never loaded, so the platform admin
+  can reach the page. Mark no other file.
 
 ---
 
