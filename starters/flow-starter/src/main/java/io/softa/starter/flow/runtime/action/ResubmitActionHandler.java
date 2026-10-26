@@ -68,9 +68,9 @@ public class ResubmitActionHandler implements FlowActionHandler<FlowResubmitRequ
         FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
         contextService.mergeVariables(state, Map.of("resubmissionDecision",
                 auditService.buildResubmissionDecisionPayload(request, node, state.getResubmissionCount())));
-        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.FLOW_RESUBMITTED,
+        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.FLOW_RESUBMITTED,
                 auditService.buildResubmissionMessage(node, request, state.getResubmissionCount()));
-        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.WAIT_APPROVAL,
+        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.WAIT_APPROVAL,
                 "Waiting for approval at node " + node.getNodeId() + " after resubmission");
         auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, resolvedPendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.RESUBMIT)

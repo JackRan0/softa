@@ -27,7 +27,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldCompileApprovalFlowWithPostApprovalAutomation() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("leave-approval")
                 .name("Leave Approval")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -59,7 +58,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldCompileAutomationFlowWithSubflowAndParallelGateway() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("order-automation")
                 .name("Order Automation")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -96,7 +94,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldRejectApprovalNodeInComputeScenario() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("compute-with-approval")
                 .name("Compute With Approval")
                 .scenario(FlowScenario.COMPUTE)
                 .trigger(new FieldChangeTrigger())
@@ -120,7 +117,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldRejectTaskNodeWithoutConfig() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("missing-task-config")
                 .name("Missing Task Config")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -144,7 +140,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldRejectNodeWithMultipleDefaultOutgoingEdges() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("invalid-default-edges")
                 .name("Invalid Default Edges")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -168,7 +163,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldCompileFlowWithAllowInitiatorWithdraw() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("withdraw-flow")
                 .name("Withdraw Flow")
                 .scenario(FlowScenario.PROCESS)
                 .allowInitiatorWithdraw(true)
@@ -193,7 +187,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldCompileApprovalNodeReturnPolicy() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("returnable-approval")
                 .name("Returnable Approval")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -230,7 +223,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldCompileApprovalNodePreviousApprovalReturnPolicy() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("return-to-previous-approval")
                 .name("Return To Previous Approval")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -265,7 +257,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldCompileApprovalNodeWithUnanimousMode() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("unanimous-approval")
                 .name("Unanimous Approval")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -298,7 +289,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldRejectUnanimousApprovalModeWithoutApprovers() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("invalid-unanimous-approval")
                 .name("Invalid Unanimous Approval")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -327,7 +317,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldRejectMinCountApprovalModeWhenThresholdExceedsApprovers() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("invalid-min-count-approval")
                 .name("Invalid Min Count Approval")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -359,7 +348,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldCompileMinCountApprovalModeWithDynamicApproverSource() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("dynamic-min-count-approval")
                 .name("Dynamic Min Count Approval")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -397,7 +385,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldRejectPercentageApprovalModeOutsideRange() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("invalid-percentage-approval")
                 .name("Invalid Percentage Approval")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -429,7 +416,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldRejectMinCountRejectModeWhenThresholdExceedsApprovers() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("invalid-min-count-reject")
                 .name("Invalid Min Count Reject")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -461,7 +447,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldRejectDeadlockingApprovalAndRejectThresholds() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("deadlocking-thresholds")
                 .name("Deadlocking Thresholds")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -496,7 +481,6 @@ class DefaultFlowCompilerTest {
     void shouldRejectApprovalReturnEnabledWithoutTarget() {
         // returnEnabled=true but returnTarget not set — should fail with MISSING_RETURN_TARGET
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("invalid-return-policy")
                 .name("Invalid Return Policy")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -527,7 +511,6 @@ class DefaultFlowCompilerTest {
         // FOR_EACH child-node iteration is not implemented by the runtime;
         // it must be rejected at compile time so it can never publish and silently no-op.
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("foreach-flow")
                 .name("ForEach Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -561,7 +544,6 @@ class DefaultFlowCompilerTest {
         // The runtime has no human-task wait (assignee resolution, completion API); the node
         // must be rejected at compile time so it can never publish and fail at execution.
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("human-task-flow")
                 .name("Human Task Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -590,7 +572,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldRejectCreateRecordWithoutModelName() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("invalid-create")
                 .name("Invalid Create")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -619,7 +600,6 @@ class DefaultFlowCompilerTest {
     @Test
     void shouldRejectCallServiceWithMismatchedArgTypesArity() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("invalid-argtypes")
                 .name("Invalid ArgTypes")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -654,7 +634,6 @@ class DefaultFlowCompilerTest {
     @Test
     void validate_returnsEmptyListForCompilableDefinition() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("valid-flow")
                 .name("Valid Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -671,7 +650,6 @@ class DefaultFlowCompilerTest {
     void validate_collectsAllStructuralDefectsWithAnchors() {
         // duplicate node id + missing node type + dangling edge endpoint — all in one round
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("broken-flow")
                 .name("Broken Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -698,7 +676,6 @@ class DefaultFlowCompilerTest {
     @Test
     void validate_anchorsCycleDiagnosticsToNodes() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("cyclic-flow")
                 .name("Cyclic Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -732,7 +709,6 @@ class DefaultFlowCompilerTest {
     @Test
     void validate_anchorsUnknownEdgeEndpointsToTheEdge() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("dangling-flow")
                 .name("Dangling Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))

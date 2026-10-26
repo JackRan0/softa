@@ -24,9 +24,9 @@ public interface FlowApprovalRecordQueryService {
      * Paged approval history for one actor, newest first. Filters are pushed to the query so a
      * long-tenured actor's history is never loaded into memory in full.
      */
-    Page<FlowApprovalRecordView> getHistory(String actorId, String flowCode, String instanceId, String nodeId,
+    Page<FlowApprovalRecordView> getHistory(String actorId, String flowId, String instanceId, String nodeId,
                                             Integer pageNumber, Integer pageSize);
 
-    List<FlowSentCcView> getSentCcHistory(String actorId, Boolean read, String flowCode, String instanceId, String nodeId);
+    List<FlowSentCcView> getSentCcHistory(String actorId, Boolean read, String flowId, String instanceId, String nodeId);
 }
 

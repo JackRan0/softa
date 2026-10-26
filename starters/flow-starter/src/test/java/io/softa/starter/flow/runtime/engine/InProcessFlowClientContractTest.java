@@ -39,7 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  */
 class InProcessFlowClientContractTest {
 
-    private static final Long DESIGN_ID = 9300L;
+    private static final String FLOW_ID = "9300";
     private static final Long USER_ID = 100L;
     private static final String ACTOR = "100"; // String.valueOf(USER_ID)
 
@@ -59,7 +59,7 @@ class InProcessFlowClientContractTest {
 
     @BeforeEach
     void publishFlow() {
-        publishService.publish(DESIGN_ID, flowDefinition());
+        publishService.publish(FLOW_ID, flowDefinition());
     }
 
     @Test
@@ -68,7 +68,7 @@ class InProcessFlowClientContractTest {
         ctx.setUserId(USER_ID);
         ContextHolder.runWith(ctx, () -> {
             FlowStartRequest start = new FlowStartRequest();
-            start.setDesignId(DESIGN_ID);
+            start.setFlowId(FLOW_ID);
             // initiatorId intentionally not set — resolved from context
             FlowExecutionState started = client.start(start);
             assertEquals(FlowExecutionStatus.WAITING, started.getStatus());
@@ -84,7 +84,6 @@ class InProcessFlowClientContractTest {
 
     private static DesignFlowDefinition flowDefinition() {
         return DesignFlowDefinition.builder()
-                .code("inprocess-contract")
                 .name("In-Process Contract")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))

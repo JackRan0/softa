@@ -51,8 +51,8 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     /** Index bucket of triggers bound to no model: candidates for every event. */
     private static final String ANY_MODEL = "";
 
-    private static final Comparator<CompiledFlowDefinition> BY_FLOW_CODE = Comparator.comparing(
-            CompiledFlowDefinition::getFlowCode, Comparator.nullsLast(Comparator.naturalOrder()));
+    private static final Comparator<CompiledFlowDefinition> BY_FLOW_NAME = Comparator.comparing(
+            CompiledFlowDefinition::getFlowName, Comparator.nullsLast(Comparator.naturalOrder()));
 
     private final FlowBundleService bundleService;
 
@@ -79,43 +79,43 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     @Override
     public CompiledFlowDefinition register(CompiledFlowDefinition definition,
                                            DesignFlowDefinition design,
-                                           Long designId) {
-        return doRegister(definition, design, designId, false);
+                                           String flowId) {
+        return doRegister(definition, design, flowId, false);
     }
 
     @Override
     public CompiledFlowDefinition registerDebug(CompiledFlowDefinition definition,
                                                 DesignFlowDefinition design,
-                                                Long designId) {
-        return doRegister(definition, design, designId, true);
+                                                String flowId) {
+        return doRegister(definition, design, flowId, true);
     }
 
     private CompiledFlowDefinition doRegister(CompiledFlowDefinition definition,
                                               DesignFlowDefinition design,
-                                              Long designId,
+                                              String flowId,
                                               boolean debug) {
         if (definition == null) {
             throw new FlowRuntimeException("Compiled flow definition must not be null");
         }
-        if (designId == null) {
-            throw new FlowRuntimeException("designId is required to register a flow bundle");
+        if (flowId == null) {
+            throw new FlowRuntimeException("flowId is required to register a flow bundle");
         }
 
         // Revision allocation races with concurrent publishes of the same design: the
-        // uk_tenant_design_revision unique index rejects the loser, which retries with
+        // uk_tenant_flow_revision unique index rejects the loser, which retries with
         // a freshly computed revision instead of silently overwriting the winner's row.
         for (int attempt = 1; attempt <= MAX_REVISION_RETRIES; attempt++) {
-            int nextRevision = bundleService.getNextRevision(designId);
+            int nextRevision = bundleService.getNextRevision(flowId);
 
             // toBuilder keeps every compiled field (a hand-written rebuild silently
             // dropped newly added ones); only revision metadata is stamped here.
             CompiledFlowDefinition published = definition.toBuilder()
                     .revision(nextRevision)
-                    .designId(designId)
+                    .flowId(flowId)
                     .publishedAt(LocalDateTime.now())
                     .build();
 
-            FlowBundle entity = FlowBundleMapper.toEntity(published, design, null, designId);
+            FlowBundle entity = FlowBundleMapper.toEntity(published, design, null, flowId);
             if (debug) {
                 // resolvable like any bundle, but never the design's effective revision
                 entity.setActive(false);
@@ -125,7 +125,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
                 bundleService.saveBundle(entity);
             } catch (DuplicateKeyException e) {
                 log.info("Revision {} for design {} was claimed concurrently, retrying ({}/{})",
-                        nextRevision, designId, attempt, MAX_REVISION_RETRIES);
+                        nextRevision, flowId, attempt, MAX_REVISION_RETRIES);
                 continue;
             }
 
@@ -133,16 +133,16 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
             // carries the owning tenant this object lacks.
             published.setBundleId(entity.getId());
             if (!debug) {
-                bundleService.markAsActive(designId, nextRevision);
+                bundleService.markAsActive(flowId, nextRevision);
                 invalidateTriggerIndex();
             }
 
-            log.debug("Registered flow bundle: bundleId={} designId={} r{} debug={}",
-                    entity.getId(), designId, nextRevision, debug);
+            log.debug("Registered flow bundle: bundleId={} flowId={} r{} debug={}",
+                    entity.getId(), flowId, nextRevision, debug);
             return published;
         }
         throw new FlowRuntimeException(
-                "Failed to allocate a publish revision for design " + designId + " after "
+                "Failed to allocate a publish revision for design " + flowId + " after "
                         + MAX_REVISION_RETRIES + " attempts (concurrent publishes)");
     }
 
@@ -167,20 +167,20 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     }
 
     @Override
-    public Optional<CompiledFlowDefinition> getActiveByDesignId(Long designId) {
+    public Optional<CompiledFlowDefinition> getActiveByFlowId(String flowId) {
         // Not cached: the active revision moves on publish / activate on any instance, and this is
         // one indexed lookup in the caller's tenant. A design not found there may be platform-shared.
-        Optional<Long> bundleId = bundleService.findActiveBundleId(designId);
+        Optional<Long> bundleId = bundleService.findActiveBundleId(flowId);
         if (bundleId.isEmpty() && !SHARED_TENANT_ID.equals(ContextHolder.getContext().getTenantId())) {
             bundleId = ContextUtils.inTenantContext(SHARED_TENANT_ID,
-                    () -> bundleService.findActiveBundleId(designId));
+                    () -> bundleService.findActiveBundleId(flowId));
         }
         return bundleId.flatMap(this::getByBundleId);
     }
 
     @Override
-    public List<CompiledFlowDefinition> listRevisionsByDesignId(Long designId) {
-        return bundleService.listRevisionsByDesignId(designId).stream()
+    public List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId) {
+        return bundleService.listRevisionsByFlowId(flowId).stream()
                 .map(FlowBundleMapper::toDefinition)
                 .filter(Objects::nonNull)
                 .toList();
@@ -191,7 +191,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
         return bundleService.getAllActiveFlow().stream()
                 .map(FlowBundleMapper::toDefinition)
                 .filter(Objects::nonNull)
-                .sorted(BY_FLOW_CODE)
+                .sorted(BY_FLOW_NAME)
                 .toList();
     }
 
@@ -214,7 +214,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
     }
 
     @Override
-    public void refreshActiveForDesignId(Long designId) {
+    public void refreshActiveForFlowId(String flowId) {
         invalidateTriggerIndex();
     }
 
@@ -243,7 +243,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
                 .stream()
                 .map(FlowBundleMapper::toDefinition)
                 .filter(Objects::nonNull)
-                .sorted(BY_FLOW_CODE)
+                .sorted(BY_FLOW_NAME)
                 .toList();
         active.forEach(definition -> definitions.putIfAbsent(definition.getBundleId(), definition));
         log.debug("Loaded {} active flow bundle(s) of tenant {} for trigger matching", active.size(), tenantId);

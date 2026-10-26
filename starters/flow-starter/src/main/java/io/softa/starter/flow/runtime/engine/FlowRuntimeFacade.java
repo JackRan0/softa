@@ -88,7 +88,7 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         try {
             orchestrator.executeRoot(definition, state);
         } catch (RuntimeException e) {
-            orchestrator.failState(state, definition.getFlowCode(), null, e.getMessage());
+            orchestrator.failState(state, definition.getFlowId(), null, e.getMessage());
             // Record the FAILED instance in its own transaction so it survives this method's
             // rollback — the failed node's partial writes still roll back with the outer transaction,
             // but operators keep a record of the failed start.
@@ -105,7 +105,7 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         CompiledFlowDefinition definition = resolveRequestedDefinition(request);
         if (definition.getScenario() == null || FlowScenario.PROCESS.equals(definition.getScenario())) {
             throw new FlowActionValidationException("evaluate() only runs stateless Validation/Compute flows; "
-                    + "use start() for Process flows: " + definition.getFlowCode());
+                    + "use start() for Process flows: " + definition.getFlowName());
         }
         FlowExecutionState state = buildInitialState(definition, request);
         // Zero flow footprint: nothing is persisted on success or failure. A failure propagates
@@ -118,15 +118,15 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         if (request == null) {
             throw new FlowActionValidationException("FlowStartRequest must not be null");
         }
-        // Resolution priority: bundleId > designId
+        // Resolution priority: bundleId > flowId
         if (request.getBundleId() != null) {
             return contextService.resolveDefinition(request.getBundleId());
         }
-        if (request.getDesignId() != null) {
-            return contextService.resolveDefinitionByDesignId(request.getDesignId());
+        if (request.getFlowId() != null) {
+            return contextService.resolveDefinitionByFlowId(request.getFlowId());
         }
         throw new FlowActionValidationException(
-                "bundleId or designId is required to start execution");
+                "bundleId or flowId is required to start execution");
     }
 
     private FlowExecutionState buildInitialState(CompiledFlowDefinition definition, FlowStartRequest request) {
@@ -135,15 +135,14 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                 request.getVariables() == null ? Map.of() : request.getVariables());
         vars.put("_instanceId", instanceId);
         if (definition.getBundleId() != null) vars.put("_bundleId", definition.getBundleId());
-        if (definition.getDesignId() != null) vars.put("_designId", definition.getDesignId());
-        vars.put("_flowCode", definition.getFlowCode());
+        if (definition.getFlowId() != null) vars.put("_flowId", definition.getFlowId());
         vars.put("_flowRevision", definition.getRevision());
 
         return FlowExecutionState.builder()
                 .instanceId(instanceId)
                 .bundleId(definition.getBundleId())
-                .designId(definition.getDesignId())
-                .flowCode(definition.getFlowCode())
+                .flowId(definition.getFlowId())
+                .flowName(definition.getFlowName())
                 .flowRevision(definition.getRevision())
                 .title(request.getTitle())
                 .modelName(request.getModelName())
@@ -272,7 +271,7 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         try {
             orchestrator.resumeFromSuspendedNode(state, definition, nodeId, callbackOutputs);
         } catch (RuntimeException e) {
-            orchestrator.failState(state, state.getFlowCode(), null, e.getMessage());
+            orchestrator.failState(state, state.getFlowId(), null, e.getMessage());
             contextService.persistStateInNewTransaction(state);
             throw e;
         }

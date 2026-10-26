@@ -60,12 +60,12 @@ public class FlowApprovalRecordQueryServiceImpl implements FlowApprovalRecordQue
     }
 
     @Override
-    public Page<FlowApprovalRecordView> getHistory(String actorId, String flowCode, String instanceId, String nodeId,
+    public Page<FlowApprovalRecordView> getHistory(String actorId, String flowId, String instanceId, String nodeId,
                                                    Integer pageNumber, Integer pageSize) {
         ApprovalRecordQuerySupport.requireActorId(actorId);
         Filters filters = new Filters().eq(FlowApprovalRecord::getActorId, actorId);
-        if (StringUtils.hasText(flowCode)) {
-            filters.eq(FlowApprovalRecord::getFlowCode, flowCode);
+        if (StringUtils.hasText(flowId)) {
+            filters.eq(FlowApprovalRecord::getFlowId, flowId);
         }
         if (StringUtils.hasText(instanceId)) {
             filters.eq(FlowApprovalRecord::getInstanceId, instanceId);
@@ -88,19 +88,19 @@ public class FlowApprovalRecordQueryServiceImpl implements FlowApprovalRecordQue
     }
 
     @Override
-    public List<FlowSentCcView> getSentCcHistory(String actorId, Boolean read, String flowCode, String instanceId, String nodeId) {
+    public List<FlowSentCcView> getSentCcHistory(String actorId, Boolean read, String flowId, String instanceId, String nodeId) {
         ApprovalRecordQuerySupport.requireActorId(actorId);
         List<FlowApprovalRecord> records = collectSentCcQueryRecords(actorId, instanceId);
-        return composeSentCcHistory(records, actorId, read, flowCode, instanceId, nodeId);
+        return composeSentCcHistory(records, actorId, read, flowId, instanceId, nodeId);
     }
 
     static List<FlowSentCcView> composeSentCcHistory(List<FlowApprovalRecord> records,
                                                             String actorId,
                                                             Boolean read,
-                                                            String flowCode,
+                                                            String flowId,
                                                             String instanceId,
                                                             String nodeId) {
-        return SentCcHistoryComposer.compose(records, actorId, read, flowCode, instanceId, nodeId);
+        return SentCcHistoryComposer.compose(records, actorId, read, flowId, instanceId, nodeId);
     }
 
     private List<FlowApprovalRecord> getRecordEntitiesByInstanceId(String instanceId) {

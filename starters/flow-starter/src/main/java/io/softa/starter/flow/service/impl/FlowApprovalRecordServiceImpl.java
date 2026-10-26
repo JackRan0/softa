@@ -71,7 +71,7 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
     static FlowApprovalRecord toRecord(FlowExecutionState state, ApprovalActionAuditEntry entry) {
         FlowApprovalRecord record = new FlowApprovalRecord();
         record.setInstanceId(state.getInstanceId());
-        record.setFlowCode(entry.getFlowCode() == null ? state.getFlowCode() : entry.getFlowCode());
+        record.setFlowId(entry.getFlowId() == null ? state.getFlowId() : entry.getFlowId());
         record.setFlowRevision(entry.getFlowRevision() == null ? state.getFlowRevision() : entry.getFlowRevision());
         record.setNodeId(entry.getNodeId());
         record.setNodeLabel(entry.getNodeLabel());
@@ -98,7 +98,7 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
                 .sequence(record.getSequence())
                 .action(record.getAction())
                 .eventTime(record.getEventTime())
-                .flowCode(record.getFlowCode())
+                .flowId(record.getFlowId())
                 .flowRevision(record.getFlowRevision())
                 .nodeId(record.getNodeId())
                 .nodeLabel(record.getNodeLabel())

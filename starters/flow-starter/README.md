@@ -4,7 +4,7 @@
 
 - design-time graph documents for a visual editor
 - compile-time validation and transformation into runtime bundles
-- published bundle revisions by `designId`
+- published bundle revisions by `flowId`
 - runtime execution for process, validation, and compute flows
 - persistent projections for instances, approval tasks, approval records, delegations, CC rules, and trigger events
 - optional Pulsar-based trigger and async-task integration
@@ -23,12 +23,12 @@ This README documents the current backend contract implemented in this module.
 
 ### Flow Identity And Revisions
 
-- `FlowDesign` is the draft working copy.
-- `FlowBundle` is the compiled published snapshot.
-- Published revisions are keyed by `designId`, not by `flowCode`.
+- `FlowDesign` is the draft working copy. Its `id` (a distributed string id) is the flow's identity everywhere: bundles, instances, tasks, approval records, events, delegations and CC rules reference it as `flowId`, and lists show the flow's name through that reference.
+- `flowName` is unique within a tenant; there is no separate flow code.
+- `FlowBundle` is the compiled published snapshot; published revisions are keyed by `flowId`.
 - `FlowStartRequest` resolves bundles in this order:
   1. `bundleId` — pin to an exact published revision
-  2. `designId` — start the current active revision
+  2. `flowId` — start the current active revision
 - To start a specific historical revision, look up its `bundleId` via the revisions listing endpoint and pass that as `bundleId`.
 - `FlowBundle.designJson` keeps the design snapshot used at publish time so the editor can restore a historical canvas.
 
@@ -108,7 +108,7 @@ data plane and is intentionally not intercepted.
 | `GET` | `/flow/designs/{id}` | Load one draft (canvas + optimistic-lock version) |
 | `POST` | `/flow/designs/{id}/save` | Auto-save the canvas; stale versions are rejected |
 | `POST` | `/flow/designs/{id}/delete` | Delete a draft if it has never been published |
-| `POST` | `/flow/designs/{id}/duplicate` | Copy a draft under a fresh flow code |
+| `POST` | `/flow/designs/{id}/duplicate` | Copy a draft under a fresh name (`"<name> (copy)"` when `newFlowName` is omitted) |
 | `POST` | `/flow/designs/validate` | Validate the posted document; diagnostics returned as a success payload |
 | `POST` | `/flow/designs/{id}/publish` | Publish the saved draft as a new active revision |
 | `POST` | `/flow/designs/{id}/restore?bundleId=` | Restore the draft canvas from a historical bundle snapshot |
@@ -123,9 +123,9 @@ Base path: `/flow/bundles`
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/flow/bundles?designId=` | Revision list of one design (or, without `designId`, the active bundle of every design of the caller's tenant) |
+| `GET` | `/flow/bundles?flowId=` | Revision list of one flow (or, without `flowId`, the active bundle of every flow of the caller's tenant) |
 | `GET` | `/flow/bundles/{bundleId}?include=design` | One revision's summary, optionally with the canvas-complete design snapshot |
-| `POST` | `/flow/bundles/{bundleId}/activate` | Make this revision the design's effective one (rollback = roll-forward) |
+| `POST` | `/flow/bundles/{bundleId}/activate` | Make this revision the flow's effective one (rollback = roll-forward) |
 
 ### Node Descriptor APIs
 
@@ -146,7 +146,7 @@ Base path: `/flow/runtime`
 | `GET` | `/flow/runtime/instances/{instanceId}?includeTrace=` | Get one runtime instance (trace excluded by default) |
 | `GET` | `/flow/runtime/instances/{instanceId}/overlay` | Per-node run state for canvas painting |
 | `GET` | `/flow/runtime/instances/{instanceId}/trace?sinceSequence=` | Incremental trace rows for polling |
-| `POST` | `/flow/runtime/instances/search` | Paged summaries of the caller's own instances — the initiator filter is always the authenticated user (filters: flowCode/designId/status/model/row/createdFrom/createdTo) |
+| `POST` | `/flow/runtime/instances/search` | Paged summaries of the caller's own instances — the initiator filter is always the authenticated user (filters: flowId/status/model/row/createdFrom/createdTo) |
 | `POST` | `/flow/runtime/instances/approve` | Approve a pending approval |
 | `POST` | `/flow/runtime/instances/reject` | Reject a pending approval |
 | `POST` | `/flow/runtime/instances/transfer` | Transfer a pending approval task |
@@ -163,7 +163,7 @@ Base path: `/flow/runtime`
 | `GET` | `/flow/runtime/instances/{instanceId}/nodes/{nodeId}/formPermissions` | Get field-level form permissions |
 | `POST` | `/flow/runtime/trigger` | Fire a trigger event and start matching flows |
 | `POST` | `/flow/runtime/onchange` | Run `COMPUTE` flows transiently and return variable diffs |
-| `POST` | `/flow/runtime/validate` | Run `VALIDATION` flows transiently against candidate row data; returns each flow's declared outputs keyed by flow code |
+| `POST` | `/flow/runtime/validate` | Run `VALIDATION` flows transiently against candidate row data; returns each flow's declared outputs keyed by `flowId` |
 
 Engine-internal resume callbacks live on `/internal/flow/runtime/instances/{resumeAsync|resumeTimer}`
 (INTERNAL identity scope) — they are not part of the user-facing surface.
@@ -181,10 +181,10 @@ Base path: `/flow/approvalTasks`
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/flow/approvalTasks/counts` | Inbox badge counts for the current actor (`{pendingApprovals, unreadCc}` — same filter definitions as the paged `/pending` and `/cc?read=false` queries) |
-| `GET` | `/flow/approvalTasks/pending?flowCode=&instanceId=&nodeId=&pageNumber=&pageSize=` | Pending tasks for the current actor (paged: returns `Page`) |
-| `GET` | `/flow/approvalTasks/completed?flowCode=&instanceId=&nodeId=&pageNumber=&pageSize=` | Completed tasks for the current actor (paged) |
-| `GET` | `/flow/approvalTasks/cc?read=&flowCode=&instanceId=&nodeId=&pageNumber=&pageSize=` | CC tasks for the current actor (paged; `read=false` unread, `read=true` acknowledged, omit `read` for both) |
-| `GET` | `/flow/approvalTasks/inbox?flowCode=&instanceId=&nodeId=&includeCompletedApprovals=&pageNumber=&pageSize=` | Unified inbox view (pending approvals + CC; optional completed approvals) |
+| `GET` | `/flow/approvalTasks/pending?flowId=&instanceId=&nodeId=&pageNumber=&pageSize=` | Pending tasks for the current actor (paged: returns `Page`) |
+| `GET` | `/flow/approvalTasks/completed?flowId=&instanceId=&nodeId=&pageNumber=&pageSize=` | Completed tasks for the current actor (paged) |
+| `GET` | `/flow/approvalTasks/cc?read=&flowId=&instanceId=&nodeId=&pageNumber=&pageSize=` | CC tasks for the current actor (paged; `read=false` unread, `read=true` acknowledged, omit `read` for both) |
+| `GET` | `/flow/approvalTasks/inbox?flowId=&instanceId=&nodeId=&includeCompletedApprovals=&pageNumber=&pageSize=` | Unified inbox view (pending approvals + CC; optional completed approvals) |
 | `GET` | `/flow/approvalTasks/instance/{instanceId}` | All tasks for one runtime instance (participants / initiator only) |
 
 ### Approval Records
@@ -204,7 +204,7 @@ Base path: `/flow/ccConfigs`
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/flow/ccConfigs` | Create a CC rule |
-| `GET` | `/flow/ccConfigs?flowCode=` | List CC rules by `flowCode` |
+| `GET` | `/flow/ccConfigs?flowId=` | List CC rules by `flowId` |
 | `POST` | `/flow/ccConfigs/{id}/deactivate` | Deactivate a CC rule |
 
 ### Delegation
@@ -233,7 +233,7 @@ Base path: `/flow/events`
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/flow/events?flowCode=&sourceModel=&sourceRowId=&instanceId=&success=&eventTimeFrom=&eventTimeTo=&pageNumber=&pageSize=` | Paged event log, newest first (filters combine with AND; list rows exclude the parameters payload) |
+| `GET` | `/flow/events?flowId=&sourceModel=&sourceRowId=&instanceId=&success=&eventTimeFrom=&eventTimeTo=&pageNumber=&pageSize=` | Paged event log, newest first (filters combine with AND; list rows exclude the parameters payload) |
 | `GET` | `/flow/events/{id}` | Single event including the raw trigger-parameters payload |
 
 ## Approval Model
@@ -417,7 +417,7 @@ Primary storage adapters in this module:
 
 - **Trigger matching** reads an index of the tenant's active bundles, loaded in that tenant's own context on its first event (an empty result is kept too) and merged with the platform-shared bundles (`tenantId = 0`); a context without a tenant matches the shared ones only. Entries live for `flow.trigger-cache-ttl-seconds` (default `60`). Publishing or activating a revision drops the tenant's entry at once on the instance that did it; other instances pick the change up within the TTL. Change logs of models no flow watches are not turned into trigger events.
 - **Definitions** are cached by `bundleId` in a bounded LRU (a published revision never changes). A bundle of another tenant reads as not found, whether cached or not; platform-shared bundles are visible to every tenant.
-- **The active revision of a design** is read from the database on every lookup, so starting by `designId` follows a publish or rollback made on any instance.
+- **The active revision of a flow** is read from the database on every lookup, so starting by `flowId` follows a publish or rollback made on any instance.
 
 ## Node Descriptor Contract
 

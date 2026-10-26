@@ -11,7 +11,8 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
  */
 public record FlowInstanceView(
         String instanceId,
-        String flowCode,
+        String flowId,
+        String flowName,
         String title,
         FlowExecutionStatus status,
         Integer resubmissionCount,

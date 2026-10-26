@@ -33,10 +33,10 @@ class FlowAutomationStartDedupTest {
         ReflectionTestUtils.setField(service, "instanceService", instanceService);
     }
 
-    private static FlowInstance instance(String id, String flowCode, FlowExecutionStatus status) {
+    private static FlowInstance instance(String id, String flowId, FlowExecutionStatus status) {
         FlowInstance i = new FlowInstance();
         i.setInstanceId(id);
-        i.setFlowCode(flowCode);
+        i.setFlowId(flowId);
         i.setModelName("LeaveRequest");
         i.setRowId("7");
         i.setStatus(status);

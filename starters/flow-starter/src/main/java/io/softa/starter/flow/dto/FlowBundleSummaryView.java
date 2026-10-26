@@ -19,9 +19,6 @@ import io.softa.starter.flow.enums.FlowScenario;
 @Schema(name = "FlowBundleSummaryView")
 public class FlowBundleSummaryView {
 
-    @Schema(description = "Flow code")
-    private String flowCode;
-
     @Schema(description = "Flow name")
     private String flowName;
 
@@ -43,8 +40,8 @@ public class FlowBundleSummaryView {
     @Schema(description = "Bundle id")
     private Long bundleId;
 
-    @Schema(description = "Source design id")
-    private Long designId;
+    @Schema(description = "Flow ID")
+    private String flowId;
 
     @Schema(description = "Compile timestamp")
     private LocalDateTime compiledAt;

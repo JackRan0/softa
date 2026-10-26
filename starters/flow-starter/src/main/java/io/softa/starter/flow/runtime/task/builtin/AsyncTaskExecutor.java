@@ -102,7 +102,7 @@ public class AsyncTaskExecutor extends AbstractTaskExecutor {
         FlowAsyncTaskMessage message = new FlowAsyncTaskMessage();
         message.setInstanceId(request.getInstanceId());
         message.setNodeId(request.getNodeId());
-        message.setFlowCode(variables.get("_flowCode") instanceof String fc ? fc : null);
+        message.setFlowId(variables.get("_flowId") instanceof String id ? id : null);
         message.setAsyncTaskHandlerCode(handlerCode);
         message.setAsyncTaskParams(asyncTaskParams);
         message.setContext(ContextHolder.getContext());

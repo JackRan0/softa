@@ -17,11 +17,11 @@ public interface FlowDebugHistoryService {
     void recordHistory(FlowDebugHistory history);
 
     /**
-     * List debug histories by flow code, ordered by startTime descending.
+     * List debug histories by flow, ordered by startTime descending.
      *
-     * @param flowCode the flow code
+     * @param flowId the flow ID
      * @return list of debug histories
      */
-    List<FlowDebugHistory> listByFlowCode(String flowCode);
+    List<FlowDebugHistory> listByFlowId(String flowId);
 }
 

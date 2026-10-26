@@ -15,9 +15,9 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 @Schema(name = "PublishAndStartRequest")
 public class PublishAndStartRequest extends AbstractFlowLaunchContextRequest {
 
-    @NotNull(message = "designId is required")
-    @Schema(description = "Flow design id (required)")
-    private Long designId;
+    @NotNull(message = "flowId is required")
+    @Schema(description = "Flow id (required)")
+    private String flowId;
 
     @NotNull(message = "definition is required")
     @Schema(description = "Design-time flow definition")

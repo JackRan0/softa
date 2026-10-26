@@ -36,9 +36,9 @@ class OrmFlowBundleRegistryTenantTest {
     private static final long TENANT_B = 9L;
     private static final long SHARED = FlowBundleRegistry.SHARED_TENANT_ID;
 
-    private static final long DESIGN_A = 100L;
-    private static final long DESIGN_B = 200L;
-    private static final long DESIGN_SHARED = 300L;
+    private static final String FLOW_A = "100";
+    private static final String FLOW_B = "200";
+    private static final String FLOW_SHARED = "300";
 
     private StubBundleService stubService;
     private OrmFlowBundleRegistry registry;
@@ -55,9 +55,9 @@ class OrmFlowBundleRegistryTenantTest {
 
     @Test
     void firstTenantToFireDoesNotHideOtherTenantsOrSharedFlows() {
-        publish(TENANT_A, "a-order", DESIGN_A);
-        publish(TENANT_B, "b-order", DESIGN_B);
-        publish(SHARED, "shared-order", DESIGN_SHARED);
+        publish(TENANT_A, "a-order", FLOW_A);
+        publish(TENANT_B, "b-order", FLOW_B);
+        publish(SHARED, "shared-order", FLOW_SHARED);
 
         assertEquals(List.of("a-order", "shared-order"), firedIn(TENANT_A));
         assertEquals(List.of("b-order", "shared-order"), firedIn(TENANT_B));
@@ -65,7 +65,7 @@ class OrmFlowBundleRegistryTenantTest {
         Context crossTenant = new Context();
         crossTenant.setCrossTenant(true);
         assertEquals(List.of("shared-order"),
-                flowCodes(ContextHolder.callWith(crossTenant, () -> triggers.findMatchingFlows(orderCreated()))));
+                flowNames(ContextHolder.callWith(crossTenant, () -> triggers.findMatchingFlows(orderCreated()))));
     }
 
     @Test
@@ -90,11 +90,11 @@ class OrmFlowBundleRegistryTenantTest {
 
     @Test
     void publishAndActivateTakeEffectAtOnceOnThisInstance() {
-        CompiledFlowDefinition r1 = publish(TENANT_A, "approval", DESIGN_A);
+        CompiledFlowDefinition r1 = publish(TENANT_A, "approval", FLOW_A);
         assertEquals(List.of(1), firedRevisionsIn(TENANT_A));
         assertTrue(firedIn(TENANT_B).isEmpty());
 
-        publish(TENANT_A, "approval", DESIGN_A);
+        publish(TENANT_A, "approval", FLOW_A);
         assertEquals(List.of(2), firedRevisionsIn(TENANT_A));
 
         FlowPublishServiceImpl publishService = new FlowPublishServiceImpl(null, registry);
@@ -108,13 +108,13 @@ class OrmFlowBundleRegistryTenantTest {
 
     @Test
     void debugRunsAndBundleReadsLeaveTheTriggerIndexAlone() {
-        CompiledFlowDefinition published = publish(TENANT_A, "approval", DESIGN_A);
+        CompiledFlowDefinition published = publish(TENANT_A, "approval", FLOW_A);
         // a bundle read before the first event must not count as "the index is loaded"
         assertTrue(inTenant(TENANT_A, () -> registry.getByBundleId(published.getBundleId())).isPresent());
         assertEquals(List.of("approval"), firedIn(TENANT_A));
 
         CompiledFlowDefinition debug = inTenant(TENANT_A,
-                () -> registry.registerDebug(orderFlow("approval"), null, DESIGN_A));
+                () -> registry.registerDebug(orderFlow("approval"), null, FLOW_A));
         assertTrue(inTenant(TENANT_A, () -> registry.getByBundleId(debug.getBundleId())).isPresent());
 
         assertEquals(List.of(1), firedRevisionsIn(TENANT_A));
@@ -123,7 +123,7 @@ class OrmFlowBundleRegistryTenantTest {
 
     @Test
     void changeLogsOfModelsNoFlowWatchesAreNotMapped() {
-        publish(TENANT_A, "a-order", DESIGN_A);
+        publish(TENANT_A, "a-order", FLOW_A);
         List<ChangeLog> changeLogs = List.of(changeLog("Order"), changeLog("Customer"), changeLog("Order"));
 
         List<FlowTriggerEvent> events = inTenant(TENANT_A, () -> ChangeLogTriggerMapper.mapChangeLogs(
@@ -137,8 +137,8 @@ class OrmFlowBundleRegistryTenantTest {
 
     @Test
     void definitionOfAnotherTenantReadsAsAbsent() {
-        CompiledFlowDefinition own = publish(TENANT_A, "approval", DESIGN_A);
-        CompiledFlowDefinition shared = publish(SHARED, "shared", DESIGN_SHARED);
+        CompiledFlowDefinition own = publish(TENANT_A, "approval", FLOW_A);
+        CompiledFlowDefinition shared = publish(SHARED, "shared", FLOW_SHARED);
         // tenant A's reads put both into the cache
         assertTrue(inTenant(TENANT_A, () -> registry.getByBundleId(own.getBundleId())).isPresent());
         assertTrue(inTenant(TENANT_A, () -> registry.getByBundleId(shared.getBundleId())).isPresent());
@@ -148,7 +148,7 @@ class OrmFlowBundleRegistryTenantTest {
         assertTrue(inTenant(TENANT_B, () -> registry.getByBundleId(shared.getBundleId())).isPresent());
 
         // the load on a miss applies the same check
-        CompiledFlowDefinition other = publish(TENANT_B, "other", DESIGN_B);
+        CompiledFlowDefinition other = publish(TENANT_B, "other", FLOW_B);
         assertTrue(inTenant(TENANT_A, () -> registry.getByBundleId(other.getBundleId())).isEmpty());
         assertTrue(inTenant(TENANT_B, () -> registry.getByBundleId(other.getBundleId())).isPresent());
 
@@ -160,42 +160,42 @@ class OrmFlowBundleRegistryTenantTest {
 
     @Test
     void activeRevisionOfADesignIsReadFromTheDatabase() {
-        CompiledFlowDefinition r1 = publish(TENANT_A, "approval", DESIGN_A);
-        publish(TENANT_A, "approval", DESIGN_A);
-        assertEquals(2, activeRevision(TENANT_A, DESIGN_A));
+        CompiledFlowDefinition r1 = publish(TENANT_A, "approval", FLOW_A);
+        publish(TENANT_A, "approval", FLOW_A);
+        assertEquals(2, activeRevision(TENANT_A, FLOW_A));
 
         // another instance rolls back: nothing is invalidated on this one
         inTenant(TENANT_A, () -> stubService.activateBundle(r1.getBundleId()));
-        assertEquals(1, activeRevision(TENANT_A, DESIGN_A));
+        assertEquals(1, activeRevision(TENANT_A, FLOW_A));
 
         // other tenants cannot start the design; a platform-shared design starts anywhere
-        assertTrue(inTenant(TENANT_B, () -> registry.getActiveByDesignId(DESIGN_A)).isEmpty());
-        CompiledFlowDefinition shared = publish(SHARED, "shared", DESIGN_SHARED);
+        assertTrue(inTenant(TENANT_B, () -> registry.getActiveByFlowId(FLOW_A)).isEmpty());
+        CompiledFlowDefinition shared = publish(SHARED, "shared", FLOW_SHARED);
         assertEquals(shared.getBundleId(),
-                inTenant(TENANT_B, () -> registry.getActiveByDesignId(DESIGN_SHARED)).orElseThrow().getBundleId());
+                inTenant(TENANT_B, () -> registry.getActiveByFlowId(FLOW_SHARED)).orElseThrow().getBundleId());
     }
 
     @Test
     void bundleListShowsOnlyTheCallersTenant() {
-        publish(TENANT_A, "a-flow", DESIGN_A);
-        publish(TENANT_B, "b-flow", DESIGN_B);
-        publish(SHARED, "shared-flow", DESIGN_SHARED);
+        publish(TENANT_A, "a-flow", FLOW_A);
+        publish(TENANT_B, "b-flow", FLOW_B);
+        publish(SHARED, "shared-flow", FLOW_SHARED);
         FlowBundleController controller = new FlowBundleController(registry, stubService, null);
 
         List<FlowBundleSummaryView> listed = inTenant(TENANT_A, () -> controller.list(null)).getData();
 
-        assertEquals(List.of("a-flow"), listed.stream().map(FlowBundleSummaryView::getFlowCode).toList());
-        assertTrue(inTenant(TENANT_A, () -> controller.list(DESIGN_B)).getData().isEmpty());
+        assertEquals(List.of("a-flow"), listed.stream().map(FlowBundleSummaryView::getFlowName).toList());
+        assertTrue(inTenant(TENANT_A, () -> controller.list(FLOW_B)).getData().isEmpty());
     }
 
     // ==================== Helpers ====================
 
-    private CompiledFlowDefinition publish(long tenantId, String flowCode, long designId) {
-        return inTenant(tenantId, () -> registry.register(orderFlow(flowCode), null, designId));
+    private CompiledFlowDefinition publish(long tenantId, String flowName, String flowId) {
+        return inTenant(tenantId, () -> registry.register(orderFlow(flowName), null, flowId));
     }
 
     private List<String> firedIn(long tenantId) {
-        return flowCodes(inTenant(tenantId, () -> triggers.findMatchingFlows(orderCreated())));
+        return flowNames(inTenant(tenantId, () -> triggers.findMatchingFlows(orderCreated())));
     }
 
     private List<Integer> firedRevisionsIn(long tenantId) {
@@ -204,12 +204,12 @@ class OrmFlowBundleRegistryTenantTest {
                 .toList();
     }
 
-    private int activeRevision(long tenantId, long designId) {
-        return inTenant(tenantId, () -> registry.getActiveByDesignId(designId)).orElseThrow().getRevision();
+    private int activeRevision(long tenantId, String flowId) {
+        return inTenant(tenantId, () -> registry.getActiveByFlowId(flowId)).orElseThrow().getRevision();
     }
 
-    private static List<String> flowCodes(List<CompiledFlowDefinition> definitions) {
-        return definitions.stream().map(CompiledFlowDefinition::getFlowCode).toList();
+    private static List<String> flowNames(List<CompiledFlowDefinition> definitions) {
+        return definitions.stream().map(CompiledFlowDefinition::getFlowName).toList();
     }
 
     private static <T> T inTenant(long tenantId, Supplier<T> action) {
@@ -235,10 +235,9 @@ class OrmFlowBundleRegistryTenantTest {
         return changeLog;
     }
 
-    private static CompiledFlowDefinition orderFlow(String flowCode) {
+    private static CompiledFlowDefinition orderFlow(String flowName) {
         return CompiledFlowDefinition.builder()
-                .flowCode(flowCode)
-                .flowName(flowCode)
+                .flowName(flowName)
                 .scenario(FlowScenario.PROCESS)
                 .compiledAt(LocalDateTime.now())
                 .sync(false)

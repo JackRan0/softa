@@ -29,8 +29,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class OrmFlowBundleRegistryTest {
 
-    private static final Long DESIGN_A = 100L;
-    private static final Long DESIGN_B = 200L;
+    private static final String FLOW_A = "100";
+    private static final String FLOW_B = "200";
 
     private StubBundleService stubService;
     private OrmFlowBundleRegistry registry;
@@ -49,7 +49,6 @@ class OrmFlowBundleRegistryTest {
 
         FlowBundle entity = FlowBundleMapper.toEntity(original, null, null);
 
-        assertEquals("mapper-flow", entity.getFlowCode());
         assertEquals("Mapper flow", entity.getFlowName());
         assertEquals(1, entity.getRevision());
         assertEquals(FlowScenario.PROCESS, entity.getScenario());
@@ -59,7 +58,6 @@ class OrmFlowBundleRegistryTest {
         CompiledFlowDefinition restored = FlowBundleMapper.toDefinition(entity);
 
         assertNotNull(restored);
-        assertEquals(original.getFlowCode(), restored.getFlowCode());
         assertEquals(original.getFlowName(), restored.getFlowName());
         assertEquals(original.getRevision(), restored.getRevision());
         assertEquals(original.getScenario(), restored.getScenario());
@@ -83,7 +81,7 @@ class OrmFlowBundleRegistryTest {
         FlowBundle entity = FlowBundleMapper.toEntity(def, null, existing);
 
         assertEquals(99L, entity.getId());
-        assertEquals("update-flow", entity.getFlowCode());
+        assertEquals("Update flow", entity.getFlowName());
     }
 
     @Test
@@ -109,29 +107,29 @@ class OrmFlowBundleRegistryTest {
 
     @Test
     void register_assignsRevisionAndPersists() {
-        CompiledFlowDefinition result = registry.register(sampleDefinition("reg-flow", null), null, DESIGN_A);
+        CompiledFlowDefinition result = registry.register(sampleDefinition("reg-flow", null), null, FLOW_A);
 
         assertEquals(1, result.getRevision());
         assertNotNull(result.getPublishedAt());
-        assertEquals(DESIGN_A, result.getDesignId());
+        assertEquals(FLOW_A, result.getFlowId());
         assertEquals(1, stubService.savedBundles.size());
     }
 
     @Test
-    void register_incrementsRevisionPerDesignId() {
-        registry.register(sampleDefinition("v-flow", null), null, DESIGN_A);
-        CompiledFlowDefinition v2 = registry.register(sampleDefinition("v-flow", null), null, DESIGN_A);
-        CompiledFlowDefinition v3 = registry.register(sampleDefinition("v-flow", null), null, DESIGN_A);
+    void register_incrementsRevisionPerFlowId() {
+        registry.register(sampleDefinition("v-flow", null), null, FLOW_A);
+        CompiledFlowDefinition v2 = registry.register(sampleDefinition("v-flow", null), null, FLOW_A);
+        CompiledFlowDefinition v3 = registry.register(sampleDefinition("v-flow", null), null, FLOW_A);
 
         assertEquals(2, v2.getRevision());
         assertEquals(3, v3.getRevision());
     }
 
     @Test
-    void register_differentDesignIdsMaintainSeparateRevisions() {
-        CompiledFlowDefinition a = registry.register(sampleDefinition("flow-a", null), null, DESIGN_A);
-        CompiledFlowDefinition b = registry.register(sampleDefinition("flow-b", null), null, DESIGN_B);
-        CompiledFlowDefinition a2 = registry.register(sampleDefinition("flow-a", null), null, DESIGN_A);
+    void register_differentFlowIdsMaintainSeparateRevisions() {
+        CompiledFlowDefinition a = registry.register(sampleDefinition("flow-a", null), null, FLOW_A);
+        CompiledFlowDefinition b = registry.register(sampleDefinition("flow-b", null), null, FLOW_B);
+        CompiledFlowDefinition a2 = registry.register(sampleDefinition("flow-a", null), null, FLOW_A);
 
         assertEquals(1, a.getRevision());
         assertEquals(1, b.getRevision());
@@ -139,35 +137,35 @@ class OrmFlowBundleRegistryTest {
     }
 
     @Test
-    void register_throwsOnNullDesignId() {
+    void register_throwsOnNullFlowId() {
         assertThrows(Exception.class, () -> registry.register(sampleDefinition("x", null), null, null));
     }
 
     @Test
     void register_throwsOnNullDefinition() {
-        assertThrows(Exception.class, () -> registry.register(null, null, DESIGN_A));
+        assertThrows(Exception.class, () -> registry.register(null, null, FLOW_A));
     }
 
     @Test
-    void getActiveByDesignId_returnsLatestRevision() {
-        registry.register(sampleDefinition("get-flow", null), null, DESIGN_A);
-        registry.register(sampleDefinition("get-flow", null), null, DESIGN_A);
+    void getActiveByFlowId_returnsLatestRevision() {
+        registry.register(sampleDefinition("get-flow", null), null, FLOW_A);
+        registry.register(sampleDefinition("get-flow", null), null, FLOW_A);
 
-        Optional<CompiledFlowDefinition> latest = registry.getActiveByDesignId(DESIGN_A);
+        Optional<CompiledFlowDefinition> latest = registry.getActiveByFlowId(FLOW_A);
 
         assertTrue(latest.isPresent());
         assertEquals(2, latest.get().getRevision());
     }
 
     @Test
-    void getActiveByDesignId_returnsEmptyForUnknownDesign() {
-        assertTrue(registry.getActiveByDesignId(999L).isEmpty());
+    void getActiveByFlowId_returnsEmptyForUnknownDesign() {
+        assertTrue(registry.getActiveByFlowId("999").isEmpty());
     }
 
     @Test
     void getByBundleId_returnsSpecificBundle() {
-        CompiledFlowDefinition v1 = registry.register(sampleDefinition("bid-flow", null), null, DESIGN_A);
-        registry.register(sampleDefinition("bid-flow", null), null, DESIGN_A);
+        CompiledFlowDefinition v1 = registry.register(sampleDefinition("bid-flow", null), null, FLOW_A);
+        registry.register(sampleDefinition("bid-flow", null), null, FLOW_A);
 
         Optional<CompiledFlowDefinition> found = registry.getByBundleId(v1.getBundleId());
 
@@ -176,48 +174,48 @@ class OrmFlowBundleRegistryTest {
     }
 
     @Test
-    void listRevisionsByDesignId_returnsAllRevisionsDescending() {
-        registry.register(sampleDefinition("hist-flow", null), null, DESIGN_A);
-        registry.register(sampleDefinition("hist-flow", null), null, DESIGN_A);
-        registry.register(sampleDefinition("hist-flow", null), null, DESIGN_A);
+    void listRevisionsByFlowId_returnsAllRevisionsDescending() {
+        registry.register(sampleDefinition("hist-flow", null), null, FLOW_A);
+        registry.register(sampleDefinition("hist-flow", null), null, FLOW_A);
+        registry.register(sampleDefinition("hist-flow", null), null, FLOW_A);
 
-        List<CompiledFlowDefinition> revisions = registry.listRevisionsByDesignId(DESIGN_A);
+        List<CompiledFlowDefinition> revisions = registry.listRevisionsByFlowId(FLOW_A);
 
         assertEquals(3, revisions.size());
         assertEquals(List.of(3, 2, 1), revisions.stream().map(CompiledFlowDefinition::getRevision).toList());
     }
 
     @Test
-    void listRevisionsByDesignId_returnsEmptyForUnknownDesign() {
-        assertTrue(registry.listRevisionsByDesignId(999L).isEmpty());
+    void listRevisionsByFlowId_returnsEmptyForUnknownDesign() {
+        assertTrue(registry.listRevisionsByFlowId("999").isEmpty());
     }
 
     @Test
     void list_returnsActiveRevisionPerDesign() {
-        registry.register(sampleDefinition("list-a", null), null, DESIGN_A);
-        registry.register(sampleDefinition("list-a", null), null, DESIGN_A);
-        registry.register(sampleDefinition("list-b", null), null, DESIGN_B);
+        registry.register(sampleDefinition("list-a", null), null, FLOW_A);
+        registry.register(sampleDefinition("list-a", null), null, FLOW_A);
+        registry.register(sampleDefinition("list-b", null), null, FLOW_B);
 
         Collection<CompiledFlowDefinition> all = registry.list();
 
         assertEquals(2, all.size());
         all.stream()
-                .filter(d -> DESIGN_A.equals(d.getDesignId()))
+                .filter(d -> FLOW_A.equals(d.getFlowId()))
                 .forEach(d -> assertEquals(2, d.getRevision()));
     }
 
     @Test
-    void getActiveByDesignId_readsStoredBundlesWithoutPreload() {
+    void getActiveByFlowId_readsStoredBundlesWithoutPreload() {
         CompiledFlowDefinition def = sampleDefinition("preloaded", 1);
         def.setPublishedAt(LocalDateTime.now());
-        FlowBundle entity = FlowBundleMapper.toEntity(def, null, null, DESIGN_A);
+        FlowBundle entity = FlowBundleMapper.toEntity(def, null, null, FLOW_A);
         entity.setId(1L);
-        entity.setDesignId(DESIGN_A);
+        entity.setFlowId(FLOW_A);
         stubService.savedBundles.put(1L, entity);
 
         OrmFlowBundleRegistry freshRegistry = new OrmFlowBundleRegistry(stubService, 60);
 
-        Optional<CompiledFlowDefinition> loaded = freshRegistry.getActiveByDesignId(DESIGN_A);
+        Optional<CompiledFlowDefinition> loaded = freshRegistry.getActiveByFlowId(FLOW_A);
         assertTrue(loaded.isPresent());
         assertEquals(1, loaded.get().getRevision());
     }
@@ -228,16 +226,16 @@ class OrmFlowBundleRegistryTest {
         def.setSync(true);
         def.setRollbackOnFail(true);
 
-        CompiledFlowDefinition result = registry.register(def, null, DESIGN_A);
+        CompiledFlowDefinition result = registry.register(def, null, FLOW_A);
 
         assertTrue(result.getSync());
         assertTrue(result.getRollbackOnFail());
-        assertTrue(registry.getActiveByDesignId(DESIGN_A).isPresent());
+        assertTrue(registry.getActiveByFlowId(FLOW_A).isPresent());
     }
 
     @Test
     void register_preservesTriggerDefinition() {
-        CompiledFlowDefinition result = registry.register(sampleDefinition("trigger-flow", null), null, DESIGN_A);
+        CompiledFlowDefinition result = registry.register(sampleDefinition("trigger-flow", null), null, FLOW_A);
 
         assertNotNull(result.getTrigger());
         assertInstanceOf(EntityChangeTrigger.class, result.getTrigger());
@@ -269,7 +267,7 @@ class OrmFlowBundleRegistryTest {
         def.setApproverDedup(ApproverDedupStrategy.CONTIGUOUS);
         def.setDeclaredOutputs(List.of("result"));
 
-        CompiledFlowDefinition published = registry.register(def, null, DESIGN_A);
+        CompiledFlowDefinition published = registry.register(def, null, FLOW_A);
 
         assertEquals(ApproverDedupStrategy.CONTIGUOUS, published.getApproverDedup());
         assertEquals(List.of("result"), published.getDeclaredOutputs());
@@ -285,14 +283,14 @@ class OrmFlowBundleRegistryTest {
         AtomicInteger nextRevisionCalls = new AtomicInteger();
         StubBundleService racingStub = new StubBundleService() {
             @Override
-            public int getNextRevision(Long designId) {
-                int revision = super.getNextRevision(designId);
+            public int getNextRevision(String flowId) {
+                int revision = super.getNextRevision(flowId);
                 if (nextRevisionCalls.getAndIncrement() == 0) {
                     // a concurrent publish claims this revision between compute and insert
                     FlowBundle winner = new FlowBundle();
-                    winner.setDesignId(designId);
+                    winner.setFlowId(flowId);
                     winner.setRevision(revision);
-                    winner.setFlowCode("race-flow");
+                    winner.setFlowName("Race flow");
                     winner.setActive(false);
                     saveBundle(winner);
                 }
@@ -301,7 +299,7 @@ class OrmFlowBundleRegistryTest {
         };
         OrmFlowBundleRegistry racingRegistry = new OrmFlowBundleRegistry(racingStub, 60);
 
-        CompiledFlowDefinition result = racingRegistry.register(sampleDefinition("race-flow", null), null, DESIGN_A);
+        CompiledFlowDefinition result = racingRegistry.register(sampleDefinition("race-flow", null), null, FLOW_A);
 
         assertEquals(2, result.getRevision());
         assertEquals(2, nextRevisionCalls.get());
@@ -309,16 +307,16 @@ class OrmFlowBundleRegistryTest {
 
     @Test
     void registerDebug_isResolvableButNeverActiveNorListed() {
-        CompiledFlowDefinition published = registry.register(sampleDefinition("dbg-flow", null), null, DESIGN_A);
-        CompiledFlowDefinition debug = registry.registerDebug(sampleDefinition("dbg-flow", null), null, DESIGN_A);
+        CompiledFlowDefinition published = registry.register(sampleDefinition("dbg-flow", null), null, FLOW_A);
+        CompiledFlowDefinition debug = registry.registerDebug(sampleDefinition("dbg-flow", null), null, FLOW_A);
 
         // resolvable by id (instances pin it), with its own revision number
         assertTrue(registry.getByBundleId(debug.getBundleId()).isPresent());
         assertEquals(2, debug.getRevision());
         // never the design's effective revision
-        assertEquals(published.getBundleId(), registry.getActiveByDesignId(DESIGN_A).orElseThrow().getBundleId());
+        assertEquals(published.getBundleId(), registry.getActiveByFlowId(FLOW_A).orElseThrow().getBundleId());
         // hidden from the revision list
-        assertEquals(List.of(1), stubService.listRevisionsByDesignId(DESIGN_A).stream()
+        assertEquals(List.of(1), stubService.listRevisionsByFlowId(FLOW_A).stream()
                 .map(FlowBundle::getRevision).toList());
         // and cannot be activated
         assertThrows(Exception.class, () -> stubService.activateBundle(debug.getBundleId()));
@@ -328,11 +326,11 @@ class OrmFlowBundleRegistryTest {
 
     @Test
     void activateBundle_restoresPreviousRevision() {
-        CompiledFlowDefinition v1 = registry.register(sampleDefinition("rb-flow", null), null, DESIGN_A);
-        registry.register(sampleDefinition("rb-flow", null), null, DESIGN_A);
-        registry.register(sampleDefinition("rb-flow", null), null, DESIGN_A);
+        CompiledFlowDefinition v1 = registry.register(sampleDefinition("rb-flow", null), null, FLOW_A);
+        registry.register(sampleDefinition("rb-flow", null), null, FLOW_A);
+        registry.register(sampleDefinition("rb-flow", null), null, FLOW_A);
 
-        assertEquals(3, registry.getActiveByDesignId(DESIGN_A).orElseThrow().getRevision());
+        assertEquals(3, registry.getActiveByFlowId(FLOW_A).orElseThrow().getRevision());
 
         Optional<FlowBundle> restored = stubService.activateBundle(v1.getBundleId());
         assertTrue(restored.isPresent());
@@ -342,17 +340,16 @@ class OrmFlowBundleRegistryTest {
 
     @Test
     void activateBundle_returnsEmptyForNonexistentBundle() {
-        registry.register(sampleDefinition("rb2-flow", null), null, DESIGN_A);
+        registry.register(sampleDefinition("rb2-flow", null), null, FLOW_A);
         assertTrue(stubService.activateBundle(99999L).isEmpty());
     }
 
     // ==================== Helpers ====================
 
-    private static CompiledFlowDefinition sampleDefinition(String flowCode, Integer revision) {
-        String flowName = Character.toUpperCase(flowCode.charAt(0))
-                + flowCode.substring(1).replace("-", " ").replace("_", " ");
+    private static CompiledFlowDefinition sampleDefinition(String slug, Integer revision) {
+        String flowName = Character.toUpperCase(slug.charAt(0))
+                + slug.substring(1).replace("-", " ").replace("_", " ");
         return CompiledFlowDefinition.builder()
-                .flowCode(flowCode)
                 .flowName(flowName)
                 .scenario(FlowScenario.PROCESS)
                 .compiledAt(LocalDateTime.now())
@@ -420,11 +417,11 @@ class OrmFlowBundleRegistryTest {
                 if (!context.isCrossTenant()) {
                     bundle.setTenantId(context.getTenantId());
                 }
-                // mimic uk_tenant_design_revision: a create colliding on (designId, revision) fails
-                boolean revisionTaken = bundle.getDesignId() != null
-                        && findByDesignIdAndRevision(bundle.getDesignId(), bundle.getRevision()).isPresent();
+                // mimic uk_tenant_flow_revision: a create colliding on (flowId, revision) fails
+                boolean revisionTaken = bundle.getFlowId() != null
+                        && findByFlowIdAndRevision(bundle.getFlowId(), bundle.getRevision()).isPresent();
                 if (revisionTaken) {
-                    throw new DuplicateKeyException("uk_tenant_design_revision");
+                    throw new DuplicateKeyException("uk_tenant_flow_revision");
                 }
                 bundle.setId(idSequence.getAndIncrement());
             }
@@ -432,29 +429,29 @@ class OrmFlowBundleRegistryTest {
         }
 
         @Override
-        public Optional<FlowBundle> findActiveByDesignId(Long designId) {
+        public Optional<FlowBundle> findActiveByFlowId(String flowId) {
             return visibleBundles()
-                    .filter(b -> designId.equals(b.getDesignId())
+                    .filter(b -> flowId.equals(b.getFlowId())
                             && Boolean.TRUE.equals(b.getActive()))
                     .max(Comparator.comparingInt(FlowBundle::getRevision));
         }
 
         @Override
-        public Optional<Long> findActiveBundleId(Long designId) {
-            return findActiveByDesignId(designId).map(FlowBundle::getId);
+        public Optional<Long> findActiveBundleId(String flowId) {
+            return findActiveByFlowId(flowId).map(FlowBundle::getId);
         }
 
         // Fake-internal helper (no longer part of FlowBundleService).
-        private Optional<FlowBundle> findByDesignIdAndRevision(Long designId, Integer revision) {
+        private Optional<FlowBundle> findByFlowIdAndRevision(String flowId, Integer revision) {
             return visibleBundles()
-                    .filter(b -> designId.equals(b.getDesignId()) && revision.equals(b.getRevision()))
+                    .filter(b -> flowId.equals(b.getFlowId()) && revision.equals(b.getRevision()))
                     .findFirst();
         }
 
         @Override
-        public List<FlowBundle> listRevisionsByDesignId(Long designId) {
+        public List<FlowBundle> listRevisionsByFlowId(String flowId) {
             return visibleBundles()
-                    .filter(b -> designId.equals(b.getDesignId()))
+                    .filter(b -> flowId.equals(b.getFlowId()))
                     .filter(b -> !Boolean.TRUE.equals(b.getDebug()))
                     .sorted(Comparator.comparingInt(FlowBundle::getRevision).reversed())
                     .toList();
@@ -464,23 +461,23 @@ class OrmFlowBundleRegistryTest {
         public List<FlowBundle> getAllActiveFlow() {
             activeQueries.merge(ContextHolder.getContext().getTenantId(), 1, Integer::sum);
             return visibleBundles()
-                    .filter(b -> Boolean.TRUE.equals(b.getActive()) && b.getDesignId() != null)
+                    .filter(b -> Boolean.TRUE.equals(b.getActive()) && b.getFlowId() != null)
                     .toList();
         }
 
         @Override
-        public int getNextRevision(Long designId) {
+        public int getNextRevision(String flowId) {
             return visibleBundles()
-                    .filter(b -> designId.equals(b.getDesignId()))
+                    .filter(b -> flowId.equals(b.getFlowId()))
                     .mapToInt(FlowBundle::getRevision)
                     .max()
                     .orElse(0) + 1;
         }
 
         @Override
-        public void markAsActive(Long designId, Integer revision) {
+        public void markAsActive(String flowId, Integer revision) {
             visibleBundles()
-                    .filter(b -> designId.equals(b.getDesignId()))
+                    .filter(b -> flowId.equals(b.getFlowId()))
                     .forEach(b -> b.setActive(revision.equals(b.getRevision())));
         }
 
@@ -492,7 +489,7 @@ class OrmFlowBundleRegistryTest {
             if (Boolean.TRUE.equals(bundle.getDebug())) {
                 throw new IllegalStateException("Debug bundle cannot be activated");
             }
-            markAsActive(bundle.getDesignId(), bundle.getRevision());
+            markAsActive(bundle.getFlowId(), bundle.getRevision());
             return target;
         }
     }

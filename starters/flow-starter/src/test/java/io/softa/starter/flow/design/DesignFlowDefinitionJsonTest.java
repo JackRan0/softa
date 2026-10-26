@@ -22,7 +22,6 @@ class DesignFlowDefinitionJsonTest {
     void shouldDeserializeUsingNewEnumValues() throws Exception {
         String json = """
                 {
-                  "code": "leave-flow",
                   "name": "Leave Flow",
                   "scenario": "Process",
                   "trigger": {
@@ -74,7 +73,6 @@ class DesignFlowDefinitionJsonTest {
     @Test
     void shouldSerializeUsingNewEnumValues() throws Exception {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("leave-flow")
                 .name("Leave Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -103,7 +101,6 @@ class DesignFlowDefinitionJsonTest {
     @Test
     void shouldRoundTripTriggerSourcePolymorphically() throws Exception {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("test-flow")
                 .name("Test Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger("leave-form"))

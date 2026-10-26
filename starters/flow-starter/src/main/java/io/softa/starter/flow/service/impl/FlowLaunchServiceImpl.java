@@ -57,7 +57,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         if (request == null || request.getDefinition() == null) {
             throw new FlowCompileException("definition is required to publish and start a flow");
         }
-        CompiledFlowDefinition published = flowPublishService.publish(request.getDesignId(), request.getDefinition());
+        CompiledFlowDefinition published = flowPublishService.publish(request.getFlowId(), request.getDefinition());
         FlowStartRequest startRequest = new FlowStartRequest();
         startRequest.setBundleId(published.getBundleId());
         startRequest.setInitiatorId(request.getInitiatorId());
@@ -70,21 +70,21 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     }
 
     @Override
-    public FlowLaunchResponse debugRunDraft(Long designId, FlowStartRequest request) {
+    public FlowLaunchResponse debugRunDraft(String flowId, FlowStartRequest request) {
         if (designService == null) {
             throw new FlowCompileException("FlowDesignService is not available; cannot load draft for a debug run");
         }
-        DesignFlowDefinition definition = designService.getById(designId)
+        DesignFlowDefinition definition = designService.getById(flowId)
                 .map(FlowDesign::getDesignJson)
-                .orElseThrow(() -> new FlowCompileException("FlowDesign not found: " + designId));
+                .orElseThrow(() -> new FlowCompileException("FlowDesign not found: " + flowId));
 
         // compile errors carry anchored diagnostics — same surface as /validate
         CompiledFlowDefinition debugBundle = flowBundleRegistry.registerDebug(
-                flowCompiler.compile(definition), definition, designId);
+                flowCompiler.compile(definition), definition, flowId);
 
         LocalDateTime startTime = LocalDateTime.now();
         FlowStartRequest startRequest = request != null ? request : new FlowStartRequest();
-        startRequest.setDesignId(designId);
+        startRequest.setFlowId(flowId);
         startRequest.setBundleId(debugBundle.getBundleId());
         FlowExecutionState state = flowRuntimeEngine.start(startRequest);
 
@@ -103,7 +103,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         try {
             LocalDateTime endTime = LocalDateTime.now();
             FlowDebugHistory history = new FlowDebugHistory();
-            history.setFlowCode(state.getFlowCode());
+            history.setFlowId(state.getFlowId());
             history.setFlowRevision(state.getFlowRevision());
             history.setInstanceId(state.getInstanceId());
             history.setStatus(state.getStatus());

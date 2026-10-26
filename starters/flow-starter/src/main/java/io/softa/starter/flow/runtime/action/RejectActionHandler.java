@@ -78,7 +78,7 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
             }
             pendingApproval.getRejectedActors().add(request.getActorId());
             if (pendingApproval.getRejectedActors().size() < pendingApproval.getRequiredRejectCount()) {
-                auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.WAIT_APPROVAL,
+                auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.WAIT_APPROVAL,
                         auditService.buildPartialRejectMessage(node, pendingApproval, request.getActorId()));
                 auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                         .action(ApprovalActionType.REJECT)
@@ -94,7 +94,7 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
         state.setReturnedApproval(null);
         FlowStatusTransitions.apply(state, FlowExecutionStatus.REJECTED);
         contextService.mergeVariables(state, Map.of("approvalDecision", auditService.buildApprovalDecisionPayload("Rejected", request)));
-        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_REJECTED,
+        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_REJECTED,
                 auditService.buildRejectionMessage(node, request));
         auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.REJECT)

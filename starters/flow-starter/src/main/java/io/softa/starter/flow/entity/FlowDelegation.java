@@ -8,6 +8,7 @@ import lombok.EqualsAndHashCode;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
 
@@ -51,11 +52,14 @@ public class FlowDelegation extends AuditableModel {
     @Field(description = "Whether the rule is active")
     private Boolean active;
 
-    @Field(length = 30, description = "Delegation scope such as All, FlowCode or Node")
+    @Field(length = 30, description = "Delegation scope: All, Flow or Node")
     private String scope;
 
-    @Field(length = 100, description = "Flow code when the scope is flow-specific")
-    private String flowCode;
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = FlowDesign.class, label = "Flow", description = "The flow when the scope is flow- or node-specific")
+    private String flowId;
+
+    @Field(cascadedField = "flowId.flowName", dynamic = true, readonly = true)
+    private String flowName;
 
     @Field(label = "Node ID", length = 100, description = "Node id when the scope is node-specific")
     private String nodeId;

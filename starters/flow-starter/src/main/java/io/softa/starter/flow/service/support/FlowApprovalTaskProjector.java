@@ -61,7 +61,7 @@ public class FlowApprovalTaskProjector {
             }
             FlowApprovalTask task = new FlowApprovalTask();
             task.setInstanceId(state.getInstanceId());
-            task.setFlowCode(entry.getFlowCode() == null ? state.getFlowCode() : entry.getFlowCode());
+            task.setFlowId(entry.getFlowId() == null ? state.getFlowId() : entry.getFlowId());
             task.setFlowRevision(entry.getFlowRevision() == null ? state.getFlowRevision() : entry.getFlowRevision());
             task.setNodeId(entry.getNodeId());
             task.setNodeLabel(entry.getNodeLabel());
@@ -98,7 +98,7 @@ public class FlowApprovalTaskProjector {
                                               ApprovalActionAuditEntry latestAudit) {
         FlowApprovalTask task = new FlowApprovalTask();
         task.setInstanceId(state.getInstanceId());
-        task.setFlowCode(pendingApproval.getFlowCode());
+        task.setFlowId(pendingApproval.getFlowId());
         task.setFlowRevision(pendingApproval.getFlowRevision());
         task.setNodeId(pendingApproval.getNodeId());
         task.setNodeLabel(pendingApproval.getNodeLabel());

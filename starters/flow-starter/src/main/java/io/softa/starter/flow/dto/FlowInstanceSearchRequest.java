@@ -13,11 +13,8 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 @Schema(name = "FlowInstanceSearchRequest")
 public record FlowInstanceSearchRequest(
 
-        @Schema(description = "Filter by flow code")
-        String flowCode,
-
-        @Schema(description = "Filter by design id")
-        Long designId,
+        @Schema(description = "Filter by flow id")
+        String flowId,
 
         @Schema(description = "Filter by execution status")
         FlowExecutionStatus status,

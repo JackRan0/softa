@@ -9,9 +9,8 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 /**
  * Runtime registry for published compiled flow bundles.
  * <p>
- * All lookups are keyed on {@code bundleId} (exact revision) or {@code designId}
- * (stable flow identity). {@code flowCode} is intentionally absent from the registry
- * API: it is not tenant-unique and cannot be used as a reliable lookup key.
+ * All lookups are keyed on {@code bundleId} (exact revision) or {@code flowId}
+ * (stable flow identity).
  * </p>
  * <p>
  * Every lookup answers for the current context: a bundle of another tenant reads as absent,
@@ -29,11 +28,11 @@ public interface FlowBundleRegistry {
      *
      * @param definition compiled definition
      * @param design     original design document (stored for editor restore; may be null)
-     * @param designId   source design id (required for persistent registries; may be null in tests)
+     * @param flowId   the flow id (required for persistent registries; may be null in tests)
      */
     CompiledFlowDefinition register(CompiledFlowDefinition definition,
                                     DesignFlowDefinition design,
-                                    Long designId);
+                                    String flowId);
 
     /** Convenience: publish without a design document. */
     default CompiledFlowDefinition register(CompiledFlowDefinition definition) {
@@ -47,20 +46,20 @@ public interface FlowBundleRegistry {
      */
     default CompiledFlowDefinition registerDebug(CompiledFlowDefinition definition,
                                                  DesignFlowDefinition design,
-                                                 Long designId) {
+                                                 String flowId) {
         throw new UnsupportedOperationException("Debug bundles are not supported by this registry");
     }
 
     /** Look up an exact revision by bundle id (primary runtime key). */
     Optional<CompiledFlowDefinition> getByBundleId(Long bundleId);
 
-    /** Look up the active (currently effective) revision for a design id. */
-    Optional<CompiledFlowDefinition> getActiveByDesignId(Long designId);
+    /** Look up the active (currently effective) revision for a flow id. */
+    Optional<CompiledFlowDefinition> getActiveByFlowId(String flowId);
 
-    /** List all revisions for a design id, ordered by revision descending. */
-    List<CompiledFlowDefinition> listRevisionsByDesignId(Long designId);
+    /** List all revisions for a flow id, ordered by revision descending. */
+    List<CompiledFlowDefinition> listRevisionsByFlowId(String flowId);
 
-    /** The current tenant's active bundles (one per flow design), ordered by flow code. */
+    /** The current tenant's active bundles (one per flow), ordered by flow name. */
     Collection<CompiledFlowDefinition> list();
 
     /**
@@ -79,7 +78,7 @@ public interface FlowBundleRegistry {
      * The active revision of a design changed (rollback / roll-forward): make the new one
      * effective. Default no-op; caching implementations should override.
      */
-    default void refreshActiveForDesignId(Long designId) {
+    default void refreshActiveForFlowId(String flowId) {
     }
 
     /**

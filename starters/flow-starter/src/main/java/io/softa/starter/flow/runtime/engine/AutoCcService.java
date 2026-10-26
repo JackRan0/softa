@@ -52,7 +52,7 @@ public class AutoCcService {
         }
 
         String nodeId = node != null ? node.getNodeId() : null;
-        List<FlowCcConfig> configs = ccConfigService.getActiveConfigs(state.getFlowCode(), nodeId, ccTiming);
+        List<FlowCcConfig> configs = ccConfigService.getActiveConfigs(state.getFlowId(), nodeId, ccTiming);
         if (configs == null || configs.isEmpty()) {
             return;
         }
@@ -95,7 +95,7 @@ public class AutoCcService {
 
         // Add trace
         if (auditService != null && node != null) {
-            auditService.addTrace(state, state.getFlowCode(), node, FlowTraceEventType.APPROVAL_CCED,
+            auditService.addTrace(state, state.getFlowId(), node, FlowTraceEventType.APPROVAL_CCED,
                     "Auto-CC '" + config.getCcName() + "' sent to " + recipientActorIds);
         }
 
@@ -103,7 +103,7 @@ public class AutoCcService {
         if (Boolean.TRUE.equals(config.getSendNotification()) && notificationService != null) {
             String message = config.getMessageTemplate() != null
                     ? config.getMessageTemplate()
-                    : "You have been CC'd on: " + state.getFlowCode();
+                    : "You have been CC'd on: " + (state.getTitle() != null ? state.getTitle() : state.getInstanceId());
             notificationService.notify(new FlowNotificationEvent.CcSent(state,
                     node != null ? node.getNodeId() : null,
                     recipientActorIds, message));

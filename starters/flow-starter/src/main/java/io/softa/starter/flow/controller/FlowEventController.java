@@ -39,7 +39,7 @@ public class FlowEventController {
     @Operation(summary = "Search trigger events",
             description = "Paged trigger event log, newest first. All filters are optional and combine "
                     + "with AND. The trigger-parameters payload is excluded from list rows.")
-    public ApiResponse<Page<FlowEventView>> search(@RequestParam(required = false) String flowCode,
+    public ApiResponse<Page<FlowEventView>> search(@RequestParam(required = false) String flowId,
                                                    @RequestParam(required = false) String sourceModel,
                                                    @RequestParam(required = false) String sourceRowId,
                                                    @RequestParam(required = false) String instanceId,
@@ -53,8 +53,8 @@ public class FlowEventController {
                                                    @RequestParam(defaultValue = "1") Integer pageNumber,
                                                    @RequestParam(defaultValue = "50") Integer pageSize) {
         Filters filters = new Filters();
-        if (flowCode != null) {
-            filters.eq(FlowEvent::getFlowCode, flowCode);
+        if (flowId != null) {
+            filters.eq(FlowEvent::getFlowId, flowId);
         }
         if (sourceModel != null) {
             filters.eq(FlowEvent::getSourceModel, sourceModel);
@@ -98,7 +98,7 @@ public class FlowEventController {
 
     private static FlowEventView toView(FlowEvent event) {
         return new FlowEventView(event.getId(), event.getTriggerType(), event.getSourceModel(),
-                event.getSourceRowId(), event.getActorId(), event.getFlowCode(), event.getFlowRevision(),
+                event.getSourceRowId(), event.getActorId(), event.getFlowId(), event.getFlowRevision(),
                 event.getInstanceId(), event.getSuccess(), event.getErrorMessage(), event.getFireMethod(),
                 event.getEventTime());
     }

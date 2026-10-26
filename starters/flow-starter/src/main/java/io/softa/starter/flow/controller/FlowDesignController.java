@@ -51,13 +51,12 @@ import io.softa.starter.flow.service.FlowVariableCatalogService;
 @Validated
 @RestController
 @RequestMapping("/flow/designs")
-public class FlowDesignController extends EntityController<FlowDesignService, FlowDesign, Long> {
+public class FlowDesignController extends EntityController<FlowDesignService, FlowDesign, String> {
 
     /** Draft list projection — the heavy designJson column is deliberately excluded. */
     private static final List<String> SUMMARY_FIELDS = List.of(
             LambdaUtils.getAttributeName(FlowDesign::getId),
             LambdaUtils.getAttributeName(FlowDesign::getFlowName),
-            LambdaUtils.getAttributeName(FlowDesign::getFlowCode),
             LambdaUtils.getAttributeName(FlowDesign::getScenario),
             LambdaUtils.getAttributeName(FlowDesign::getPublishedRevision),
             LambdaUtils.getAttributeName(FlowDesign::getVersion),
@@ -88,7 +87,7 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
     @GetMapping
     @Operation(summary = "List flow drafts",
             description = "Paged draft list for the editor home. Excludes the canvas document; "
-                    + "keyword matches flow name or code.")
+                    + "keyword matches the flow name.")
     public ApiResponse<Page<FlowDesign>> list(@RequestParam(required = false) String keyword,
                                               @RequestParam(required = false) FlowScenario scenario,
                                               @RequestParam(defaultValue = "1") Integer pageNumber,
@@ -98,9 +97,7 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
             filters.eq(FlowDesign::getScenario, scenario);
         }
         if (keyword != null && !keyword.isBlank()) {
-            filters.and(Filters.or(
-                    new Filters().contains(FlowDesign::getFlowName, keyword),
-                    new Filters().contains(FlowDesign::getFlowCode, keyword)));
+            filters.contains(FlowDesign::getFlowName, keyword);
         }
         FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowDesign::getUpdatedTime));
         query.select(SUMMARY_FIELDS);
@@ -109,7 +106,7 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
 
     @GetMapping("/{id}")
     @Operation(summary = "Get flow draft", description = "Full draft including the canvas document and version.")
-    public ApiResponse<FlowDesign> get(@PathVariable Long id) {
+    public ApiResponse<FlowDesign> get(@PathVariable String id) {
         return ApiResponse.success(service.getById(id).orElse(null));
     }
 
@@ -118,7 +115,7 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
             description = "Stores the canvas document without semantic validation — drafts may be broken. "
                     + "The request must echo the loaded optimistic-lock version; a stale version is rejected "
                     + "so concurrent editor sessions cannot silently overwrite each other.")
-    public ApiResponse<FlowDesign> save(@PathVariable Long id,
+    public ApiResponse<FlowDesign> save(@PathVariable String id,
                                         @Valid @RequestBody FlowDesignSaveRequest request) {
         return ApiResponse.success(service.saveDraft(id, request));
     }
@@ -126,14 +123,14 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
     @PostMapping("/{id}/delete")
     @Operation(summary = "Delete flow draft",
             description = "Deletes the draft by id. Returns false if the draft has been published.")
-    public ApiResponse<Boolean> delete(@PathVariable Long id) {
+    public ApiResponse<Boolean> delete(@PathVariable String id) {
         return ApiResponse.success(service.deleteById(id));
     }
 
     @PostMapping("/{id}/duplicate")
     @Operation(summary = "Duplicate flow draft",
-            description = "Copies the draft under a fresh flow code; publish state is not copied.")
-    public ApiResponse<FlowDesign> duplicate(@PathVariable Long id,
+            description = "Copies the draft under a fresh name; publish state is not copied.")
+    public ApiResponse<FlowDesign> duplicate(@PathVariable String id,
                                              @RequestBody(required = false) FlowDesignDuplicateRequest request) {
         return ApiResponse.success(service.duplicateDesign(id, request));
     }
@@ -152,7 +149,7 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
             description = "Reads the saved draft (single source of truth — no canvas payload accepted), "
                     + "compiles it, and publishes a new active revision. Reload the draft afterwards: "
                     + "publishing updates the draft's publish markers and therefore its version.")
-    public ApiResponse<FlowBundleSummaryView> publish(@PathVariable Long id,
+    public ApiResponse<FlowBundleSummaryView> publish(@PathVariable String id,
                                                       @RequestBody(required = false) FlowPublishRequest request) {
         String changeDescription = request == null ? null : request.changeDescription();
         return ApiResponse.success(flowPublishService.publishDraft(id, changeDescription));
@@ -162,7 +159,7 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
     @Operation(summary = "Restore draft from bundle",
             description = "Overwrites the draft's canvas with the design snapshot stored in the specified "
                     + "published bundle and returns the updated draft.")
-    public ApiResponse<FlowDesign> restore(@PathVariable Long id, @RequestParam Long bundleId) {
+    public ApiResponse<FlowDesign> restore(@PathVariable String id, @RequestParam Long bundleId) {
         return ApiResponse.success(service.restoreFromBundle(id, bundleId));
     }
 
@@ -170,7 +167,7 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
     @Operation(summary = "Get draft publish status",
             description = "Revision badge + dirty flag: dirty is true when the draft differs from the most "
                     + "recently published design.")
-    public ApiResponse<FlowDesignStatusView> status(@PathVariable Long id) {
+    public ApiResponse<FlowDesignStatusView> status(@PathVariable String id) {
         return ApiResponse.success(service.getStatus(id));
     }
 
@@ -179,7 +176,7 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
             description = "Trigger payload keys, outputs declared by upstream nodes, and engine builtins — "
                     + "the data source for expression autocomplete and variableRef pickers. Omit nodeId "
                     + "for trigger + builtin variables only.")
-    public ApiResponse<List<FlowVariableView>> availableVariables(@PathVariable Long id,
+    public ApiResponse<List<FlowVariableView>> availableVariables(@PathVariable String id,
                                                                   @RequestParam(required = false) String nodeId) {
         DesignFlowDefinition definition = service.getById(id)
                 .map(FlowDesign::getDesignJson)
@@ -193,7 +190,7 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
                     + "a debug bundle (never active, hidden from revision lists, purged after retention) and "
                     + "executes it through the normal engine. NOT a sandbox — node side effects are real. "
                     + "Returns the compiled graph plus the execution state for an immediate canvas overlay.")
-    public ApiResponse<FlowLaunchResponse> debugRun(@PathVariable Long id,
+    public ApiResponse<FlowLaunchResponse> debugRun(@PathVariable String id,
                                                     @RequestBody(required = false) FlowStartRequest request) {
         FlowStartRequest startRequest = request != null ? request : new FlowStartRequest();
         startRequest.setInitiatorId(currentUserId());
@@ -204,10 +201,10 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
     @Operation(summary = "List debug-run history",
             description = "Past debug runs of this flow, newest first (trigger payload, node trace, "
                     + "final variables, error).")
-    public ApiResponse<List<FlowDebugHistory>> debugRuns(@PathVariable Long id) {
+    public ApiResponse<List<FlowDebugHistory>> debugRuns(@PathVariable String id) {
         return service.getById(id)
                 .map(design -> ApiResponse.success(
-                        debugHistoryService.listByFlowCode(design.getFlowCode())))
+                        debugHistoryService.listByFlowId(design.getId())))
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                         "FlowDesign not found: " + id));
     }

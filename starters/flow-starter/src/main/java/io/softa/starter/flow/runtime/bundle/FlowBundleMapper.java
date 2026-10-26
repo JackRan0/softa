@@ -39,9 +39,8 @@ public final class FlowBundleMapper {
     public static FlowBundle toEntity(CompiledFlowDefinition definition,
                                       DesignFlowDefinition designDefinition,
                                       FlowBundle existing,
-                                      Long designId) {
+                                      String flowId) {
         FlowBundle entity = existing != null ? existing : new FlowBundle();
-        entity.setFlowCode(definition.getFlowCode());
         entity.setFlowName(definition.getFlowName());
         entity.setRevision(definition.getRevision());
         entity.setScenario(definition.getScenario());
@@ -49,7 +48,7 @@ public final class FlowBundleMapper {
         entity.setRollbackOnFail(definition.getRollbackOnFail());
         entity.setCompiledJson(JsonUtils.objectToString(definition));
         entity.setDesignJson(designDefinition);
-        entity.setDesignId(designId);
+        entity.setFlowId(flowId);
         entity.setCompiledAt(definition.getCompiledAt());
         entity.setPublishedAt(definition.getPublishedAt());
         entity.setActive(true);
@@ -78,7 +77,7 @@ public final class FlowBundleMapper {
         }
         // Stamp the bundle-level identity fields that are not part of the compiled JSON payload.
         def.setBundleId(entity.getId());
-        def.setDesignId(entity.getDesignId());
+        def.setFlowId(entity.getFlowId());
         def.setTenantId(entity.getTenantId());
         // parsedConfig is @JsonIgnore — rebuild the typed config for every node,
         // otherwise handlers pattern-matching on it fail after a registry reload.

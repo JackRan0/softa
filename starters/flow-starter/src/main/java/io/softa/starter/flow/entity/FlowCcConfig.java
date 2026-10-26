@@ -7,6 +7,7 @@ import lombok.EqualsAndHashCode;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.flow.enums.CcTiming;
@@ -20,7 +21,7 @@ import io.softa.starter.flow.enums.CcTiming;
     label = "Flow CC Config",
     idStrategy = IdStrategy.DISTRIBUTED_LONG
 )
-@Index(indexName = "idx_tenant_flow_active", fields = {"tenantId", "flowCode", "active"})
+@Index(indexName = "idx_tenant_flow_active", fields = {"tenantId", "flowId", "active"})
 @EqualsAndHashCode(callSuper = true)
 public class FlowCcConfig extends AuditableModel {
 
@@ -33,8 +34,8 @@ public class FlowCcConfig extends AuditableModel {
     @Field(label = "Tenant ID")
     private Long tenantId;
 
-    @Field(required = true, length = 100)
-    private String flowCode;
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = FlowDesign.class, label = "Flow")
+    private String flowId;
 
     @Field(length = 100, description = "Node id (null for flow-level CC)")
     private String nodeId;

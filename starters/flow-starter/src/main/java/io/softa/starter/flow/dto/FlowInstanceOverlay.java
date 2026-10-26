@@ -32,7 +32,7 @@ public record FlowInstanceOverlay(
         Long bundleId,
 
         @Schema(description = "Source FlowDesign.id")
-        Long designId,
+        String flowId,
 
         @Schema(description = "Published revision")
         Integer revision,
@@ -101,7 +101,7 @@ public record FlowInstanceOverlay(
                     enteredAt.get(state.getFailedNodeId()), null, state.getErrorMessage(), null));
         }
 
-        return new FlowInstanceOverlay(state.getInstanceId(), state.getBundleId(), state.getDesignId(),
+        return new FlowInstanceOverlay(state.getInstanceId(), state.getBundleId(), state.getFlowId(),
                 state.getFlowRevision(), state.getStatus(), state.getErrorMessage(), nodes);
     }
 

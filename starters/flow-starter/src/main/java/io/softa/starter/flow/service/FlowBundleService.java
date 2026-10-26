@@ -8,7 +8,7 @@ import io.softa.starter.flow.entity.FlowBundle;
 /**
  * Service interface for persistent flow bundle CRUD and revision management.
  * <p>
- * All revision-management operations are keyed by {@code designId}
+ * All revision-management operations are keyed by {@code flowId}
  * ({@link io.softa.starter.flow.entity.FlowDesign#getId()}), the stable, globally-unique
  * identity for a flow across revisions and tenants.
  * </p>
@@ -19,12 +19,12 @@ public interface FlowBundleService {
 
     void saveBundle(FlowBundle bundle);
 
-    Optional<FlowBundle> findActiveByDesignId(Long designId);
+    Optional<FlowBundle> findActiveByFlowId(String flowId);
 
     /** Id of the design's active revision, read without the bundle's JSON columns. */
-    Optional<Long> findActiveBundleId(Long designId);
+    Optional<Long> findActiveBundleId(String flowId);
 
-    List<FlowBundle> listRevisionsByDesignId(Long designId);
+    List<FlowBundle> listRevisionsByFlowId(String flowId);
 
     /**
      * All currently active bundles (one per design) of the current tenant, carrying only what
@@ -32,9 +32,9 @@ public interface FlowBundleService {
      */
     List<FlowBundle> getAllActiveFlow();
 
-    int getNextRevision(Long designId);
+    int getNextRevision(String flowId);
 
-    void markAsActive(Long designId, Integer revision);
+    void markAsActive(String flowId, Integer revision);
 
     Optional<FlowBundle> activateBundle(Long bundleId);
 }

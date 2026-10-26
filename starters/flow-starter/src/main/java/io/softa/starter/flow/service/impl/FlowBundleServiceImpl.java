@@ -23,7 +23,7 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
     private static final List<String> DEFINITION_FIELDS = List.of(
             LambdaUtils.getAttributeName(FlowBundle::getId),
             LambdaUtils.getAttributeName(FlowBundle::getTenantId),
-            LambdaUtils.getAttributeName(FlowBundle::getDesignId),
+            LambdaUtils.getAttributeName(FlowBundle::getFlowId),
             LambdaUtils.getAttributeName(FlowBundle::getCompiledJson));
 
     @Override
@@ -33,7 +33,7 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
 
     /**
      * Insert or update a bundle row. A create that collides on
-     * {@code uk_tenant_design_revision} propagates the duplicate-key exception —
+     * {@code uk_tenant_flow_revision} propagates the duplicate-key exception —
      * the registry retries with a fresh revision instead of overwriting the row
      * that won the race.
      */
@@ -48,9 +48,9 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
     }
 
     @Override
-    public Optional<FlowBundle> findActiveByDesignId(Long designId) {
+    public Optional<FlowBundle> findActiveByFlowId(String flowId) {
         Filters filters = new Filters()
-                .eq(FlowBundle::getDesignId, designId)
+                .eq(FlowBundle::getFlowId, flowId)
                 .eq(FlowBundle::getActive, true);
         return this.searchOne(filters);
     }
@@ -61,25 +61,25 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
      */
     @Override
     @SkipPermissionCheck
-    public Optional<Long> findActiveBundleId(Long designId) {
+    public Optional<Long> findActiveBundleId(String flowId) {
         Filters filters = new Filters()
-                .eq(FlowBundle::getDesignId, designId)
+                .eq(FlowBundle::getFlowId, flowId)
                 .eq(FlowBundle::getActive, true);
         FlexQuery query = new FlexQuery(filters).select(FlowBundle::getId);
         return this.searchOne(query).map(FlowBundle::getId);
     }
 
     /** Revision-addressed lookup — internal backbone of {@code markAsActive}. */
-    private Optional<FlowBundle> findByDesignIdAndRevision(Long designId, Integer revision) {
+    private Optional<FlowBundle> findByFlowIdAndRevision(String flowId, Integer revision) {
         Filters filters = new Filters()
-                .eq(FlowBundle::getDesignId, designId)
+                .eq(FlowBundle::getFlowId, flowId)
                 .eq(FlowBundle::getRevision, revision);
         return this.searchOne(filters);
     }
 
     @Override
-    public List<FlowBundle> listRevisionsByDesignId(Long designId) {
-        Filters filters = new Filters().eq(FlowBundle::getDesignId, designId);
+    public List<FlowBundle> listRevisionsByFlowId(String flowId) {
+        Filters filters = new Filters().eq(FlowBundle::getFlowId, flowId);
         return this.searchList(filters).stream()
                 // debug-run bundles are resolvable by id but are not revisions
                 .filter(bundle -> !Boolean.TRUE.equals(bundle.getDebug()))
@@ -95,8 +95,8 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
     }
 
     @Override
-    public int getNextRevision(Long designId) {
-        Filters filters = new Filters().eq(FlowBundle::getDesignId, designId);
+    public int getNextRevision(String flowId) {
+        Filters filters = new Filters().eq(FlowBundle::getFlowId, flowId);
         return this.searchList(filters).stream()
                 .mapToInt(FlowBundle::getRevision)
                 .max()
@@ -105,9 +105,9 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void markAsActive(Long designId, Integer revision) {
+    public void markAsActive(String flowId, Integer revision) {
         Filters activeFilters = new Filters()
-                .eq(FlowBundle::getDesignId, designId)
+                .eq(FlowBundle::getFlowId, flowId)
                 .eq(FlowBundle::getActive, true);
         for (FlowBundle bundle : this.searchList(activeFilters)) {
             if (!revision.equals(bundle.getRevision())) {
@@ -115,7 +115,7 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
                 this.updateOne(bundle, false);
             }
         }
-        findByDesignIdAndRevision(designId, revision).ifPresent(bundle -> {
+        findByFlowIdAndRevision(flowId, revision).ifPresent(bundle -> {
             if (!Boolean.TRUE.equals(bundle.getActive())) {
                 bundle.setActive(true);
                 this.updateOne(bundle, false);
@@ -140,7 +140,7 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
         if (Boolean.TRUE.equals(bundle.getDebug())) {
             throw new FlowRuntimeException("Debug bundle " + bundleId + " cannot be activated");
         }
-        markAsActive(bundle.getDesignId(), bundle.getRevision());
+        markAsActive(bundle.getFlowId(), bundle.getRevision());
         return target;
     }
 }

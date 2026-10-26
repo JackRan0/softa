@@ -18,5 +18,5 @@ public interface FlowLaunchService {
      * and executes it through the normal engine. NOT a sandbox — node side
      * effects (record writes, notifications) are real.
      */
-    FlowLaunchResponse debugRunDraft(Long designId, FlowStartRequest request);
+    FlowLaunchResponse debugRunDraft(String flowId, FlowStartRequest request);
 }

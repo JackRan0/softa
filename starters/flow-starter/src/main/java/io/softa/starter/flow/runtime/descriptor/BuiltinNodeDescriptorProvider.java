@@ -154,7 +154,7 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
 
     private static Map<String, Object> subflowConfigSchema() {
         return ordered(
-                "subflowDesignId", ordered("type", "flowPicker",  "label", "Subflow", "required", true),
+                "subflowId", ordered("type", "flowPicker",  "label", "Subflow", "required", true),
                 "inputMapping",    ordered("type", "keyValueMap", "label", "Input mapping"),
                 "outputVariable",  ordered("type", "string",      "label", "Output variable"),
                 "outputMapping",   ordered("type", "keyValueMap", "label", "Output mapping")

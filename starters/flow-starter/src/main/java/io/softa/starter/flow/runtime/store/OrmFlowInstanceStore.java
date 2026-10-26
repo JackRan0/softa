@@ -69,8 +69,8 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
     }
 
     @Override
-    public List<FlowExecutionState> listByFlowCode(String flowCode) {
-        return instanceService.findByFlowCode(flowCode).stream()
+    public List<FlowExecutionState> listByFlowId(String flowId) {
+        return instanceService.findByFlowId(flowId).stream()
                 .map(FlowExecutionStateMapper::toState)
                 .toList();
     }
@@ -87,7 +87,7 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
         List<FlowExecutionTraceEntry> entries = new ArrayList<>(rows.size());
         for (FlowExecutionTrace row : rows) {
             entries.add(FlowExecutionTraceEntry.builder()
-                    .flowCode(row.getFlowCode())
+                    .flowId(row.getFlowId())
                     .nodeId(row.getNodeId())
                     .flowNodeType(row.getFlowNodeType())
                     .eventType(row.getEventType())
