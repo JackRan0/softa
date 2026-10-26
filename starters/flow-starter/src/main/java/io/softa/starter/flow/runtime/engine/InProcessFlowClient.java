@@ -111,7 +111,7 @@ class InProcessFlowClient implements FlowClient {
     @Override
     public List<FlowInstanceView> myInstances(MineQuery q) {
         return instances.findByInitiatorId(me()).stream()
-                .filter(i -> q == null || q.flowCode() == null || q.flowCode().equals(i.getFlowCode()))
+                .filter(i -> q == null || q.flowId() == null || q.flowId().equals(i.getFlowId()))
                 .filter(i -> q == null || q.status() == null || q.status() == i.getStatus())
                 .map(InProcessFlowClient::toView)
                 .toList();
@@ -222,22 +222,22 @@ class InProcessFlowClient implements FlowClient {
     // ── inbox / task / record queries ───────────────────────────────────────
     @Override
     public FlowInboxView inbox(InboxQuery q) {
-        return inbox.getInbox(me(), q.flowCode(), q.instanceId(), q.nodeId(), q.includeCompletedApprovals());
+        return inbox.getInbox(me(), q.flowId(), q.instanceId(), q.nodeId(), q.includeCompletedApprovals());
     }
 
     @Override
     public List<FlowApprovalTaskView> pendingTasks(TaskQuery q) {
-        return taskQuery.getPendingTasks(me(), q.flowCode(), q.instanceId(), q.nodeId());
+        return taskQuery.getPendingTasks(me(), q.flowId(), q.instanceId(), q.nodeId());
     }
 
     @Override
     public List<FlowApprovalTaskView> completedTasks(TaskQuery q) {
-        return taskQuery.getCompletedTasks(me(), q.flowCode(), q.instanceId(), q.nodeId());
+        return taskQuery.getCompletedTasks(me(), q.flowId(), q.instanceId(), q.nodeId());
     }
 
     @Override
     public List<FlowApprovalTaskView> ccTasks(CcTaskQuery q) {
-        return taskQuery.getCcTasks(me(), q.read(), q.flowCode(), q.instanceId(), q.nodeId());
+        return taskQuery.getCcTasks(me(), q.read(), q.flowId(), q.instanceId(), q.nodeId());
     }
 
     @Override
@@ -253,12 +253,12 @@ class InProcessFlowClient implements FlowClient {
     @Override
     public List<FlowApprovalRecordView> approvalHistory(TaskQuery q) {
         // History is paged now; the in-process convenience returns the newest page.
-        return recordQuery.getHistory(me(), q.flowCode(), q.instanceId(), q.nodeId(), null, null).getRows();
+        return recordQuery.getHistory(me(), q.flowId(), q.instanceId(), q.nodeId(), null, null).getRows();
     }
 
     @Override
     public List<FlowSentCcView> sentCcHistory(CcTaskQuery q) {
-        return recordQuery.getSentCcHistory(me(), q.read(), q.flowCode(), q.instanceId(), q.nodeId());
+        return recordQuery.getSentCcHistory(me(), q.read(), q.flowId(), q.instanceId(), q.nodeId());
     }
 
     // ── palette ─────────────────────────────────────────────────────────────
@@ -270,7 +270,7 @@ class InProcessFlowClient implements FlowClient {
     }
 
     private static FlowInstanceView toView(FlowInstance i) {
-        return new FlowInstanceView(i.getInstanceId(), i.getFlowCode(), i.getTitle(),
+        return new FlowInstanceView(i.getInstanceId(), i.getFlowId(), i.getFlowName(), i.getTitle(),
                 i.getStatus(), i.getResubmissionCount(), i.getCreatedTime());
     }
 }

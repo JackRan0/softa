@@ -40,11 +40,11 @@ public class FlowBundleController {
 
     @GetMapping
     @Operation(summary = "List bundles",
-            description = "With designId: all published revisions of that design, newest first. "
+            description = "With flowId: all published revisions of that design, newest first. "
                     + "Without: the currently active bundle of every design of the caller's tenant.")
-    public ApiResponse<List<FlowBundleSummaryView>> list(@RequestParam(required = false) Long designId) {
-        var definitions = designId != null
-                ? bundleRegistry.listRevisionsByDesignId(designId)
+    public ApiResponse<List<FlowBundleSummaryView>> list(@RequestParam(required = false) String flowId) {
+        var definitions = flowId != null
+                ? bundleRegistry.listRevisionsByFlowId(flowId)
                 : bundleRegistry.list();
         return ApiResponse.success(definitions.stream().map(FlowBundleViews::summarize).toList());
     }

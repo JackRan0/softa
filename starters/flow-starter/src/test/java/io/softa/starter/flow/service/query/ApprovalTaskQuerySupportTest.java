@@ -128,7 +128,7 @@ class ApprovalTaskQuerySupportTest {
 
     private static FlowApprovalTask task(Long id,
                                          String actorId,
-                                         String flowCode,
+                                         String flowId,
                                          String instanceId,
                                          String nodeId,
                                          FlowApprovalTaskStatus status,
@@ -137,7 +137,7 @@ class ApprovalTaskQuerySupportTest {
         var task = new FlowApprovalTask();
         task.setId(id);
         task.setActorId(actorId);
-        task.setFlowCode(flowCode);
+        task.setFlowId(flowId);
         task.setInstanceId(instanceId);
         task.setNodeId(nodeId);
         task.setStatus(status);
@@ -149,13 +149,13 @@ class ApprovalTaskQuerySupportTest {
 
     private static FlowApprovalTask ccTask(Long id,
                                            String actorId,
-                                           String flowCode,
+                                           String flowId,
                                            String instanceId,
                                            String nodeId,
                                            FlowApprovalTaskStatus status,
                                            LocalDateTime startTime,
                                            LocalDateTime endTime) {
-        var task = task(id, actorId, flowCode, instanceId, nodeId, status, startTime, endTime);
+        var task = task(id, actorId, flowId, instanceId, nodeId, status, startTime, endTime);
         task.setTaskType(FlowApprovalTaskType.CC);
         return task;
     }

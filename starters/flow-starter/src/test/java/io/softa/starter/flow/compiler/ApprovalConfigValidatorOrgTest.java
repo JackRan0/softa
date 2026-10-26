@@ -128,7 +128,6 @@ class ApprovalConfigValidatorOrgTest {
 
     private DesignFlowDefinition flowWithApproverSource(Map<String, Object> approverSource) {
         return DesignFlowDefinition.builder()
-                .code("org-approval-test")
                 .name("Org Approval Test")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))

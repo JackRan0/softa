@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
  */
 class FlowActionReplayTest {
 
-    private static final Long DESIGN_ID = 7600L;
+    private static final String FLOW_ID = "7600";
     private static final String X = "manager-1";
 
     private final DefaultFlowCompiler compiler = new DefaultFlowCompiler();
@@ -49,12 +49,12 @@ class FlowActionReplayTest {
 
     @BeforeEach
     void publishFlow() {
-        publishService.publish(DESIGN_ID, singleApproverFlow());
+        publishService.publish(FLOW_ID, singleApproverFlow());
     }
 
     private FlowExecutionState start() {
         FlowStartRequest start = new FlowStartRequest();
-        start.setDesignId(DESIGN_ID);
+        start.setFlowId(FLOW_ID);
         start.setInitiatorId("initiator-1");
         FlowExecutionState state = engine.start(start);
         assertEquals(FlowExecutionStatus.WAITING, state.getStatus());
@@ -91,7 +91,6 @@ class FlowActionReplayTest {
 
     private static DesignFlowDefinition singleApproverFlow() {
         return DesignFlowDefinition.builder()
-                .code("replay-flow")
                 .name("Replay Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))

@@ -48,9 +48,9 @@ class ApproverDedupScenarioTest {
             approvalHandler);
 
     /** Start, approve node1 (X), then node2 (Y); return the state after node2's approval. */
-    private FlowExecutionState startApproveX1ThenY2(Long designId) {
+    private FlowExecutionState startApproveX1ThenY2(String flowId) {
         FlowStartRequest start = new FlowStartRequest();
-        start.setDesignId(designId);
+        start.setFlowId(flowId);
         start.setInitiatorId("initiator-1");
         FlowExecutionState started = engine.start(start);
         assertEquals(FlowExecutionStatus.WAITING, started.getStatus());
@@ -71,31 +71,30 @@ class ApproverDedupScenarioTest {
 
     @Test
     void globalAutoApprovesNonContiguousSameApprover() {
-        publishService.publish(7401L, threeNodeFlow(ApproverDedupStrategy.GLOBAL));
-        FlowExecutionState after = startApproveX1ThenY2(7401L);
+        publishService.publish("7401", threeNodeFlow(ApproverDedupStrategy.GLOBAL));
+        FlowExecutionState after = startApproveX1ThenY2("7401");
         assertEquals(FlowExecutionStatus.COMPLETED, after.getStatus(),
                 "GLOBAL: X already approved ap1, so ap3 (X) auto-approves and the flow completes");
     }
 
     @Test
     void contiguousDoesNotAutoApproveNonContiguousSameApprover() {
-        publishService.publish(7402L, threeNodeFlow(ApproverDedupStrategy.CONTIGUOUS));
-        FlowExecutionState after = startApproveX1ThenY2(7402L);
+        publishService.publish("7402", threeNodeFlow(ApproverDedupStrategy.CONTIGUOUS));
+        FlowExecutionState after = startApproveX1ThenY2("7402");
         assertEquals(FlowExecutionStatus.WAITING, after.getStatus(),
                 "CONTIGUOUS: the node before ap3 was Y's, not X's, so ap3 must still wait for X");
     }
 
     @Test
     void noneRequiresApprovalAtEveryNode() {
-        publishService.publish(7403L, threeNodeFlow(ApproverDedupStrategy.NONE));
-        FlowExecutionState after = startApproveX1ThenY2(7403L);
+        publishService.publish("7403", threeNodeFlow(ApproverDedupStrategy.NONE));
+        FlowExecutionState after = startApproveX1ThenY2("7403");
         assertEquals(FlowExecutionStatus.WAITING, after.getStatus(),
                 "NONE: ap3 must wait for X regardless of prior approvals");
     }
 
     private static DesignFlowDefinition threeNodeFlow(ApproverDedupStrategy dedup) {
         return DesignFlowDefinition.builder()
-                .code("dedup-" + dedup)
                 .name("Approver Dedup " + dedup)
                 .scenario(FlowScenario.PROCESS)
                 .approverDedup(dedup)

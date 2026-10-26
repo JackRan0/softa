@@ -26,7 +26,6 @@ class FlowVariableCatalogServiceTest {
     @Test
     void availableVariables_collectsOnlyUpstreamOutputs() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("var-flow")
                 .name("Var Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))
@@ -64,7 +63,6 @@ class FlowVariableCatalogServiceTest {
     @Test
     void availableVariables_withoutNodeIdReturnsTriggerAndBuiltinsOnly() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .code("var-flow")
                 .name("Var Flow")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))

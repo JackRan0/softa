@@ -10,9 +10,9 @@ import lombok.EqualsAndHashCode;
  * Resolution priority:
  * <ol>
  *   <li>{@code bundleId} — start this exact published revision (pinned).</li>
- *   <li>{@code designId} — start the current (active) revision of a flow design.</li>
+ *   <li>{@code flowId} — start the current (active) revision of a flow.</li>
  * </ol>
- * {@code designId} is the {@link io.softa.starter.flow.entity.FlowDesign#getId()} distributed ID,
+ * {@code flowId} is the {@link io.softa.starter.flow.entity.FlowDesign#getId()} distributed ID,
  * which is globally unique and tenant-collision-free. To start a specific historical revision,
  * look up its {@code bundleId} via the revisions listing endpoint and pass that instead.
  */
@@ -21,10 +21,10 @@ import lombok.EqualsAndHashCode;
 @Schema(name = "FlowStartRequest")
 public class FlowStartRequest extends AbstractFlowLaunchContextRequest {
 
-    @Schema(description = "Flow design id (stable flow identity, globally unique)")
-    private Long designId;
+    @Schema(description = "Flow id (stable flow identity, globally unique)")
+    private String flowId;
 
-    @Schema(description = "Optional: pinned bundle id; if set, designId is ignored")
+    @Schema(description = "Optional: pinned bundle id; if set, flowId is ignored")
     private Long bundleId;
 
     @Schema(description = "Instance title for display and search")

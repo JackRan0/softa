@@ -14,12 +14,8 @@ import io.softa.starter.flow.enums.FlowScenario;
 public record FlowDesignCreateRequest(
 
         @NotBlank
-        @Schema(description = "Flow display name")
+        @Schema(description = "Flow name, unique within the tenant")
         String flowName,
-
-        @NotBlank
-        @Schema(description = "Flow code (business identifier, unique per tenant, immutable after create)")
-        String flowCode,
 
         @NotNull
         @Schema(description = "Execution scenario")

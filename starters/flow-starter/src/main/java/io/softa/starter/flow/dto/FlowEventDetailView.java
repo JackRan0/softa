@@ -28,8 +28,8 @@ public record FlowEventDetailView(
         @Schema(description = "Actor who triggered the event")
         String actorId,
 
-        @Schema(description = "Flow code of the matched and started flow")
-        String flowCode,
+        @Schema(description = "ID of the matched and started flow")
+        String flowId,
 
         @Schema(description = "Flow revision that was started")
         Integer flowRevision,
@@ -55,7 +55,7 @@ public record FlowEventDetailView(
 
     public static FlowEventDetailView of(FlowEvent event) {
         return new FlowEventDetailView(event.getId(), event.getTriggerType(), event.getSourceModel(),
-                event.getSourceRowId(), event.getActorId(), event.getFlowCode(), event.getFlowRevision(),
+                event.getSourceRowId(), event.getActorId(), event.getFlowId(), event.getFlowRevision(),
                 event.getInstanceId(), event.getSuccess(), event.getErrorMessage(), event.getFireMethod(),
                 event.getEventTime(), event.getParameters());
     }

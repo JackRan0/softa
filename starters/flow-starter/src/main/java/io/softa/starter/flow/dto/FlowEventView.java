@@ -27,8 +27,8 @@ public record FlowEventView(
         @Schema(description = "Actor who triggered the event")
         String actorId,
 
-        @Schema(description = "Flow code of the matched and started flow")
-        String flowCode,
+        @Schema(description = "ID of the matched and started flow")
+        String flowId,
 
         @Schema(description = "Flow revision that was started")
         Integer flowRevision,

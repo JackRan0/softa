@@ -60,7 +60,7 @@ class FlowScenarioEvaluationTest {
 
     @Test
     void computeFlowEvaluatesTransientlyThroughOnchange() {
-        publishService.publish(9101L, computeFlow());
+        publishService.publish("9101", computeFlow());
 
         FlowOnchangeRequest request = new FlowOnchangeRequest();
         request.setSourceModel("Order");
@@ -71,12 +71,12 @@ class FlowScenarioEvaluationTest {
 
         assertEquals(20L, ((Number) diff.get("totalAmount")).longValue());
         // Transient evaluation: no instance row exists after the onchange round-trip.
-        assertTrue(instanceStore.listByFlowCode("compute-total").isEmpty());
+        assertTrue(instanceStore.listByFlowId("9101").isEmpty());
     }
 
     @Test
     void validationFlowEvaluatesTransientlyAndReturnsDeclaredOutputs() {
-        publishService.publish(9102L, validationFlow());
+        publishService.publish("9102", validationFlow());
 
         FlowValidationRequest request = new FlowValidationRequest();
         request.setSourceModel("Order");
@@ -84,16 +84,16 @@ class FlowScenarioEvaluationTest {
 
         Map<String, Map<String, Object>> outputs = automationService.evaluateValidation(request);
 
-        assertEquals(Boolean.FALSE, outputs.get("validate-amount").get("valid"));
-        assertTrue(instanceStore.listByFlowCode("validate-amount").isEmpty());
+        assertEquals(Boolean.FALSE, outputs.get("9102").get("valid"));
+        assertTrue(instanceStore.listByFlowId("9102").isEmpty());
     }
 
     @Test
     void evaluateRejectsProcessScenarioBundles() {
-        publishService.publish(9103L, processFlow());
+        publishService.publish("9103", processFlow());
 
         FlowStartRequest request = new FlowStartRequest();
-        request.setDesignId(9103L);
+        request.setFlowId("9103");
         request.setInitiatorId("user-1");
 
         assertThrows(FlowActionValidationException.class, () -> runtimeEngine.evaluate(request));
@@ -101,7 +101,6 @@ class FlowScenarioEvaluationTest {
 
     private static DesignFlowDefinition computeFlow() {
         return DesignFlowDefinition.builder()
-                .code("compute-total")
                 .name("Compute Total")
                 .scenario(FlowScenario.COMPUTE)
                 .trigger(new FieldChangeTrigger("Order", List.of()))
@@ -122,7 +121,6 @@ class FlowScenarioEvaluationTest {
 
     private static DesignFlowDefinition validationFlow() {
         return DesignFlowDefinition.builder()
-                .code("validate-amount")
                 .name("Validate Amount")
                 .scenario(FlowScenario.VALIDATION)
                 .trigger(new EntityChangeTrigger("Order", List.of(), null))
@@ -143,7 +141,6 @@ class FlowScenarioEvaluationTest {
 
     private static DesignFlowDefinition processFlow() {
         return DesignFlowDefinition.builder()
-                .code("plain-process")
                 .name("Plain Process")
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))

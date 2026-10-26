@@ -100,7 +100,7 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
                 .build());
         contextService.mergeVariables(state, Map.of("returnDecision",
                 auditService.buildReturnDecisionPayload(request, node, state.getInitiatorId(), target, null)));
-        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_RETURNED,
+        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_RETURNED,
                 auditService.buildReturnMessage(node, request, target, state.getInitiatorId(), null));
         auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.RETURN)
@@ -130,9 +130,9 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
         FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
         contextService.mergeVariables(state, Map.of("returnDecision",
                 auditService.buildReturnDecisionPayload(request, node, null, target, targetNode)));
-        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_RETURNED,
+        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_RETURNED,
                 auditService.buildReturnMessage(node, request, target, null, targetNode));
-        auditService.addTrace(state, definition.getFlowCode(), targetNode, FlowTraceEventType.WAIT_APPROVAL,
+        auditService.addTrace(state, definition.getFlowId(), targetNode, FlowTraceEventType.WAIT_APPROVAL,
                 "Waiting for approval at node " + targetNode.getNodeId() + " after return from " + node.getNodeId());
         auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.RETURN)
@@ -169,9 +169,9 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
         FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
         contextService.mergeVariables(state, Map.of("returnDecision",
                 auditService.buildReturnDecisionPayload(request, node, null, target, targetNode)));
-        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_RETURNED,
+        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_RETURNED,
                 auditService.buildReturnMessage(node, request, target, null, targetNode));
-        auditService.addTrace(state, definition.getFlowCode(), targetNode, FlowTraceEventType.WAIT_APPROVAL,
+        auditService.addTrace(state, definition.getFlowId(), targetNode, FlowTraceEventType.WAIT_APPROVAL,
                 "Waiting for approval at node " + targetNode.getNodeId() + " after return from " + node.getNodeId());
         auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.RETURN)

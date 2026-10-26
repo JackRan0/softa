@@ -25,11 +25,10 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
     copyable = false
 )
 @Index(indexName = "uk_instance_id", fields = {"instanceId"}, unique = true)
-@Index(indexName = "idx_tenant_flow_status", fields = {"tenantId", "flowCode", "status"})
+@Index(indexName = "idx_tenant_flow_status", fields = {"tenantId", "flowId", "status"})
 @Index(indexName = "idx_tenant_status_fire", fields = {"tenantId", "status", "nextFireAt"})
 @Index(indexName = "idx_tenant_initiator_status", fields = {"tenantId", "initiatorId", "status"})
 @Index(indexName = "idx_tenant_model_row", fields = {"tenantId", "modelName", "rowId"})
-@Index(indexName = "idx_tenant_design", fields = {"tenantId", "designId"})
 @EqualsAndHashCode(callSuper = true)
 public class FlowInstance extends AuditableModel {
 
@@ -52,11 +51,11 @@ public class FlowInstance extends AuditableModel {
             + "required to resolve the definition for approval/resume actions after a DB reload")
     private Long bundleId;
 
-    @Field(label = "Design ID", description = "Source FlowDesign.id (stable flow handle)")
-    private Long designId;
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = FlowDesign.class, label = "Flow", description = "The flow this instance runs (stable flow handle)")
+    private String flowId;
 
-    @Field(length = 100, required = true, description = "Flow code")
-    private String flowCode;
+    @Field(cascadedField = "flowId.flowName", dynamic = true, readonly = true)
+    private String flowName;
 
     @Field(description = "Published flow revision")
     private Integer flowRevision;

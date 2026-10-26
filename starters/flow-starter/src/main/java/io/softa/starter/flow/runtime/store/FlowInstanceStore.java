@@ -29,9 +29,9 @@ public interface FlowInstanceStore {
     }
 
     /**
-     * List all instances matching the given flow code (trace not hydrated).
+     * List all instances of the given flow (trace not hydrated).
      */
-    List<FlowExecutionState> listByFlowCode(String flowCode);
+    List<FlowExecutionState> listByFlowId(String flowId);
 
     /**
      * List all instances matching the given execution status (trace not hydrated).

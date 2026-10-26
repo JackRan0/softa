@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
  *
  * <pre>{@code
  * {
- *   "subflowDesignId": 1234567890,
+ *   "subflowId": 1234567890,
  *   "inputMapping": {
  *     "reviewerId": "{{ currentUser }}",
  *     "docId": "{{ documentId }}"
@@ -34,8 +34,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class SubflowNodeConfig {
 
-    /** Design id of the subflow to invoke (globally unique, tenant-safe). */
-    private Long subflowDesignId;
+    /** Flow id of the subflow to invoke (globally unique, tenant-safe). */
+    private String subflowId;
 
     /**
      * Maps child-flow {@code input} keys to AviatorScript expressions evaluated

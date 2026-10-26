@@ -14,7 +14,7 @@ import io.softa.framework.base.context.Context;
 public class FlowAsyncTaskMessage {
 
     private String instanceId;
-    private String flowCode;
+    private String flowId;
     private String nodeId;
     private String asyncTaskHandlerCode;
     private Map<String, Object> asyncTaskParams;

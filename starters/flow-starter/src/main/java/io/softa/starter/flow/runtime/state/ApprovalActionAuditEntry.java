@@ -30,8 +30,8 @@ public class ApprovalActionAuditEntry {
     @Schema(description = "Audit event time")
     private LocalDateTime eventTime;
 
-    @Schema(description = "Flow code")
-    private String flowCode;
+    @Schema(description = "Flow ID")
+    private String flowId;
 
     @Schema(description = "Resolved flow revision")
     private Integer flowRevision;

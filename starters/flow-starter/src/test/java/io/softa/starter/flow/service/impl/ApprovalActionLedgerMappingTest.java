@@ -25,14 +25,14 @@ class ApprovalActionLedgerMappingTest {
         LocalDateTime eventTime = LocalDateTime.now().minusMinutes(2);
         FlowExecutionState state = FlowExecutionState.builder()
                 .instanceId("instance-42")
-                .flowCode("leave-flow")
+                .flowId("leave-flow")
                 .flowRevision(5)
                 .build();
         ApprovalActionAuditEntry entry = ApprovalActionAuditEntry.builder()
                 .action(ApprovalActionType.RETURN)
                 .cycleNumber(2)
                 .eventTime(eventTime)
-                .flowCode("leave-flow")
+                .flowId("leave-flow")
                 .flowRevision(5)
                 .nodeId("managerApproval")
                 .nodeLabel("Manager Approval")
@@ -53,7 +53,7 @@ class ApprovalActionLedgerMappingTest {
         assertEquals(7, restored.getSequence());
         assertEquals(ApprovalActionType.RETURN, restored.getAction());
         assertEquals(eventTime, restored.getEventTime());
-        assertEquals("leave-flow", restored.getFlowCode());
+        assertEquals("leave-flow", restored.getFlowId());
         assertEquals(5, restored.getFlowRevision());
         assertEquals("managerApproval", restored.getNodeId());
         assertEquals("Manager Approval", restored.getNodeLabel());
@@ -71,7 +71,7 @@ class ApprovalActionLedgerMappingTest {
     void entryFlowIdentityFallsBackToState() {
         FlowExecutionState state = FlowExecutionState.builder()
                 .instanceId("instance-9")
-                .flowCode("expense")
+                .flowId("expense")
                 .flowRevision(3)
                 .build();
         ApprovalActionAuditEntry bare = ApprovalActionAuditEntry.builder()
@@ -80,7 +80,7 @@ class ApprovalActionLedgerMappingTest {
 
         FlowApprovalRecord record = FlowApprovalRecordServiceImpl.toRecord(state, bare);
 
-        assertEquals("expense", record.getFlowCode());
+        assertEquals("expense", record.getFlowId());
         assertEquals(3, record.getFlowRevision());
         assertNull(record.getSequence());
     }

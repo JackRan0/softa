@@ -18,8 +18,8 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 @Schema(name = "FlowTriggerResult")
 public class FlowTriggerResult {
 
-    @Schema(description = "Flow code that was triggered")
-    private String flowCode;
+    @Schema(description = "ID of the triggered flow")
+    private String flowId;
 
     @Schema(description = "Whether the flow was triggered successfully")
     private boolean success;

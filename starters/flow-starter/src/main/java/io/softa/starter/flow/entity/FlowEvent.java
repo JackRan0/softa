@@ -23,7 +23,7 @@ import io.softa.framework.orm.entity.AuditableModel;
     idStrategy = IdStrategy.DISTRIBUTED_LONG,
     copyable = false
 )
-@Index(fields = {"tenantId", "flowCode"})
+@Index(fields = {"tenantId", "flowId"})
 @Index(fields = {"tenantId", "instanceId"})
 @Index(indexName = "idx_tenant_source", fields = {"tenantId", "sourceModel", "sourceRowId"})
 @EqualsAndHashCode(callSuper = true)
@@ -52,9 +52,9 @@ public class FlowEvent extends AuditableModel {
     @Field(label = "Actor ID", description = "Actor who triggered the event")
     private String actorId;
 
-    @Field(length = 100,
-            description = "Flow code of the matched and started flow")
-    private String flowCode;
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = FlowDesign.class, label = "Flow",
+            description = "The matched and started flow")
+    private String flowId;
 
     @Field(description = "Flow revision that was started")
     private Integer flowRevision;

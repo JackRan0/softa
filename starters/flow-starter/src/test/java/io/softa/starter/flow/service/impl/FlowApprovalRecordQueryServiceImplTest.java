@@ -116,7 +116,7 @@ class FlowApprovalRecordQueryServiceImplTest {
     private FlowApprovalRecord record(Long id,
                                              Integer sequence,
                                              String actorId,
-                                             String flowCode,
+                                             String flowId,
                                              String instanceId,
                                              String nodeId,
                                              ApprovalActionType action,
@@ -128,7 +128,7 @@ class FlowApprovalRecordQueryServiceImplTest {
         record.setId(id);
         record.setSequence(sequence);
         record.setActorId(actorId);
-        record.setFlowCode(flowCode);
+        record.setFlowId(flowId);
         record.setInstanceId(instanceId);
         record.setNodeId(nodeId);
         record.setAction(action);

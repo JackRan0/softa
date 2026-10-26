@@ -35,7 +35,7 @@ class ApproverDedupServiceTest {
     private static final String Y = "y";
 
     private static CompiledFlowDefinition def(ApproverDedupStrategy strategy) {
-        return CompiledFlowDefinition.builder().flowCode("f").approverDedup(strategy).build();
+        return CompiledFlowDefinition.builder().flowId("f").approverDedup(strategy).build();
     }
 
     private static CompiledFlowNode node(String id) {

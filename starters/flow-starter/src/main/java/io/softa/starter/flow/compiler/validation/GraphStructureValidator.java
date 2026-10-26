@@ -18,7 +18,7 @@ import io.softa.starter.flow.enums.FlowScenario;
  */
 public class GraphStructureValidator implements FlowValidator {
 
-    private static final String MISSING_FLOW_CODE         = "MISSING_FLOW_CODE";
+    private static final String MISSING_DEFINITION        = "MISSING_DEFINITION";
     private static final String MISSING_FLOW_NAME         = "MISSING_FLOW_NAME";
     private static final String MISSING_SCENARIO          = "MISSING_SCENARIO";
     private static final String EMPTY_GRAPH               = "EMPTY_GRAPH";
@@ -55,11 +55,8 @@ public class GraphStructureValidator implements FlowValidator {
 
     private void validateDefinition(DesignFlowDefinition definition, List<CompileDiagnostic> d) {
         if (definition == null) {
-            d.add(CompileDiagnostic.flowLevel(MISSING_FLOW_CODE, "Flow definition cannot be null"));
+            d.add(CompileDiagnostic.flowLevel(MISSING_DEFINITION, "Flow definition cannot be null"));
             return;
-        }
-        if (!StringUtils.hasText(definition.getCode())) {
-            d.add(CompileDiagnostic.flowLevel(MISSING_FLOW_CODE, "Flow code is required"));
         }
         if (!StringUtils.hasText(definition.getName())) {
             d.add(CompileDiagnostic.flowLevel(MISSING_FLOW_NAME, "Flow name is required"));

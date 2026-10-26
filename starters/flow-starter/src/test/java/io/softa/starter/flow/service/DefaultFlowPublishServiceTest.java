@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DefaultFlowPublishServiceTest {
 
-    private static final Long DESIGN_ID = 42L;
+    private static final String FLOW_ID = "42";
 
     private final DefaultFlowCompiler compiler = new DefaultFlowCompiler();
     private final StubFlowBundleRegistry bundleRegistry = new StubFlowBundleRegistry();
@@ -39,22 +39,22 @@ class DefaultFlowPublishServiceTest {
 
     @Test
     void shouldPublishRevisionsAndExposeLatestBundle() {
-        CompiledFlowDefinition v1 = publishService.publish(DESIGN_ID, flowDefinition("publishable-flow", Map.of("route", "v1")));
-        CompiledFlowDefinition v2 = publishService.publish(DESIGN_ID, flowDefinition("publishable-flow", Map.of("route", "v2")));
+        CompiledFlowDefinition v1 = publishService.publish(FLOW_ID, flowDefinition("publishable-flow", Map.of("route", "v1")));
+        CompiledFlowDefinition v2 = publishService.publish(FLOW_ID, flowDefinition("publishable-flow", Map.of("route", "v2")));
 
         assertEquals(1, v1.getRevision());
         assertEquals(2, v2.getRevision());
         // Revision reads live on the bundle registry (REST: /flow/bundles).
-        assertEquals("v2", bundleRegistry.getActiveByDesignId(DESIGN_ID).orElseThrow().getFlowName());
-        assertEquals(List.of(2, 1), bundleRegistry.listRevisionsByDesignId(DESIGN_ID).stream()
+        assertEquals("v2", bundleRegistry.getActiveByFlowId(FLOW_ID).orElseThrow().getFlowName());
+        assertEquals(List.of(2, 1), bundleRegistry.listRevisionsByFlowId(FLOW_ID).stream()
                 .map(CompiledFlowDefinition::getRevision).toList());
         assertNotNull(v2.getPublishedAt());
     }
 
     @Test
-    void shouldStartLatestPublishedBundleByDesignId() {
-        publishService.publish(DESIGN_ID, flowDefinition("latest-flow", Map.of("route", "old")));
-        publishService.publish(DESIGN_ID, flowDefinition("latest-flow", Map.of("route", "latest")));
+    void shouldStartLatestPublishedBundleByFlowId() {
+        publishService.publish(FLOW_ID, flowDefinition("latest-flow", Map.of("route", "old")));
+        publishService.publish(FLOW_ID, flowDefinition("latest-flow", Map.of("route", "latest")));
 
         DefaultTaskExecutorRegistry taskExecutorRegistry = new DefaultTaskExecutorRegistry(List.of(
                 new EchoServiceTaskExecutor(),
@@ -78,7 +78,7 @@ class DefaultFlowPublishServiceTest {
         );
 
         FlowStartRequest request = new FlowStartRequest();
-        request.setDesignId(DESIGN_ID);
+        request.setFlowId(FLOW_ID);
         FlowExecutionState state = runtimeEngine.start(request);
 
         assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus());
@@ -92,7 +92,6 @@ class DefaultFlowPublishServiceTest {
         Map<String, Object> serviceInput = Map.of(
                 "beanName", "echoService", "methodName", "run", "route", taskInput.get("route"));
         return DesignFlowDefinition.builder()
-                .code(code)
                 .name(flowName)
                 .scenario(FlowScenario.PROCESS)
                 .trigger(new ApiTrigger(null))

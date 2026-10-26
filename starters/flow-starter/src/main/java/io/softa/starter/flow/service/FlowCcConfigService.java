@@ -13,7 +13,7 @@ public interface FlowCcConfigService {
     /**
      * Get active CC configurations matching the given flow, node, and timing.
      */
-    List<FlowCcConfig> getActiveConfigs(String flowCode, String nodeId, CcTiming ccTiming);
+    List<FlowCcConfig> getActiveConfigs(String flowId, String nodeId, CcTiming ccTiming);
 
     /**
      * Create a CC configuration.
@@ -21,9 +21,9 @@ public interface FlowCcConfigService {
     FlowCcConfig createConfig(FlowCcConfig config);
 
     /**
-     * List all CC configurations for a flow code.
+     * List all CC configurations for a flow.
      */
-    List<FlowCcConfig> listByFlowCode(String flowCode);
+    List<FlowCcConfig> listByFlowId(String flowId);
 
     /**
      * Deactivate a CC configuration.

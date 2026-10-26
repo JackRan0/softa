@@ -29,8 +29,8 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             LambdaUtils.getAttributeName(FlowInstance::getId),
             LambdaUtils.getAttributeName(FlowInstance::getInstanceId),
             LambdaUtils.getAttributeName(FlowInstance::getBundleId),
-            LambdaUtils.getAttributeName(FlowInstance::getDesignId),
-            LambdaUtils.getAttributeName(FlowInstance::getFlowCode),
+            LambdaUtils.getAttributeName(FlowInstance::getFlowId),
+            LambdaUtils.getAttributeName(FlowInstance::getFlowName),
             LambdaUtils.getAttributeName(FlowInstance::getFlowRevision),
             LambdaUtils.getAttributeName(FlowInstance::getTitle),
             LambdaUtils.getAttributeName(FlowInstance::getModelName),
@@ -95,8 +95,8 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     @Override
-    public List<FlowInstance> findByFlowCode(String flowCode) {
-        Filters filters = new Filters().eq(FlowInstance::getFlowCode, flowCode);
+    public List<FlowInstance> findByFlowId(String flowId) {
+        Filters filters = new Filters().eq(FlowInstance::getFlowId, flowId);
         return this.searchList(filters);
     }
 
@@ -153,11 +153,8 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     @Override
     public Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId) {
         Filters filters = new Filters();
-        if (request.flowCode() != null) {
-            filters.eq(FlowInstance::getFlowCode, request.flowCode());
-        }
-        if (request.designId() != null) {
-            filters.eq(FlowInstance::getDesignId, request.designId());
+        if (request.flowId() != null) {
+            filters.eq(FlowInstance::getFlowId, request.flowId());
         }
         if (request.status() != null) {
             filters.eq(FlowInstance::getStatus, request.status());

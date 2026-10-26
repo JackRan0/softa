@@ -22,10 +22,9 @@
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS flow_design
 (
-    id                BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
+    id                VARCHAR(24)  NOT NULL PRIMARY KEY COMMENT 'ID',
     tenant_id         BIGINT       NOT NULL DEFAULT 0 COMMENT 'Tenant ID',
-    flow_name         VARCHAR(100) NOT NULL COMMENT 'Flow display name',
-    flow_code         VARCHAR(100) NOT NULL COMMENT 'Flow code (business identifier)',
+    flow_name         VARCHAR(100) NOT NULL COMMENT 'Flow name, unique within the tenant',
     scenario          VARCHAR(50)           COMMENT 'Flow scenario',
     version           INT          NOT NULL DEFAULT 1 COMMENT 'Optimistic-lock version',
     design_json       LONGTEXT              COMMENT 'Full design definition (JSON)',
@@ -37,7 +36,7 @@ CREATE TABLE IF NOT EXISTS flow_design
     created_by        VARCHAR(100)          COMMENT 'Created by username',
     updated_id        BIGINT                COMMENT 'Updated by user ID',
     updated_by        VARCHAR(100)          COMMENT 'Updated by username',
-    UNIQUE INDEX uk_tenant_flow_code (tenant_id, flow_code),
+    UNIQUE INDEX uk_tenant_flow_name (tenant_id, flow_name),
     INDEX idx_tenant_scenario (tenant_id, scenario)
 ) COMMENT = 'Working copy of a flow design (draft)';
 
@@ -49,13 +48,12 @@ CREATE TABLE IF NOT EXISTS flow_bundle
     id                 BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
     tenant_id          BIGINT       NOT NULL DEFAULT 0 COMMENT 'Tenant ID',
     version            INT          NOT NULL DEFAULT 1 COMMENT 'Optimistic-lock version (concurrent publish/activate)',
-    flow_code          VARCHAR(100) NOT NULL COMMENT 'Flow code',
     flow_name          VARCHAR(100)          COMMENT 'Flow name',
     revision           INT          NOT NULL COMMENT 'Published revision number',
     scenario           VARCHAR(50)           COMMENT 'Execution scenario',
     sync               TINYINT(1)   DEFAULT 0 COMMENT 'Whether the flow executes synchronously',
     rollback_on_fail   TINYINT(1)   DEFAULT 1 COMMENT 'Whether to roll back on failure',
-    design_id          BIGINT                COMMENT 'FK to flow_design.id',
+    flow_id            VARCHAR(24)           COMMENT 'FK to flow_design.id',
     compiled_json      LONGTEXT              COMMENT 'Compiled flow definition (JSON)',
     design_json        LONGTEXT              COMMENT 'Design flow definition at publish time (JSON)',
     compiled_at        DATETIME              COMMENT 'Compile timestamp',
@@ -69,9 +67,8 @@ CREATE TABLE IF NOT EXISTS flow_bundle
     created_by         VARCHAR(100)          COMMENT 'Created by username',
     updated_id         BIGINT                COMMENT 'Updated by user ID',
     updated_by         VARCHAR(100)          COMMENT 'Updated by username',
-    UNIQUE INDEX uk_tenant_design_revision (tenant_id, design_id, revision),
-    INDEX idx_tenant_design (tenant_id, design_id),
-    INDEX idx_tenant_flow_revision (tenant_id, flow_code, revision, active)
+    UNIQUE INDEX uk_tenant_flow_revision (tenant_id, flow_id, revision),
+    INDEX idx_tenant_flow (tenant_id, flow_id)
 ) COMMENT = 'Compiled and published flow revision bundle';
 
 -- ------------------------------------------------------------
@@ -84,8 +81,7 @@ CREATE TABLE IF NOT EXISTS flow_instance
     version                 INT          NOT NULL DEFAULT 1 COMMENT 'Optimistic-lock version',
     instance_id             VARCHAR(64)  NOT NULL COMMENT 'Runtime instance id (UUID)',
     bundle_id               BIGINT                COMMENT 'Exact flow bundle id this instance was created from',
-    design_id               BIGINT                COMMENT 'Source flow design id',
-    flow_code               VARCHAR(100) NOT NULL COMMENT 'Flow code',
+    flow_id                 VARCHAR(24)           COMMENT 'Source flow id',
     flow_revision           INT                   COMMENT 'Published flow revision',
     title                   VARCHAR(200)          COMMENT 'Instance title',
     model_name              VARCHAR(100)          COMMENT 'Related model name',
@@ -111,11 +107,10 @@ CREATE TABLE IF NOT EXISTS flow_instance
     updated_id              BIGINT                COMMENT 'Updated by user ID',
     updated_by              VARCHAR(100)          COMMENT 'Updated by username',
     UNIQUE INDEX uk_instance_id (instance_id),
-    INDEX idx_tenant_flow_status (tenant_id, flow_code, status),
+    INDEX idx_tenant_flow_status (tenant_id, flow_id, status),
     INDEX idx_tenant_status_fire (tenant_id, status, next_fire_at),
     INDEX idx_tenant_initiator_status (tenant_id, initiator_id, status),
-    INDEX idx_tenant_model_row (tenant_id, model_name, row_id),
-    INDEX idx_tenant_design (tenant_id, design_id)
+    INDEX idx_tenant_model_row (tenant_id, model_name, row_id)
 ) COMMENT = 'Runtime flow execution instance';
 
 -- ------------------------------------------------------------
@@ -127,7 +122,7 @@ CREATE TABLE IF NOT EXISTS flow_execution_trace
     tenant_id       BIGINT       NOT NULL DEFAULT 0 COMMENT 'Tenant ID',
     instance_id     VARCHAR(64)  NOT NULL COMMENT 'Runtime instance id',
     sequence        INT          NOT NULL COMMENT 'Monotonic position within the instance trace',
-    flow_code       VARCHAR(100)          COMMENT 'Flow code at the time of the event',
+    flow_id         VARCHAR(24)           COMMENT 'Flow id',
     node_id         VARCHAR(100)          COMMENT 'Node id when the event is node-scoped',
     flow_node_type  VARCHAR(50)           COMMENT 'Node type when applicable',
     event_type      VARCHAR(50)  NOT NULL COMMENT 'Trace event type',
@@ -151,7 +146,7 @@ CREATE TABLE IF NOT EXISTS flow_approval_task
     id                      BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
     tenant_id               BIGINT       NOT NULL DEFAULT 0 COMMENT 'Tenant ID',
     instance_id             VARCHAR(64)  NOT NULL COMMENT 'Runtime instance id',
-    flow_code               VARCHAR(100)          COMMENT 'Flow code',
+    flow_id                 VARCHAR(24)           COMMENT 'Flow id',
     flow_revision           INT                   COMMENT 'Published flow revision',
     node_id                 VARCHAR(100) NOT NULL COMMENT 'Approval node id',
     node_label              VARCHAR(200)          COMMENT 'Approval node label',
@@ -199,7 +194,7 @@ CREATE TABLE IF NOT EXISTS flow_approval_record
     id                BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
     tenant_id         BIGINT       NOT NULL DEFAULT 0 COMMENT 'Tenant ID',
     instance_id       VARCHAR(64)  NOT NULL COMMENT 'Runtime instance id',
-    flow_code         VARCHAR(100)          COMMENT 'Flow code',
+    flow_id           VARCHAR(24)           COMMENT 'Flow id',
     flow_revision     INT                   COMMENT 'Published flow revision',
     node_id           VARCHAR(100)          COMMENT 'Primary node id',
     node_label        VARCHAR(200)          COMMENT 'Primary node label',
@@ -241,8 +236,8 @@ CREATE TABLE IF NOT EXISTS flow_delegation
     delegator_id         VARCHAR(64)  NOT NULL COMMENT 'Delegator actor id',
     delegate_id          VARCHAR(64)  NOT NULL COMMENT 'Delegate actor id',
     reason               VARCHAR(500)          COMMENT 'Reason',
-    scope                VARCHAR(30)           COMMENT 'Delegation scope: All, FlowCode, Node',
-    flow_code            VARCHAR(100)          COMMENT 'Flow code when scope is flow-specific',
+    scope                VARCHAR(30)           COMMENT 'Delegation scope: All, Flow, Node',
+    flow_id              VARCHAR(24)           COMMENT 'Flow id when scope is flow- or node-specific',
     node_id              VARCHAR(100)          COMMENT 'Node id when scope is node-specific',
     start_time           DATETIME              COMMENT 'Delegation start time',
     end_time             DATETIME              COMMENT 'Delegation end time',
@@ -267,7 +262,7 @@ CREATE TABLE IF NOT EXISTS flow_cc_config
 (
     id                BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
     tenant_id         BIGINT       NOT NULL DEFAULT 0 COMMENT 'Tenant ID',
-    flow_code         VARCHAR(100) NOT NULL COMMENT 'Flow code',
+    flow_id           VARCHAR(24)           COMMENT 'Flow id',
     node_id           VARCHAR(100)          COMMENT 'Node id (null for flow-level CC)',
     cc_timing         VARCHAR(30)           COMMENT 'CC timing: OnSubmit, OnApprove, OnReject, OnComplete',
     cc_name           VARCHAR(100)          COMMENT 'Human-readable CC rule name',
@@ -284,7 +279,7 @@ CREATE TABLE IF NOT EXISTS flow_cc_config
     created_by        VARCHAR(100)          COMMENT 'Created by username',
     updated_id        BIGINT                COMMENT 'Updated by user ID',
     updated_by        VARCHAR(100)          COMMENT 'Updated by username',
-    INDEX idx_tenant_flow_active (tenant_id, flow_code, active)
+    INDEX idx_tenant_flow_active (tenant_id, flow_id, active)
 ) COMMENT = 'CC (carbon copy) configuration rules for flows';
 
 -- ------------------------------------------------------------
@@ -298,7 +293,7 @@ CREATE TABLE IF NOT EXISTS flow_event
     source_model  VARCHAR(100)          COMMENT 'Source model when trigger is entity-related',
     source_row_id VARCHAR(64)           COMMENT 'Source row id when trigger is entity-related',
     actor_id      VARCHAR(64)           COMMENT 'Actor who triggered the event',
-    flow_code     VARCHAR(100)          COMMENT 'Flow code of the matched flow',
+    flow_id       VARCHAR(24)           COMMENT 'Id of the matched flow',
     flow_revision INT                   COMMENT 'Flow revision that was started',
     instance_id   VARCHAR(64)           COMMENT 'Runtime instance id of the started flow',
     success       TINYINT(1)            COMMENT 'Whether the flow was started successfully',
@@ -312,7 +307,7 @@ CREATE TABLE IF NOT EXISTS flow_event
     created_by    VARCHAR(100)          COMMENT 'Created by username',
     updated_id    BIGINT                COMMENT 'Updated by user ID',
     updated_by    VARCHAR(100)          COMMENT 'Updated by username',
-    INDEX idx_tenant_flow (tenant_id, flow_code),
+    INDEX idx_tenant_flow (tenant_id, flow_id),
     INDEX idx_tenant_instance (tenant_id, instance_id),
     INDEX idx_tenant_source (tenant_id, source_model, source_row_id)
 ) COMMENT = 'Trigger event log for flow executions';
@@ -324,7 +319,7 @@ CREATE TABLE IF NOT EXISTS flow_debug_history
 (
     id              BIGINT       NOT NULL PRIMARY KEY COMMENT 'ID',
     tenant_id       BIGINT       NOT NULL DEFAULT 0 COMMENT 'Tenant ID',
-    flow_code       VARCHAR(100)          COMMENT 'Flow code',
+    flow_id         VARCHAR(24)           COMMENT 'Flow id',
     flow_revision   INT                   COMMENT 'Flow revision',
     instance_id     VARCHAR(64)           COMMENT 'Runtime instance id',
     status          VARCHAR(30)           COMMENT 'Final execution status',
@@ -343,7 +338,7 @@ CREATE TABLE IF NOT EXISTS flow_debug_history
     created_by      VARCHAR(100)          COMMENT 'Created by username',
     updated_id      BIGINT                COMMENT 'Updated by user ID',
     updated_by      VARCHAR(100)          COMMENT 'Updated by username',
-    INDEX idx_tenant_flow (tenant_id, flow_code),
+    INDEX idx_tenant_flow (tenant_id, flow_id),
     INDEX idx_tenant_instance (tenant_id, instance_id)
 ) COMMENT = 'Debug execution history for flow instances';
 

@@ -23,8 +23,8 @@ public class PendingApproval {
     @Schema(description = "FlowBundle.id for this pending approval's flow (primary runtime key)")
     private Long bundleId;
 
-    @Schema(description = "Flow code (display/logging only)")
-    private String flowCode;
+    @Schema(description = "Flow ID")
+    private String flowId;
 
     @Schema(description = "Resolved published flow revision (display/logging only)")
     private Integer flowRevision;

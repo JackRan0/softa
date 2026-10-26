@@ -36,22 +36,22 @@ public class FlowApprovalRecordController {
 
     @GetMapping("/history")
     @Operation(summary = "Get approval history for current user", description = "Paged, newest first.")
-    public ApiResponse<Page<FlowApprovalRecordView>> getHistory(@RequestParam(required = false) String flowCode,
+    public ApiResponse<Page<FlowApprovalRecordView>> getHistory(@RequestParam(required = false) String flowId,
                                                                 @RequestParam(required = false) String instanceId,
                                                                 @RequestParam(required = false) String nodeId,
                                                                 @RequestParam(required = false) Integer pageNumber,
                                                                 @RequestParam(required = false) Integer pageSize) {
         return ApiResponse.success(flowApprovalRecordService.getHistory(
-                currentUserId(), flowCode, instanceId, nodeId, pageNumber, pageSize));
+                currentUserId(), flowId, instanceId, nodeId, pageNumber, pageSize));
     }
 
     @GetMapping("/cc/sent")
     @Operation(summary = "Get sender-side CC history for current user", description = "Shows CC entries sent by the current user together with recipient read acknowledgement state.")
     public ApiResponse<List<FlowSentCcView>> getSentCcHistory(@RequestParam(required = false) Boolean read,
-                                                                     @RequestParam(required = false) String flowCode,
+                                                                     @RequestParam(required = false) String flowId,
                                                                      @RequestParam(required = false) String instanceId,
                                                                      @RequestParam(required = false) String nodeId) {
-        return ApiResponse.success(flowApprovalRecordService.getSentCcHistory(currentUserId(), read, flowCode, instanceId, nodeId));
+        return ApiResponse.success(flowApprovalRecordService.getSentCcHistory(currentUserId(), read, flowId, instanceId, nodeId));
     }
 
     private static String currentUserId() {

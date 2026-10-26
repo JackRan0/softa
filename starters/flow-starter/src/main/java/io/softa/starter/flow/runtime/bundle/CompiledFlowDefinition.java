@@ -39,9 +39,6 @@ import io.softa.starter.flow.enums.FlowScenario;
 @Schema(name = "CompiledFlowDefinition")
 public class CompiledFlowDefinition {
 
-    @Schema(description = "Flow code")
-    private String flowCode;
-
     @Schema(description = "Flow name")
     private String flowName;
 
@@ -114,7 +111,7 @@ public class CompiledFlowDefinition {
     private Long tenantId;
 
     @Schema(description = "Source FlowDesign.id (stable flow handle across revisions)")
-    private Long designId;
+    private String flowId;
 
     @Schema(description = "Compiled timestamp")
     private LocalDateTime compiledAt;

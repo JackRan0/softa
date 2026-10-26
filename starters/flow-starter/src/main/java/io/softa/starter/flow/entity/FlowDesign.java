@@ -15,7 +15,9 @@ import io.softa.starter.flow.enums.FlowScenario;
 /**
  * Persistent working copy of a flow design (draft).
  *
- * <p>There is exactly <em>one</em> {@code FlowDesign} record per {@code flowCode}.
+ * <p>There is exactly <em>one</em> {@code FlowDesign} record per flow, and its {@code id} is the flow's
+ * handle everywhere else (bundles, instances, tasks, delegations, CC rules). Its {@code flowName} is unique
+ * within the tenant, so a flow is also known to people by its name.
  * It represents the latest saved state of the design-time graph, independent of
  * whether the flow has been compiled and published. Published revisions are stored
  * separately in {@link FlowBundle}.</p>
@@ -35,17 +37,18 @@ import io.softa.starter.flow.enums.FlowScenario;
 @Data
 @Model(
     multiTenant = true,
-    idStrategy = IdStrategy.DISTRIBUTED_LONG,
+    // a string id travels unchanged between the frontend and the backend
+    idStrategy = IdStrategy.DISTRIBUTED_STRING,
     // concurrent-edit protection: stale saves are rejected with a version conflict
     versionLock = true,
-    // copy is disabled — a duplicated row would collide on uk_tenant_flow_code;
-    // duplication with a fresh flowCode is a dedicated editor operation instead
+    // copy is disabled — a duplicated row would collide on uk_tenant_flow_name;
+    // duplication under a fresh name is a dedicated editor operation instead
     copyable = false,
     displayName = {"flowName"},
-    searchName = {"flowName", "flowCode"}
+    searchName = {"flowName"}
 )
-@Index(indexName = "uk_tenant_flow_code", fields = {"tenantId", "flowCode"}, unique = true,
-       message = "A flow with this code already exists.")
+@Index(indexName = "uk_tenant_flow_name", fields = {"tenantId", "flowName"}, unique = true,
+       message = "A flow with this name already exists.")
 @Index(indexName = "idx_tenant_scenario", fields = {"tenantId", "scenario"})
 @EqualsAndHashCode(callSuper = true)
 public class FlowDesign extends AuditableModel {
@@ -54,16 +57,13 @@ public class FlowDesign extends AuditableModel {
     private static final long serialVersionUID = 1L;
 
     @Field(label = "ID")
-    private Long id;
+    private String id;
 
     @Field(label = "Tenant ID", required = true)
     private Long tenantId;
 
-    @Field(required = true, length = 100, description = "Flow display name (denormalised for list views)")
+    @Field(required = true, length = 100, description = "Flow name, unique within the tenant")
     private String flowName;
-
-    @Field(required = true, length = 100, description = "Flow code (business identifier)")
-    private String flowCode;
 
     @Field(description = "Flow scenario (denormalised for list views)")
     private FlowScenario scenario;

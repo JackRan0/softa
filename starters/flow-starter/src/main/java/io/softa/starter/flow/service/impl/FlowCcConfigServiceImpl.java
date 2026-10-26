@@ -19,9 +19,9 @@ public class FlowCcConfigServiceImpl extends EntityServiceImpl<FlowCcConfig, Lon
         implements FlowCcConfigService {
 
     @Override
-    public List<FlowCcConfig> getActiveConfigs(String flowCode, String nodeId, CcTiming ccTiming) {
+    public List<FlowCcConfig> getActiveConfigs(String flowId, String nodeId, CcTiming ccTiming) {
         Filters filters = new Filters()
-                .eq(FlowCcConfig::getFlowCode, flowCode)
+                .eq(FlowCcConfig::getFlowId, flowId)
                 .eq(FlowCcConfig::getActive, true);
         if (ccTiming != null) {
             filters.eq(FlowCcConfig::getCcTiming, ccTiming);
@@ -39,8 +39,8 @@ public class FlowCcConfigServiceImpl extends EntityServiceImpl<FlowCcConfig, Lon
     }
 
     @Override
-    public List<FlowCcConfig> listByFlowCode(String flowCode) {
-        Filters filters = new Filters().eq(FlowCcConfig::getFlowCode, flowCode);
+    public List<FlowCcConfig> listByFlowId(String flowId) {
+        Filters filters = new Filters().eq(FlowCcConfig::getFlowId, flowId);
         return this.searchList(filters);
     }
 

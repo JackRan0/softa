@@ -43,7 +43,7 @@ public class PendingApprovalFactory {
 
     public PendingApproval copyPendingApproval(PendingApproval pendingApproval) {
         return PendingApproval.builder()
-                .flowCode(pendingApproval.getFlowCode())
+                .flowId(pendingApproval.getFlowId())
                 .flowRevision(pendingApproval.getFlowRevision())
                 .nodeId(pendingApproval.getNodeId())
                 .nodeLabel(pendingApproval.getNodeLabel())
@@ -96,7 +96,7 @@ public class PendingApprovalFactory {
             };
         }
         PendingApproval pendingApproval = PendingApproval.builder()
-                .flowCode(definition.getFlowCode())
+                .flowId(definition.getFlowId())
                 .flowRevision(definition.getRevision())
                 .nodeId(node.getNodeId())
                 .nodeLabel(node.getLabel())

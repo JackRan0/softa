@@ -8,13 +8,13 @@ import io.softa.starter.flow.dto.FlowInboxView;
 public interface FlowInboxService {
 
     FlowInboxView getInbox(String actorId,
-                                  String flowCode,
+                                  String flowId,
                                   String instanceId,
                                   String nodeId,
                                   Boolean includeCompletedApprovals);
 
     FlowInboxView getInbox(String actorId,
-                           String flowCode,
+                           String flowId,
                            String instanceId,
                            String nodeId,
                            Boolean includeCompletedApprovals,

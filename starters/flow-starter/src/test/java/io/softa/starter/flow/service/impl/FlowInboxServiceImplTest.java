@@ -80,7 +80,7 @@ class FlowInboxServiceImplTest {
     }
 
     private FlowApprovalTaskView task(String actorId,
-                                             String flowCode,
+                                             String flowId,
                                              String instanceId,
                                              String nodeId,
                                              FlowApprovalTaskType taskType,
@@ -89,7 +89,7 @@ class FlowInboxServiceImplTest {
                                              LocalDateTime endTime) {
         return FlowApprovalTaskView.builder()
                 .actorId(actorId)
-                .flowCode(flowCode)
+                .flowId(flowId)
                 .instanceId(instanceId)
                 .nodeId(nodeId)
                 .taskType(taskType)

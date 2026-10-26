@@ -9,6 +9,7 @@ import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.state.FlowTraceEventType;
@@ -46,8 +47,8 @@ public class FlowExecutionTrace extends AuditableModel {
     @Field(label = "Monotonic position within the instance trace", required = true)
     private Integer sequence;
 
-    @Field(label = "Flow code at the time of the event", length = 100)
-    private String flowCode;
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = FlowDesign.class, label = "Flow")
+    private String flowId;
 
     @Field(label = "Node id when the event is node-scoped", length = 100)
     private String nodeId;

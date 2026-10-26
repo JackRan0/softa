@@ -67,7 +67,7 @@ public abstract class AbstractReplaceApproverActionHandler<R extends AbstractFlo
         validation.validate(pendingApproval, request, node);
         lifecycleService.replaceApprover(pendingApproval, request.getActorId(), request.getTargetActorId());
 
-        auditService.addTrace(state, definition.getFlowCode(), node, traceEventType,
+        auditService.addTrace(state, definition.getFlowId(), node, traceEventType,
                 auditMessage.build(node, request));
         auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, ctx.statusBefore(), state.getStatus()).toBuilder()
                 .action(actionType)

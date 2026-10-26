@@ -22,7 +22,7 @@ import io.softa.starter.flow.service.FlowDesignService;
 import tools.jackson.core.type.TypeReference;
 
 @Service
-public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, Long>
+public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
         implements FlowDesignService {
 
     @Autowired(required = false)
@@ -32,15 +32,14 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, Long>
     public FlowDesign createDesign(FlowDesignCreateRequest request) {
         FlowDesign design = new FlowDesign();
         design.setFlowName(request.flowName());
-        design.setFlowCode(request.flowCode());
         design.setScenario(request.scenario());
         design.setDesignJson(alignedDefinition(request.designJson(), design));
-        Long id = this.createOne(design);
+        String id = this.createOne(design);
         return getById(id).orElse(design);
     }
 
     @Override
-    public FlowDesign saveDraft(Long id, FlowDesignSaveRequest request) {
+    public FlowDesign saveDraft(String id, FlowDesignSaveRequest request) {
         FlowDesign design = requireDesign(id);
         // optimistic lock: echo the version the editor loaded; a mismatch is rejected
         design.setVersion(request.version());
@@ -56,29 +55,25 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, Long>
     }
 
     @Override
-    public FlowDesign duplicateDesign(Long id, FlowDesignDuplicateRequest request) {
+    public FlowDesign duplicateDesign(String id, FlowDesignDuplicateRequest request) {
         FlowDesign source = requireDesign(id);
-        String newCode = request != null && request.newFlowCode() != null
-                ? request.newFlowCode()
-                : deriveCopyCode(source.getFlowCode());
         String newName = request != null && request.newFlowName() != null
                 ? request.newFlowName()
-                : source.getFlowName() + " (copy)";
+                : deriveCopyName(source.getFlowName());
 
         FlowDesign copy = new FlowDesign();
         copy.setFlowName(newName);
-        copy.setFlowCode(newCode);
         copy.setScenario(source.getScenario());
         copy.setDesignJson(alignedDefinition(deepCopy(source.getDesignJson()), copy));
-        Long copyId = this.createOne(copy);
+        String copyId = this.createOne(copy);
         return getById(copyId).orElse(copy);
     }
 
     @Override
-    public FlowDesignStatusView getStatus(Long id) {
+    public FlowDesignStatusView getStatus(String id) {
         FlowDesign design = requireDesign(id);
         Long activeBundleId = bundleService == null ? null
-                : bundleService.findActiveByDesignId(id).map(FlowBundle::getId).orElse(null);
+                : bundleService.findActiveByFlowId(id).map(FlowBundle::getId).orElse(null);
         boolean dirty = design.getPublishedChecksum() == null
                 || !design.getPublishedChecksum().equals(checksumOf(design.getDesignJson()));
         return new FlowDesignStatusView(design.getPublishedRevision(), activeBundleId, dirty);
@@ -88,7 +83,7 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, Long>
      * Refuse deletion of drafts that have already been published.
      */
     @Override
-    public boolean deleteById(Long id) {
+    public boolean deleteById(String id) {
         return getById(id)
                 .filter(d -> d.getPublishedRevision() == null)
                 .map(d -> super.deleteById(id))
@@ -96,8 +91,8 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, Long>
     }
 
     @Override
-    public void upsertFromPublish(Long designId, Integer publishedRevision) {
-        getById(designId).ifPresent(design -> {
+    public void upsertFromPublish(String flowId, Integer publishedRevision) {
+        getById(flowId).ifPresent(design -> {
             design.setPublishedRevision(publishedRevision);
             design.setPublishedChecksum(checksumOf(design.getDesignJson()));
             updateOne(design, false);
@@ -105,7 +100,7 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, Long>
     }
 
     @Override
-    public FlowDesign restoreFromBundle(Long designId, Long bundleId) {
+    public FlowDesign restoreFromBundle(String flowId, Long bundleId) {
         if (bundleService == null) {
             throw new FlowRuntimeException("FlowBundleService is not available; cannot restore from bundle");
         }
@@ -115,14 +110,14 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, Long>
             throw new FlowRuntimeException("Bundle " + bundleId + " carries no design snapshot to restore");
         }
         // Ownership check: the bundle must belong to this design.
-        if (bundle.getDesignId() == null || !bundle.getDesignId().equals(designId)) {
+        if (bundle.getFlowId() == null || !bundle.getFlowId().equals(flowId)) {
             throw new FlowRuntimeException(
-                    "Bundle " + bundleId + " does not belong to design " + designId);
+                    "Bundle " + bundleId + " does not belong to design " + flowId);
         }
-        FlowDesign design = requireDesign(designId);
+        FlowDesign design = requireDesign(flowId);
         design.setDesignJson(bundle.getDesignJson());
         updateOne(design, false);
-        return requireDesign(designId);
+        return requireDesign(flowId);
     }
 
     /** SHA-256 over the canonical JSON form; the single checksum used by publish and status. */
@@ -133,17 +128,16 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, Long>
         return EncryptUtils.computeSha256(JsonUtils.objectToString(definition));
     }
 
-    private FlowDesign requireDesign(Long id) {
+    private FlowDesign requireDesign(String id) {
         return getById(id).orElseThrow(() -> new FlowRuntimeException("FlowDesign not found: " + id));
     }
 
     /**
      * Keep the document's identity fields aligned with the entity's denormalised
-     * columns: flowCode is immutable and flowName/scenario follow the entity.
+     * columns: flowName and scenario follow the entity.
      */
     private static DesignFlowDefinition alignedDefinition(DesignFlowDefinition definition, FlowDesign design) {
         DesignFlowDefinition doc = definition != null ? definition : emptyDefinition();
-        doc.setCode(design.getFlowCode());
         doc.setName(design.getFlowName());
         doc.setScenario(design.getScenario());
         return doc;
@@ -162,12 +156,12 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, Long>
         return JsonUtils.stringToObject(JsonUtils.objectToString(definition), new TypeReference<>() {});
     }
 
-    private String deriveCopyCode(String sourceCode) {
-        String base = sourceCode + "-copy";
-        String candidate = base;
+    /** "Name (copy)", then "Name (copy 2)", … — the first one no flow of this tenant holds yet. */
+    private String deriveCopyName(String sourceName) {
+        String candidate = sourceName + " (copy)";
         int suffix = 2;
-        while (this.count(new Filters().eq(FlowDesign::getFlowCode, candidate)) > 0) {
-            candidate = base + "-" + suffix++;
+        while (this.count(new Filters().eq(FlowDesign::getFlowName, candidate)) > 0) {
+            candidate = sourceName + " (copy " + suffix++ + ")";
         }
         return candidate;
     }

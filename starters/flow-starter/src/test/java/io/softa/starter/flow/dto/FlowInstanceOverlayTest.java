@@ -31,7 +31,7 @@ class FlowInstanceOverlayTest {
         FlowExecutionState state = FlowExecutionState.builder()
                 .instanceId("inst-1")
                 .bundleId(11L)
-                .designId(22L)
+                .flowId("22")
                 .flowRevision(3)
                 .status(FlowExecutionStatus.WAITING)
                 .completedNodeIds(new ArrayList<>(List.of("start")))

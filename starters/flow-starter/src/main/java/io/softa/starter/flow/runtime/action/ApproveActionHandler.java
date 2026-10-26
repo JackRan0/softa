@@ -93,7 +93,7 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
             }
             pendingApproval.getApprovedActors().add(request.getActorId());
             if (!lifecycleService.canCompleteApproval(pendingApproval)) {
-                auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.WAIT_APPROVAL,
+                auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.WAIT_APPROVAL,
                         auditService.buildPartialApprovalMessage(node, pendingApproval, request.getActorId()));
                 auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                         .action(ApprovalActionType.APPROVE)

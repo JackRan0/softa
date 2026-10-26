@@ -63,12 +63,12 @@ public class FlowActionContextService {
     }
 
     /**
-     * Fallback definition lookup by design id, resolving to the current active revision.
+     * Fallback definition lookup by flow id, resolving to the current active revision.
      */
-    public CompiledFlowDefinition resolveDefinitionByDesignId(Long designId) {
-        return bundleRegistry.getActiveByDesignId(designId)
+    public CompiledFlowDefinition resolveDefinitionByFlowId(String flowId) {
+        return bundleRegistry.getActiveByFlowId(flowId)
                 .orElseThrow(() -> new FlowRuntimeException(
-                        "Compiled flow bundle not found: designId=" + designId));
+                        "Compiled flow bundle not found: flowId=" + flowId));
     }
 
     public CompiledFlowNode requiredNode(CompiledFlowDefinition definition, String nodeId) {

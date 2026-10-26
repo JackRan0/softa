@@ -53,7 +53,7 @@ public class FlowExecutionTraceServiceImpl
             FlowExecutionTrace row = new FlowExecutionTrace();
             row.setInstanceId(state.getInstanceId());
             row.setSequence(base + i);
-            row.setFlowCode(entry.getFlowCode());
+            row.setFlowId(entry.getFlowId());
             row.setNodeId(entry.getNodeId());
             row.setFlowNodeType(entry.getFlowNodeType());
             row.setEventType(entry.getEventType());

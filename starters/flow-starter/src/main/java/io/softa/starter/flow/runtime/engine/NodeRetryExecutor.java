@@ -38,7 +38,7 @@ public class NodeRetryExecutor {
                 return handler.execute(node, ctx);
             } catch (RuntimeException e) {
                 if (strategy == NodeErrorStrategy.RETRY && attempt < maxRetries) {
-                    auditService.addTrace(state, definition.getFlowCode(), node,
+                    auditService.addTrace(state, definition.getFlowId(), node,
                             FlowTraceEventType.NODE_ERROR_RETRIED,
                             "Node " + node.getNodeId() + " retry " + (attempt + 1) + "/" + maxRetries
                                     + ": " + e.getMessage());

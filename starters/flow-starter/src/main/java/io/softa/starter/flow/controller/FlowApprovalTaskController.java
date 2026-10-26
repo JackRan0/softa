@@ -42,48 +42,48 @@ public class FlowApprovalTaskController {
 
     @GetMapping("/pending")
     @Operation(summary = "Page pending tasks for current user")
-    public ApiResponse<Page<FlowApprovalTaskView>> pagePendingTasks(@RequestParam(required = false) String flowCode,
+    public ApiResponse<Page<FlowApprovalTaskView>> pagePendingTasks(@RequestParam(required = false) String flowId,
                                                                     @RequestParam(required = false) String instanceId,
                                                                     @RequestParam(required = false) String nodeId,
                                                                     @RequestParam(defaultValue = "1") Integer pageNumber,
                                                                     @RequestParam(defaultValue = "50") Integer pageSize) {
         return ApiResponse.success(flowApprovalTaskService
-                .pagePendingTasks(currentUserId(), flowCode, instanceId, nodeId, pageNumber, pageSize));
+                .pagePendingTasks(currentUserId(), flowId, instanceId, nodeId, pageNumber, pageSize));
     }
 
     @GetMapping("/completed")
     @Operation(summary = "Page completed tasks for current user")
-    public ApiResponse<Page<FlowApprovalTaskView>> pageCompletedTasks(@RequestParam(required = false) String flowCode,
+    public ApiResponse<Page<FlowApprovalTaskView>> pageCompletedTasks(@RequestParam(required = false) String flowId,
                                                                       @RequestParam(required = false) String instanceId,
                                                                       @RequestParam(required = false) String nodeId,
                                                                       @RequestParam(defaultValue = "1") Integer pageNumber,
                                                                       @RequestParam(defaultValue = "50") Integer pageSize) {
         return ApiResponse.success(flowApprovalTaskService
-                .pageCompletedTasks(currentUserId(), flowCode, instanceId, nodeId, pageNumber, pageSize));
+                .pageCompletedTasks(currentUserId(), flowId, instanceId, nodeId, pageNumber, pageSize));
     }
 
     @GetMapping("/cc")
     @Operation(summary = "Page CC tasks for current user", description = "Queries unread or read CC tasks for the current user. read=false returns unread CC tasks, read=true returns acknowledged CC tasks, and omitting read returns both.")
     public ApiResponse<Page<FlowApprovalTaskView>> pageCcTasks(@RequestParam(required = false) Boolean read,
-                                                               @RequestParam(required = false) String flowCode,
+                                                               @RequestParam(required = false) String flowId,
                                                                @RequestParam(required = false) String instanceId,
                                                                @RequestParam(required = false) String nodeId,
                                                                @RequestParam(defaultValue = "1") Integer pageNumber,
                                                                @RequestParam(defaultValue = "50") Integer pageSize) {
         return ApiResponse.success(flowApprovalTaskService
-                .pageCcTasks(currentUserId(), read, flowCode, instanceId, nodeId, pageNumber, pageSize));
+                .pageCcTasks(currentUserId(), read, flowId, instanceId, nodeId, pageNumber, pageSize));
     }
 
     @GetMapping("/inbox")
     @Operation(summary = "Get unified inbox for current user", description = "Aggregates approval pending tasks, unread CC tasks, read CC tasks, and optionally completed approval tasks for the current user.")
-    public ApiResponse<FlowInboxView> getInbox(@RequestParam(required = false) String flowCode,
+    public ApiResponse<FlowInboxView> getInbox(@RequestParam(required = false) String flowId,
                                                       @RequestParam(required = false) String instanceId,
                                                       @RequestParam(required = false) String nodeId,
                                                       @RequestParam(required = false) Boolean includeCompletedApprovals,
                                                       @RequestParam(defaultValue = "1") Integer pageNumber,
                                                       @RequestParam(defaultValue = "50") Integer pageSize) {
         return ApiResponse.success(flowInboxService.getInbox(
-                currentUserId(), flowCode, instanceId, nodeId, includeCompletedApprovals, pageNumber, pageSize));
+                currentUserId(), flowId, instanceId, nodeId, includeCompletedApprovals, pageNumber, pageSize));
     }
 
     @GetMapping("/instance/{instanceId}")

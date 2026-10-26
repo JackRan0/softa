@@ -32,7 +32,7 @@ class FlowRuntimeFacadeResumeTest {
         return FlowExecutionState.builder()
                 .instanceId("inst-1")
                 .bundleId(7L)
-                .flowCode("leave")
+                .flowId("leave")
                 .build();
     }
 
@@ -41,7 +41,7 @@ class FlowRuntimeFacadeResumeTest {
         FlowExecutionState state = waitingState();
         when(instanceStore.get("inst-1")).thenReturn(Optional.of(state));
         when(contextService.resolveDefinition(7L))
-                .thenReturn(CompiledFlowDefinition.builder().flowCode("leave").build());
+                .thenReturn(CompiledFlowDefinition.builder().flowId("leave").build());
         doThrow(new IllegalStateException("node blew up"))
                 .when(orchestrator).resumeFromSuspendedNode(eq(state), any(), eq("async-1"), anyMap());
 
@@ -59,7 +59,7 @@ class FlowRuntimeFacadeResumeTest {
         FlowExecutionState state = waitingState();
         when(instanceStore.get("inst-1")).thenReturn(Optional.of(state));
         when(contextService.resolveDefinition(7L))
-                .thenReturn(CompiledFlowDefinition.builder().flowCode("leave").build());
+                .thenReturn(CompiledFlowDefinition.builder().flowId("leave").build());
 
         FlowExecutionState result = facade().resumeTimer("inst-1", "timer-1");
 

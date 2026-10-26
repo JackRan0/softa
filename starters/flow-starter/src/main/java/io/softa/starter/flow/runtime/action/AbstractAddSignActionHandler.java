@@ -55,7 +55,7 @@ public abstract class AbstractAddSignActionHandler<R extends AbstractFlowNodeTar
         actorValidator.validateAddSign(pendingApproval, request, node, position);
         lifecycleService.insertAddSign(pendingApproval, request.getActorId(), request.getTargetActorId(), node, position);
 
-        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_ADD_SIGNED,
+        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_ADD_SIGNED,
                 auditService.buildAddSignMessage(node, request, position));
         auditService.appendApprovalAudit(state, auditService.baseEntry(definition, node, pendingApproval, ctx.statusBefore(), state.getStatus()).toBuilder()
                 .action(ApprovalActionType.ADD_SIGN)
