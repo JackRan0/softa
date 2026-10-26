@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -40,8 +41,12 @@ import io.softa.starter.seed.manifest.SeedLevel;
  * <p>An environment's first load initializes it, before loading anything: in every set-up tenant it records as
  * run the tenant files the tenant already has rows of, changing no data, so the first tenant run does not load
  * them again over what the tenants changed since. Tenant runs are refused until then; setting up a new tenant
- * is not. The Seed Data page is the way in even before its own menu and permissions are loaded: the platform
- * administrator reaches it by its address, and reaches endpoints no permission lists yet.
+ * is not.
+ *
+ * <p>The files holding the Seed Data page's own menu and permissions are marked {@code bootstrap} in the manifest,
+ * and load on their own where they never loaded ({@link #loadBootstrapFiles}). The platform administrator's menus
+ * and routes are the navigation loaded in the database, so without them nobody could reach the page every other
+ * file is loaded from.
  */
 @Slf4j
 @Service
@@ -126,6 +131,32 @@ public class PlatformSeedLoader {
                     + "a tenant recorded already is not recorded twice.", initialization);
         }
         return loadFiles(files).initializing(initialization);
+    }
+
+    /**
+     * Load the bootstrap files that never loaded here — the platform files the manifest marks {@code bootstrap},
+     * which hold the Seed Data page's own menu and permissions. {@link SeedBootstrap} calls it once the application
+     * has started.
+     *
+     * <p>A file that has loaded here once is left alone, whatever has happened to it since: from then on the page is
+     * there, and a change to the file is loaded from it like any other. This does not initialize the environment —
+     * the first load from the page still does, after whatever the deployment runs once the new build is up.
+     *
+     * @return how the load went, or empty when every bootstrap file has loaded here before
+     */
+    public Optional<PlatformLoadResult> loadBootstrapFiles() {
+        Map<String, SeedLoadLog.FileRecords> records = loadLog.platformRecords();
+        List<SeedFile> files = catalog.manifest().bootstrapFiles().stream()
+                .filter(file -> {
+                    SeedLoadLog.FileRecords fileRecords = records.get(file.file());
+                    return fileRecords == null || fileRecords.latestSuccess() == null;
+                })
+                .toList();
+        if (files.isEmpty()) {
+            return Optional.empty();
+        }
+        loadLog.requireIdle();
+        return Optional.of(loadFiles(files));
     }
 
     /** Whether platform seed rows were loaded here before: bindings at system scope. */

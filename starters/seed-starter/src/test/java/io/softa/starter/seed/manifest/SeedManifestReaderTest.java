@@ -57,6 +57,39 @@ class SeedManifestReaderTest {
     }
 
     @Test
+    void thePlatformFilesMarkedBootstrapLoadOnTheirOwn() {
+        SeedManifest manifest = read("""
+                platform:
+                  - file: data-system/Navigation.Hcm.json
+                    bootstrap: true
+                  - data-system/Currency.json
+                  - file: data-system/Permission.Hcm.json
+                    bootstrap: true
+                """);
+
+        // Only the marked ones, in load order.
+        assertEquals(List.of("Navigation.Hcm.json", "Permission.Hcm.json"), names(manifest.bootstrapFiles()));
+        assertFalse(manifest.file("Currency.json").orElseThrow().bootstrap());
+    }
+
+    @Test
+    void onlyAPlatformFileLoadsOnItsOwn() {
+        SeedManifestException failure = assertThrows(SeedManifestException.class, () -> read("""
+                platform:
+                  - file: data-system/A.json
+                    bootstrap: yes please
+                tenant:
+                  - files:
+                      - file: data-tenant/B.json
+                        bootstrap: true
+                """));
+
+        List<String> problems = failure.getProblems();
+        assertHas(problems, "file 'data-tenant/B.json' is a tenant file, and only platform files load on their own");
+        assertHas(problems, "bootstrap must be true or false");
+    }
+
+    @Test
     void aTenantIsDueTheFilesOfItsPlanAndCountries() {
         SeedManifest manifest = read("""
                 tenant:

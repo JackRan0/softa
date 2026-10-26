@@ -317,15 +317,26 @@ public class UiContextBuilder {
      * <p>The mirror of {@link #tenantAdminGrants} — that one takes everything EXCEPT the platform
      * prefixes. No plan narrowing: a platform module is not something a tenant buys, and there is no
      * subscription on the platform's own tenant to read.
+     *
+     * <p>The navigations are read from the table, as the engine's own build reads them, and not from the
+     * startup snapshot the other branches use. Navigation loaded after this instance started has to reach
+     * the platform administrator at once: seed-starter loads the files holding the Seed Data page's own
+     * menu in the background after an environment's first start, and that page is how everything else
+     * gets loaded. Read from the snapshot, the menu appeared when the engine's cached snapshot answered and
+     * not when this fallback did, until a restart.
      */
     private UiContext platformAdminGrants(UiContext out) {
-        Collection<Navigation> allNavs = navigationModelResolver.allNavigations();
+        List<Navigation> allNavs = modelService.searchList("Navigation",
+                new FlexQuery(List.of("id", "parentId"), new Filters()), Navigation.class);
+        Map<String, String> parentIds = new HashMap<>();
         Set<String> navigations = new HashSet<>();
-        if (allNavs != null) {
-            for (Navigation n : allNavs) {
-                if (n != null && n.getId() != null && isPlatformAdminNav(n.getId())) {
-                    navigations.add(n.getId());
-                }
+        for (Navigation n : allNavs) {
+            if (n == null || n.getId() == null) {
+                continue;
+            }
+            parentIds.put(n.getId(), n.getParentId());
+            if (isPlatformAdminNav(n.getId())) {
+                navigations.add(n.getId());
             }
         }
         Set<String> permissions = new HashSet<>();
@@ -342,9 +353,25 @@ public class UiContextBuilder {
         // admits the group's pages and not the `navigation.users` module row above them, and the
         // sidebar asks about that row too — without this the FE had to keep its own copy of the
         // prefix list to reconstruct what the server left out, a third place for one rule to drift.
-        out.setNavigations(expandAncestors(navigations));
+        // Walked over the rows just read, which the startup ancestor index may not know.
+        out.setNavigations(withAncestors(navigations, parentIds));
         out.setPermissions(permissions);
         out.setModelSensitiveFieldSetsMap(Map.of());
+        return out;
+    }
+
+    /** These navigations and every ancestor of each, up the parent ids given — cycle guard and depth cap 32,
+     *  as {@link #initAncestorIndex} builds them. */
+    private static Set<String> withAncestors(Set<String> navIds, Map<String, String> parentIds) {
+        Set<String> out = new LinkedHashSet<>(navIds);
+        for (String navId : navIds) {
+            String cursor = parentIds.get(navId);
+            int guard = 0;
+            // A parent already in the set has its own ancestors in it, or will once its own turn comes.
+            while (cursor != null && guard++ < 32 && out.add(cursor)) {
+                cursor = parentIds.get(cursor);
+            }
+        }
         return out;
     }
 
