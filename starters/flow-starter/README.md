@@ -280,10 +280,13 @@ entry check that the approver can see the request (`@RequirePermission`).
 
 Set aside means **every** permission check, not only row scope — sensitive-field write checks included.
 The node's form configuration (its field permissions, `formPermissions`) is the only authorization for the
-fields the approver edits: an approver whose roles hold no sensitive field set covering a field can still
-write it if the node's form exposes it as editable. Flow designers must therefore not make a sensitive
-field (pay, bank details, identity numbers, …) editable on an approval form unless every approver that
-node can resolve to is meant to edit it; show it read-only, or leave it off the form.
+fields the approver edits. Only the fields it marks `EDITABLE` or `REQUIRED` are written back; any other key
+in the approve request's `formData` — a `HIDDEN` or `READONLY` field, or one the node does not list — is
+dropped, and a node with no `formPermissions` writes nothing. An approver whose roles hold no sensitive
+field set covering a field can therefore still write it if the node's form exposes it as editable. Flow
+designers must not make a sensitive field (pay, bank details, identity numbers, …) editable on an approval
+form unless every approver that node can resolve to is meant to edit it; show it read-only, or leave it
+off the form.
 
 ### Additional Approval Actions
 

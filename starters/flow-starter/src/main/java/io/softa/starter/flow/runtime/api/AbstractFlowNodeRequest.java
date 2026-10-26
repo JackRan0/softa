@@ -17,7 +17,8 @@ public abstract class AbstractFlowNodeRequest extends AbstractFlowInstanceReques
     @Schema(description = "Pending approval node id")
     private String nodeId;
 
-    @Schema(description = "Form field edits submitted with the action; filtered by the node's form "
-            + "permissions (HIDDEN/READONLY dropped, REQUIRED validated) before write-back to the business row")
+    @Schema(description = "Form field edits submitted with the action; only fields the node's form permissions "
+            + "mark EDITABLE or REQUIRED are written back to the business row (REQUIRED ones are validated), "
+            + "everything else is dropped")
     private Map<String, Object> formData;
 }
