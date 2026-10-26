@@ -24,9 +24,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Form-permission enforcement on approve: HIDDEN/READONLY edits are dropped,
- * a missing REQUIRED field blocks the transition, and only editable fields are written back to
- * the business row.
+ * Form-permission enforcement on approve: only fields the node marks EDITABLE or REQUIRED are
+ * written back to the business row — HIDDEN, READONLY and unlisted fields are dropped, and a node
+ * without form permissions writes nothing — and a missing REQUIRED field blocks the transition.
  */
 class ApprovalFormWriteServiceTest {
 
@@ -73,6 +73,50 @@ class ApprovalFormWriteServiceTest {
         ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass(Map.class);
         verify(modelService).updateByFilter(eq("LeaveRequest"), any(Filters.class), captor.capture());
         assertEquals(Map.of("comment", "looks good"), captor.getValue());
+    }
+
+    @Test
+    void unlistedFieldsAreDroppedWhileRequiredOnesAreWritten() {
+        Map<String, FormFieldPermission> perms = new HashMap<>();
+        perms.put("comment", FormFieldPermission.EDITABLE);
+        perms.put("reason", FormFieldPermission.REQUIRED);
+        CompiledFlowNode node = nodeWith(perms);
+
+        Map<String, Object> formData = new HashMap<>();
+        formData.put("comment", "looks good");
+        formData.put("reason", "covered by policy");
+        formData.put("days", 30);                   // not on the node's form
+        formData.put("approvalStatus", "Approved"); // not on the node's form
+
+        service.applyFormData(boundState(), node, formData);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(modelService).updateByFilter(eq("LeaveRequest"), any(Filters.class), captor.capture());
+        assertEquals(Map.of("comment", "looks good", "reason", "covered by policy"), captor.getValue());
+    }
+
+    @Test
+    void nodeWithoutFormPermissionsWritesNothing() {
+        service.applyFormData(boundState(), nodeWith(null), Map.of("salary", 999999));
+        service.applyFormData(boundState(), nodeWith(Map.of()), Map.of("salary", 999999));
+        verifyNoInteractions(modelService);
+    }
+
+    @Test
+    void noEditableFieldSubmittedWritesNothing() {
+        CompiledFlowNode node = nodeWith(Map.of(
+                "salary", FormFieldPermission.HIDDEN,
+                "approvedBy", FormFieldPermission.READONLY,
+                "comment", FormFieldPermission.EDITABLE));
+        Map<String, Object> formData = new HashMap<>();
+        formData.put("salary", 999999);
+        formData.put("approvedBy", "attacker");
+        formData.put("bonus", 5000);
+
+        service.applyFormData(boundState(), node, formData);
+
+        verifyNoInteractions(modelService);
     }
 
     @Test

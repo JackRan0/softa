@@ -67,8 +67,7 @@ public class FormPermissionService {
 
     /** Check if a field is editable (editable or required). */
     public static boolean isFieldEditable(CompiledFlowNode node, String fieldName) {
-        FormFieldPermission perm = getFieldPermissions(node).get(fieldName);
-        return perm == FormFieldPermission.EDITABLE || perm == FormFieldPermission.REQUIRED;
+        return isEditable(getFieldPermissions(node).get(fieldName));
     }
 
     /** Check if a field is required. */
@@ -102,7 +101,10 @@ public class FormPermissionService {
     }
 
     /**
-     * Filter form data based on permissions: drops both HIDDEN and READONLY edits. The write is a
+     * Filter form data down to the fields the node lets the approver edit: only EDITABLE and
+     * REQUIRED entries pass. HIDDEN, READONLY and unlisted fields are dropped, and a node without
+     * {@code formPermissions} passes nothing. The approval's writes run with permission checks set
+     * aside, so this allow-list is the only authorization for the fields written. The write is a
      * <em>partial</em> update of the remaining (editable) fields, so dropped columns are simply left
      * untouched on the stored row — no original-row read is needed.
      */
@@ -111,18 +113,16 @@ public class FormPermissionService {
             return Collections.emptyMap();
         }
         Map<String, FormFieldPermission> permissions = getFieldPermissions(node);
-        if (permissions.isEmpty()) {
-            return formData; // No restrictions configured
-        }
         Map<String, Object> filtered = new HashMap<>();
         for (Map.Entry<String, Object> entry : formData.entrySet()) {
-            FormFieldPermission perm = permissions.get(entry.getKey());
-            // HIDDEN and READONLY edits are dropped; editable / required / unspecified pass through.
-            if (perm == FormFieldPermission.HIDDEN || perm == FormFieldPermission.READONLY) {
-                continue;
+            if (isEditable(permissions.get(entry.getKey()))) {
+                filtered.put(entry.getKey(), entry.getValue());
             }
-            filtered.put(entry.getKey(), entry.getValue());
         }
         return filtered;
+    }
+
+    private static boolean isEditable(FormFieldPermission perm) {
+        return perm == FormFieldPermission.EDITABLE || perm == FormFieldPermission.REQUIRED;
     }
 }

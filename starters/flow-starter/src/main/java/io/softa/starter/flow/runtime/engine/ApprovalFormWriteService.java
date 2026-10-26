@@ -18,9 +18,10 @@ import static io.softa.framework.orm.constant.ModelConstant.ID;
  * Enforces approval-node form field permissions against the originating business row.
  *
  * <p>On an approve carrying {@code formData}: validates REQUIRED fields (blocking the transition on
- * failure), drops HIDDEN and READONLY edits, and writes the sanitized remainder back to the business
- * row via {@link ModelService#updateByFilter}. Because this is a <em>partial</em> update (editable
- * fields only), HIDDEN/READONLY columns are simply left untouched — no original-row read is needed.
+ * failure), keeps only the fields the node marks EDITABLE or REQUIRED (HIDDEN, READONLY and unlisted
+ * fields are dropped; a node without {@code formPermissions} writes nothing), and writes them back to
+ * the business row via {@link ModelService#updateByFilter}. Because this is a <em>partial</em> update
+ * (editable fields only), every other column is simply left untouched — no original-row read is needed.
  * The write rides the framework model RPC: {@code @RPCCheckpoint} + {@code SwitchServiceAspect} route
  * it to the owning app by appCode in a microservice topology, and run it in-JVM in a monolith.
  */
