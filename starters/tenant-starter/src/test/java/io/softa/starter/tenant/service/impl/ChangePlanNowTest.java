@@ -37,7 +37,7 @@ import static org.mockito.Mockito.when;
  * <p>It shipped untested, and the reform broke it in a way no other test could see. It picked today's period
  * with {@code findFirst()} on the covering rows, which was exactly right while overlap was rejected: at most
  * one row could cover a date. Every tenant now owns an open-ended floor period, so a tenant on Pro has two
- * covering rows and an arbitrary pick lands on the free one about as often as not.
+ * covering rows and an arbitrary pick lands on the base one about as often as not.
  *
  * <p>Both consequences are silent. Picking the floor period closes the tenant's <i>baseline</i> off instead of
  * its purchase; and on a tenant created today the same-day branch rewrites the floor period's own plan, leaving
@@ -66,9 +66,9 @@ class ChangePlanNowTest {
     }
 
     @Test
-    @DisplayName("a tenant on Pro over its free period — the PRO row is the one closed off")
+    @DisplayName("a tenant on Pro over its base period — the PRO row is the one closed off")
     void picksTheTierWinnerNotTheFirstCoveringRow() {
-        // The shape every tenant has after the reform. The free row is added FIRST, so `findFirst()` would
+        // The shape every tenant has after the reform. The base row is added FIRST, so `findFirst()` would
         // have found it — which is the whole failure this asserts against.
         TenantSubscriptionPeriod free = period(FREE.getId(), today.minusDays(300), null,
                 SubscriptionPeriodType.TRIAL);
@@ -83,7 +83,7 @@ class ChangePlanNowTest {
                 .as("the purchased period is the one that gives way to the new plan")
                 .isEqualTo(today.minusDays(1));
         assertThat(free.getEffectiveEndDate())
-                .as("the baseline must be left open-ended — closing it revokes free access silently")
+                .as("the baseline must be left open-ended — closing it revokes base access silently")
                 .isNull();
         assertThat(free.getPlanId())
                 .as("and it must still be the floor plan")
@@ -102,7 +102,7 @@ class ChangePlanNowTest {
     }
 
     @Test
-    @DisplayName("a tenant on nothing but free — refused, with the path that does work")
+    @DisplayName("a tenant on nothing but its base period — refused, with the path that does work")
     void refusesToRewriteTheBaseline() {
         stored.add(period(FREE.getId(), today.minusDays(300), null, SubscriptionPeriodType.TRIAL));
 
@@ -113,7 +113,7 @@ class ChangePlanNowTest {
     @Test
     @DisplayName("a tenant created today — the same-day branch must not repoint the floor period")
     void sameDayFloorPeriodIsStillRefused() {
-        // The worst version: `today` IS the free period's start, so the same-day branch would correct it in
+        // The worst version: `today` IS the base period's start, so the same-day branch would correct it in
         // place and the subscription would end up with zero floor periods — a state no guard downstream is
         // looking for, because the cardinality guard only rejects a second one.
         TenantSubscriptionPeriod free = period(FREE.getId(), today, null, SubscriptionPeriodType.TRIAL);

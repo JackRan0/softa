@@ -107,9 +107,9 @@ tenant-starter needs no user-starter dependency:
   their own query — only the batch owner-load is shared with the refresh (no per-row `TenantInfo` N+1).
 - **`TenantSubscriptionPeriodService`** is the single guarded entry point for period writes. Four guards:
   the end must not precede the start; **at most one** period on the floor plan (that row is the tenant's
-  baseline free access, written by provisioning — a second would put one entitlement in two places); the
+  base access, written by provisioning — a second would put one entitlement in two places); the
   floor period's **start date is immutable** (it is the tenant's creation day, which is history, not a
-  setting — its *end* date is settable and that is the whole mechanism for time-boxing free access); and the
+  setting — its *end* date is settable and that is the whole mechanism for time-boxing base access); and the
   floor period **cannot be deleted** (the resolver reads a missing floor row as "predates the migration" and
   falls back to granting the floor plan's modules, so deleting it would silently restore access an operator
   had just revoked by ending it). Update guards check the *stored* row, so a half-specified patch cannot slip

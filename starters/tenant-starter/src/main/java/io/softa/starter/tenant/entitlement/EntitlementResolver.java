@@ -60,7 +60,7 @@ import java.util.Set;
  * The degrade target is the catalog's <b>lowest-tier plan</b> (min {@code Plan.tier}), NOT a fixed id
  * like {@code "plan.free"} — so any deployment's own plan naming works out of the box. If the catalog
  * has no plan at all, the floor is the <b>empty</b> entitlement (unpaid ⇒ no access); a deployment that
- * wants a free floor seeds a lowest-tier plan with a base module set, one whose floor is paid seeds a
+ * wants a no-charge floor seeds a lowest-tier plan with a base module set, one whose floor is paid seeds a
  * zero-module placeholder instead.
  *
  * <p>All reads run under {@link SkipPermissionCheck} — fires on the cross-bean call from
@@ -137,26 +137,26 @@ public class EntitlementResolver {
         }
         // No covering period. Two very different situations, and collapsing them was the old bug:
         //
-        //   a) the tenant HAS its baseline free period and it has ended — an operator gave it an end date, on
-        //      purpose, to cut a free tenant off. Entitlement is nothing. Falling back to the floor plan here
-        //      would silently undo that decision and grant free access forever.
+        //   a) the tenant HAS its base period and it has ended — an operator gave it an end date, on
+        //      purpose, to cut the tenant off. Entitlement is nothing. Falling back to the floor plan here
+        //      would silently undo that decision and grant base access forever.
         //
         //   b) the tenant has NO floor period at all — a row written before provisioning started creating one,
         //      or periods deleted directly in the database. Granting nothing would take access away from an
         //      existing customer on the deploy that introduced this, so fall back and say so in the log: the
-        //      remedy is to give that subscription its free period.
+        //      remedy is to give that subscription its base period.
         if (hasFloorPeriod(tenant)) {
             return new EntitlementInfo(null, 0, Set.of());
         }
         log.warn("Tenant {} has no baseline period on the floor plan; granting the floor plan's modules as a "
-                + "fallback. Give this subscription its free period — the fallback is not how free works.",
+                + "fallback. Give this subscription its base period — the fallback is not how base access works.",
                 tenant == null ? null : tenant.getId());
         return fallbackInfo();
     }
 
     /**
      * Whether this tenant owns a period on the floor plan at all — regardless of whether it still covers
-     * today. Distinguishes "free was deliberately ended" from "free was never recorded", which are the two
+     * today. Distinguishes "the base period was deliberately ended" from "it was never recorded", which are the two
      * ways to arrive at no covering period and which demand opposite answers.
      */
     private boolean hasFloorPeriod(TenantInfo tenant) {
@@ -176,12 +176,12 @@ public class EntitlementResolver {
 
     /**
      * The floor plan's entitlement. No longer "how a tenant without periods is served" — every tenant owns a
-     * free period now — but the repair path for one whose baseline row is missing. See {@link #compute}.
+     * base period now — but the repair path for one whose baseline row is missing. See {@link #compute}.
      */
     private EntitlementInfo fallbackInfo() {
         Plan fb = fallbackPlan();
         if (fb == null) {
-            // No plans configured → no floor → no modules. A deployment wanting a free floor seeds a
+            // No plans configured → no floor → no modules. A deployment wanting a no-charge floor seeds a
             // lowest-tier plan with its base modules.
             return new EntitlementInfo(null, 0, Set.of());
         }

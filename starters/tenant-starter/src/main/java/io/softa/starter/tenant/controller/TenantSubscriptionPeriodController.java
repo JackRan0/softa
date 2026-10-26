@@ -36,7 +36,7 @@ import io.softa.starter.tenant.service.TenantSubscriptionPeriodService;
  * </ul>
  *
  * <p>Overlap is no longer among the reasons: it is accepted now, because every tenant owns an open-ended
- * free period that every sale overlaps. The projection resolves the ambiguity by plan tier instead.</p>
+ * base period that every sale overlaps. The projection resolves the ambiguity by plan tier instead.</p>
  *
  * This codebase has already been bitten twice by the same shape: {@code TenantStatus} being editable
  * through the generic {@code updateOne} (so suspending a tenant did not evict its caches and did not take

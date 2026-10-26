@@ -17,13 +17,13 @@ import io.softa.starter.tenant.entity.TenantSubscriptionPeriod;
  *
  * <p>Overlapping periods are normal: every tenant owns an open-ended period on the floor plan from the day it
  * was created, so anything sold on top of it overlaps by construction. The winner is the <b>highest plan
- * tier</b> — that is what makes the free period harmless, letting a tenant on Pro be on Pro even though its
- * free period covers the same day.
+ * tier</b> — that is what makes the base period harmless, letting a tenant on Pro be on Pro even though its
+ * base period covers the same day.
  *
  * <p>Extracted because two callers need the identical answer and would otherwise each carry their own copy:
  * the projection, which writes the tenant's current plan, and the expiry reminder, which has to know what will
  * apply the day <i>after</i> a period ends. Those two disagreeing is the specific failure this prevents —
- * a reminder telling a customer their access lapses while the projection quietly moves them to the free plan
+ * a reminder telling a customer their access lapses while the projection quietly moves them to the floor plan
  * is not a wording problem, it is two different beliefs about the same subscription.
  *
  * <p>Static, taking the {@code ModelService}, for the same reason as {@link PlanCatalog}: the callers already
@@ -47,7 +47,7 @@ public final class PeriodSelection {
     /**
      * A period's plan tier. An unknown or absent plan sorts LOWEST rather than throwing: a dangling planId is
      * bad data, and letting it win would hand the tenant an unresolvable plan; letting it lose means the tenant
-     * keeps whatever else covers the date, which for every tenant includes at least its free period.
+     * keeps whatever else covers the date, which for every tenant includes at least its base period.
      */
     public static int tierOf(Map<String, Integer> tierByPlan, String planId) {
         Integer tier = planId == null ? null : tierByPlan.get(planId);

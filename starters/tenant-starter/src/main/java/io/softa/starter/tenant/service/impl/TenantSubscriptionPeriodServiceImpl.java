@@ -92,13 +92,13 @@ public class TenantSubscriptionPeriodServiceImpl
     }
 
     /**
-     * The free period cannot be deleted. It is the tenant's baseline entitlement — the row that makes
+     * The base period cannot be deleted. It is the tenant's baseline entitlement — the row that makes
      * "what may this tenant reach" answerable from data — and provisioning creates it once, at tenant
      * creation, so nothing puts it back.
      *
      * <p>Deleting it does the opposite of what the operator doing it intends. The entitlement resolver reads
      * "no floor period at all" as "this row is MISSING" and falls back to granting the floor plan's modules,
-     * so a free tenant deleted out of its baseline quietly keeps free access. Cutting a tenant off is done by
+     * so a base-only tenant deleted out of its baseline quietly keeps base access. Cutting a tenant off is done by
      * giving that period an end date, which is why the message says so.
      *
      * <p>Enforced here rather than in the frontend because there are four ways in: the delete endpoints, the
@@ -129,7 +129,7 @@ public class TenantSubscriptionPeriodServiceImpl
         //
         // `findFirst()` was written when overlap was rejected, so at most one row could cover a date and
         // whichever came back was the answer. Every tenant now owns an open-ended floor period, so a tenant on
-        // Pro has two covering rows and an arbitrary pick lands on the free one about as often as not. Changing
+        // Pro has two covering rows and an arbitrary pick lands on the base one about as often as not. Changing
         // plan would then close the tenant's baseline off instead of its purchase — and on a tenant created
         // today it would take the same-day branch below and rewrite the floor period's own plan, leaving the
         // subscription with no floor period at all, which the resolver reads as "predates the migration" and
@@ -142,7 +142,7 @@ public class TenantSubscriptionPeriodServiceImpl
         // Refuse the floor period as the target even when it is what applies. "Change plan" means selling
         // something on top of the baseline, never rewriting the baseline: closing it off or repointing it
         // breaks the same invariant the deletion and immutable-start guards protect, and would do it through a
-        // third door. A tenant genuinely on nothing but free upgrades by recording a period, which is the path
+        // third door. A tenant genuinely on its base period alone upgrades by recording a period, which is the path
         // the error names.
         Plan floor = PlanCatalog.floorPlan(modelService);
         if (floor != null) {
@@ -303,26 +303,26 @@ public class TenantSubscriptionPeriodServiceImpl
                     "This tenant already has its {0} period — there is exactly one, created with the tenant.",
                     floor.getId());
 
-            // The free period's start date is fixed at the tenant's creation day. It is the anchor for "this
-            // tenant has had free access since it existed", so moving it forward opens a stretch that nothing
+            // The base period's start date is fixed at the tenant's creation day. It is the anchor for "this
+            // tenant has had base access since it existed", so moving it forward opens a stretch that nothing
             // covers — and with the floor-plan fallback gone, uncovered means zero modules. Moving it back
             // would claim access before the tenant existed. Only the END date is the operator's to set; that
-            // is the whole mechanism for time-boxing free access.
+            // is the whole mechanism for time-boxing base access.
             if (selfId != null) {
                 TenantSubscriptionPeriod stored = getById(selfId).orElse(null);
                 if (stored != null && stored.getEffectiveStartDate() != null) {
                     Assert.isTrue(stored.getEffectiveStartDate().equals(period.getEffectiveStartDate()),
                             "The {0} period starts on the tenant's creation day and that cannot be changed. "
-                                    + "Set its end date instead to time-box free access.", floor.getId());
+                                    + "Set its end date instead to time-box base access.", floor.getId());
                 }
             }
         }
 
         // Overlap is NOT rejected. It used to be, on the reasoning that "the period covering today" had to be
-        // unambiguous — but every tenant now owns an open-ended free period, so every sold period overlaps at
+        // unambiguous — but every tenant now owns an open-ended base period, so every sold period overlaps at
         // least that one, and rejecting overlap would make selling anything impossible. Ambiguity is resolved
         // instead of prevented: the projection picks the highest plan tier among the periods covering a date
-        // (SubscriptionProjectionServiceImpl), which is deterministic and is what makes the free period
+        // (SubscriptionProjectionServiceImpl), which is deterministic and is what makes the base period
         // harmless underneath everything else.
         //
         // Gaps are likewise not rejected, and were not before — the frontend's period-gap notice surfaces them

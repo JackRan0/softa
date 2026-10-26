@@ -87,7 +87,7 @@ class SubscriptionProjectionServiceImplTest {
     @Test
     @DisplayName("no periods at all falls back to EXPIRED — a shape provisioning no longer produces")
     void noPeriods_expired() {
-        // Provisioning writes a free period at creation, so a live tenant always has at least one row and
+        // Provisioning writes a base period at creation, so a live tenant always has at least one row and
         // this input does not occur. Pinned anyway because the projection must still answer for a row that
         // predates that rule, or one whose periods were deleted directly in the database: EXPIRED grants the
         // same nothing that the old NEVER_SUBSCRIBED did, without needing a state for "never bought".
@@ -298,16 +298,16 @@ class SubscriptionProjectionServiceImplTest {
         return t;
     }
 
-    // ─── overlapping periods: the tier decides, which is what makes the free period harmless ───
+    // ─── overlapping periods: the tier decides, which is what makes the base period harmless ───
 
     @Test
-    @DisplayName("a paid period wins over the free period that overlaps it")
+    @DisplayName("a paid period wins over the base period that overlaps it")
     void paidBeatsOverlappingFree() {
-        // Every tenant owns an open-ended free period, so ANY sold period overlaps it. Without tier-first
+        // Every tenant owns an open-ended base period, so ANY sold period overlaps it. Without tier-first
         // ordering this is the common case that breaks: the tenant would be reported on whichever row started
-        // most recently, and a back-dated free row would silently demote a paying customer.
-        // The free row deliberately starts LATER than the paid one, which is what the old "latest start wins"
-        // rule got wrong: a free period recorded (or back-dated) after the sale would take over.
+        // most recently, and a back-dated base row would silently demote a paying customer.
+        // The base row deliberately starts LATER than the paid one, which is what the old "latest start wins"
+        // rule got wrong: a base period recorded (or back-dated) after the sale would take over.
         periods.add(period("plan.pro", SubscriptionPeriodType.PAID, TODAY.minusDays(200), TODAY.plusDays(20)));
         periods.add(period("plan.free", SubscriptionPeriodType.TRIAL, TODAY.minusDays(10), null));
 
@@ -349,7 +349,7 @@ class SubscriptionProjectionServiceImplTest {
     @DisplayName("a period whose plan is missing from the catalog loses rather than throwing")
     void danglingPlanSortsLowest() {
         // Bad data, but letting it win would hand the tenant a plan nothing can resolve. Losing means the
-        // tenant keeps whatever else covers today — which for every tenant includes its free period.
+        // tenant keeps whatever else covers today — which for every tenant includes its base period.
         periods.add(period("plan.free", SubscriptionPeriodType.TRIAL, TODAY.minusDays(30), null));
         periods.add(period("plan.deleted", SubscriptionPeriodType.PAID, TODAY.minusDays(1), TODAY.plusDays(30)));
 
