@@ -38,6 +38,16 @@ public class UserListViewPreferenceDTO {
      */
     private Map<String, Object> viewSettings;
 
+    /**
+     * The widths the person dragged columns to, keyed by column id, each a share of the table's
+     * width in percent — so a column takes the same share on a narrower or wider screen. A column
+     * not named keeps the list's own width. On save it is merged key by key into what is stored, as
+     * {@link #viewSettings} is: a key sent as null is removed, so one column is saved without the
+     * others. Apart from the column arrangement: dragging a width does not make the list's columns
+     * the person's own.
+     */
+    private Map<String, Double> columnWidths;
+
     /** One shown column. */
     @Data
     @JsonInclude(JsonInclude.Include.NON_NULL)

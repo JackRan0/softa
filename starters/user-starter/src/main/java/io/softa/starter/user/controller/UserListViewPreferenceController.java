@@ -48,7 +48,7 @@ public class UserListViewPreferenceController {
     }
 
     @Operation(summary = "resetMyPreference",
-            description = "Forget the caller's columns, export fields, view settings, or all three (part omitted).")
+            description = "Forget the caller's columns (with their widths), export fields, view settings, or all three (part omitted).")
     @PostMapping("/resetMyPreference")
     public ApiResponse<Boolean> resetMyPreference(@RequestParam String viewStateKey,
                                                   @RequestParam(required = false) String part) {
