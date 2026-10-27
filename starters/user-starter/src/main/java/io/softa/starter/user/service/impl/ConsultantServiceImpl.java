@@ -191,11 +191,10 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
         Assert.notNull(form, "A consultant profile is required");
         String email = form.getEmail() == null ? null : form.getEmail().trim();
         String mobile = form.getMobile() == null ? null : form.getMobile().trim();
-        // One channel is the requirement, not both. A person who joined by mobile alone has no email,
-        // and demanding one would make every save of their profile fail until somebody invented one
-        // — extending a grant or disabling them included.
-        Assert.isTrue((email != null && !email.isEmpty()) || (mobile != null && !mobile.isEmpty()),
-                "A consultant needs an email or a mobile.");
+        // Both, the same rule the payload declares — repeated here because not every caller of the
+        // service comes through the controller's validation.
+        Assert.isTrue(email != null && !email.isEmpty(), "Please enter a valid email address");
+        Assert.isTrue(mobile != null && !mobile.isEmpty(), "Mobile is required");
 
         Long profileId;
         boolean personIsNew;
@@ -231,8 +230,7 @@ public class ConsultantServiceImpl extends EntityServiceImpl<ConsultantProfile, 
             Long existing = byEmail != null ? byEmail : byMobile;
             personIsNew = existing == null;
             profileId = personIsNew
-                    ? profileService.createPersonForJoin(
-                            email != null && !email.isBlank() ? email : mobile)
+                    ? profileService.createPersonForJoin(email)
                     : existing;
         }
         applyBasicInformation(profileId, form.getUsername(), email, mobile,
