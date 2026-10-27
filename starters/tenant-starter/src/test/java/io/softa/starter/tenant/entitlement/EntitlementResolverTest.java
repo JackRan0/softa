@@ -92,13 +92,13 @@ class EntitlementResolverTest {
     // ─── no covering period: two situations, opposite answers ───
 
     @Test
-    @DisplayName("a free period that an operator ended grants nothing — the fallback must not undo that")
-    void freePeriodEnded_grantsNothing() {
-        // Time-boxing the free period is the whole mechanism for cutting a free tenant off (a competitor
+    @DisplayName("a base period that an operator ended grants nothing — the fallback must not undo that")
+    void basePeriodEnded_grantsNothing() {
+        // Time-boxing the base period is the whole mechanism for cutting a tenant on its base period off (a competitor
         // evaluating the product, say). Falling back to the floor plan here would hand back exactly the access
         // the operator removed, and hand it back forever.
         // The subscription row exists — it always does — but its projection covers nothing: planId null means
-        // no period covers today. The free row is still THERE, which is what separates this from the case below.
+        // no period covers today. The base row is still THERE, which is what separates this from the case below.
         subs.add(sub(null));
         periodRows.add(floorPeriod());
 
@@ -109,9 +109,9 @@ class EntitlementResolverTest {
     @Test
     @DisplayName("a tenant with no baseline period still gets the floor plan, so a missed migration is survivable")
     void noFloorPeriod_fallsBack() {
-        // A subscription row written before provisioning began creating the free period. Granting nothing
+        // A subscription row written before provisioning began creating the base period. Granting nothing
         // would take access away from an existing customer on the deploy that introduced this; the resolver
-        // logs a warning and serves the floor instead, and the remedy is to give it its free period.
+        // logs a warning and serves the floor instead, and the remedy is to give it its base period.
         periodRows.clear();
 
         assertThat(modules(TENANT)).containsExactlyInAnyOrder(

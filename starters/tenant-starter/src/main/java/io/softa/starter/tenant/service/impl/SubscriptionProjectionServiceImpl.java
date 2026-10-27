@@ -141,12 +141,12 @@ public class SubscriptionProjectionServiceImpl implements SubscriptionProjection
                 periodsBySubscription.getOrDefault(sub.getId(), List.of());
 
         // More than one period may cover today — overlaps are allowed, and every tenant owns an open-ended
-        // free period that overlaps everything sold on top of it. So this is the normal case, not corruption.
+        // base period that overlaps everything sold on top of it. So this is the normal case, not corruption.
         //
-        // The winner is the HIGHEST PLAN TIER, which is what makes the free period harmless: a tenant on Pro
-        // is on Pro, even though its free period covers the same day. Sorting by "latest start" instead — the
+        // The winner is the HIGHEST PLAN TIER, which is what makes the base period harmless: a tenant on Pro
+        // is on Pro, even though its base period covers the same day. Sorting by "latest start" instead — the
         // old rule, written when overlaps were rejected — would hand today to whichever row happened to begin
-        // most recently, so back-dating a free period would silently demote a paying customer.
+        // most recently, so back-dating a base period would silently demote a paying customer.
         //
         // Ties broken by latest start then id, purely for determinism: authorization reads this projection, so
         // an arbitrary pick could flip the granted plan between refreshes with nothing having changed.
@@ -175,9 +175,9 @@ public class SubscriptionProjectionServiceImpl implements SubscriptionProjection
             sub.setCurrentEndDate(null);
             // No covering period: either one is coming (PENDING) or none is (EXPIRED).
             //
-            // There is no longer a third case for "never bought anything": provisioning writes a free period
+            // There is no longer a third case for "never bought anything": provisioning writes a base period
             // at tenant creation, so `periods` is never empty and the standing is always derivable from
-            // dates. A tenant showing EXPIRED here has therefore let its free period lapse too — which only
+            // dates. A tenant showing EXPIRED here has therefore let its base period lapse too — which only
             // happens if an operator gave that period an end date, i.e. deliberately time-boxed it.
             sub.setSubscriptionStatus(next != null ? SubscriptionStatus.PENDING : SubscriptionStatus.EXPIRED);
         }

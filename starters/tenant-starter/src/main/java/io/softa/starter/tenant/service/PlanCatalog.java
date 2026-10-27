@@ -14,7 +14,7 @@ import io.softa.starter.tenant.entity.Plan;
  *
  * <p>{@link #floorPlan} in particular: "the plan a tenant starts on" was being recomputed
  * independently by the entitlement resolver and by the period write guards, and provisioning now needs
- * it a third time to write the free period at tenant creation. Three copies of a rule that decides
+ * it a third time to write the base period at tenant creation. Three copies of a rule that decides
  * which modules a tenant may reach is three chances to disagree, and a disagreement here is invisible —
  * each caller looks correct on its own and the tenant simply gets the wrong plan.
  *

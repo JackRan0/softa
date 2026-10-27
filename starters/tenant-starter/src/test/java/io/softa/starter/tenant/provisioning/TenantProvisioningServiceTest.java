@@ -47,7 +47,7 @@ import static org.mockito.Mockito.when;
  * <p>Every customer goes through this once, and the failure modes are not gradual. If the subscription row is
  * missing, the tenant list and authorization both read a null projection. If the back-link is skipped, billing
  * cannot find its way from a subscription to its tenant. If the periods a sales rep entered on the create form
- * are dropped, the customer is created on the free plan having paid for Pro — and nothing reports an error,
+ * are dropped, the customer is created on the floor plan having paid for Pro — and nothing reports an error,
  * because provisioning itself succeeded.
  *
  * <p>The class this replaces tested a subscription model that no longer exists (one interval and a lifecycle
@@ -77,11 +77,11 @@ class TenantProvisioningServiceTest {
         modelService = mock(ModelService.class);
 
         // The plan catalog, stubbed to the shape provisioning depends on: a lowest-tier plan exists, so
-        // ensureFreePeriod has a baseline to write. Without it provisioning refuses outright — see its
+        // ensureBasePeriod has a baseline to write. Without it provisioning refuses outright — see its
         // javadoc for why a tenant with no period is worse than a tenant that failed to be created.
         when(modelService.searchList(eq("Plan"), any(FlexQuery.class), eq(Plan.class)))
                 .thenReturn(List.of(plan("plan.free", 0), plan("plan.pro", 10)));
-        // No period exists yet, so the free row gets written. Overridden per test where the point is that
+        // No period exists yet, so the base row gets written. Overridden per test where the point is that
         // one arrived with the request.
         when(periodService.searchList(any(FlexQuery.class))).thenReturn(List.of());
 
@@ -190,10 +190,10 @@ class TenantProvisioningServiceTest {
     }
 
     @Test
-    @DisplayName("no periods sold — the free period is still written, open-ended and on the floor plan")
-    void noPeriods_freePeriodStillWritten() {
+    @DisplayName("no periods sold — the base period is still written, open-ended and on the floor plan")
+    void noPeriods_basePeriodStillWritten() {
         // Replaces the former "nothing recorded" rule. A tenant nobody sold anything to used to have no
-        // periods at all and lean on the resolver's floor-plan fallback; it now owns a real free period, which
+        // periods at all and lean on the resolver's floor-plan fallback; it now owns a real base period, which
         // is what lets the fallback go away and makes its entitlement a fact about data.
         service.provision(request(null));
 
@@ -211,10 +211,10 @@ class TenantProvisioningServiceTest {
     }
 
     @Test
-    @DisplayName("a free period already in the request is used, not duplicated")
-    void freePeriodAlreadyPresent_notDuplicated() {
-        // The create form pre-populates the free row so an operator can set an expiry at creation time, so it
-        // arrives through the patch. "Exactly one free period" is the invariant; finding the existing one is
+    @DisplayName("a base period already in the request is used, not duplicated")
+    void basePeriodAlreadyPresent_notDuplicated() {
+        // The create form pre-populates the base row so an operator can set an expiry at creation time, so it
+        // arrives through the patch. "Exactly one base period" is the invariant; finding the existing one is
         // what keeps the UI path from producing a second alongside the API and seed paths.
         TenantSubscriptionPeriod existingFree = new TenantSubscriptionPeriod();
         existingFree.setPlanId("plan.free");

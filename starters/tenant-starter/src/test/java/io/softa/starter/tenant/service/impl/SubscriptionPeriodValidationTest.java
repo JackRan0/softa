@@ -171,7 +171,7 @@ class SubscriptionPeriodValidationTest {
     @Test
     @DisplayName("the cardinality scan excludes the row being edited, so the one floor period stays editable")
     void editingOwnFloorPeriod_allowed() {
-        // Setting an end date on the free period is the entire mechanism for time-boxing a free tenant, so
+        // Setting an end date on the base period is the entire mechanism for time-boxing a tenant on its base period, so
         // excluding the row under edit from the scan is load-bearing, not defensive. Exercised through
         // validate() directly: the update entry point loads the row first and this fixture has no store
         // behind getById, so going through updateOne would fail on plumbing before reaching the guard.
@@ -196,9 +196,9 @@ class SubscriptionPeriodValidationTest {
     }
 
     @Test
-    @DisplayName("the free period's start date cannot be moved — only its end date is the operator's")
+    @DisplayName("the base period's start date cannot be moved — only its end date is the operator's")
     void floorPeriodStartDate_immutable() {
-        // The start date anchors "this tenant has had free access since it existed". Moving it forward opens a
+        // The start date anchors "this tenant has had base access since it existed". Moving it forward opens a
         // stretch nothing covers, and with the floor-plan fallback gone that means zero modules; moving it back
         // claims access before the tenant existed.
         stored.add(storedPeriod(9L, START, null, FREE.getId()));
@@ -212,7 +212,7 @@ class SubscriptionPeriodValidationTest {
     }
 
     @Test
-    @DisplayName("setting the free period's end date is allowed — that is how free access is time-boxed")
+    @DisplayName("setting the base period's end date is allowed — that is how base access is time-boxed")
     void floorPeriodEndDate_settable() {
         stored.add(storedPeriod(9L, START, null, FREE.getId()));
 
@@ -224,11 +224,11 @@ class SubscriptionPeriodValidationTest {
     }
 
     @Test
-    @DisplayName("the free period cannot be deleted — the message points at the end date instead")
+    @DisplayName("the base period cannot be deleted — the message points at the end date instead")
     void floorPeriodDeletion_refused() {
         // Deleting it does the opposite of what the operator intends: the resolver reads "no floor period" as
-        // "the row is missing" and falls back to granting the floor plan, so a free tenant deleted out of its
-        // baseline quietly keeps free access. Completes the invariant — without this it is "at most one floor
+        // "the row is missing" and falls back to granting the floor plan, so a tenant on its base period deleted out of its
+        // baseline quietly keeps base access. Completes the invariant — without this it is "at most one floor
         // period", not "exactly one".
         stored.add(storedPeriod(5L, START, null, FREE.getId()));
 
@@ -248,10 +248,10 @@ class SubscriptionPeriodValidationTest {
     }
 
     @Test
-    @DisplayName("a trial on a floor-level plan is accepted — the free period is exactly that")
+    @DisplayName("a trial on a floor-level plan is accepted — the base period is exactly that")
     void trialOnFloorLevelPlan_accepted() {
         // Formerly rejected on the grounds that trialling something no better than the floor grants nothing.
-        // The free period is a floor-plan TRIAL by design: TRIAL because nobody paid, which is what keeps it
+        // The base period is a floor-plan TRIAL by design: TRIAL because nobody paid, which is what keeps it
         // out of revenue reads, and floor because that is the baseline every tenant gets.
         Plan legacy = plan("plan.legacy", null);   // no tier — treated as floor level
         catalog = List.of(FREE, PRO, legacy);
@@ -280,7 +280,7 @@ class SubscriptionPeriodValidationTest {
     //
     // These three used to assert the opposite. Overlap was rejected so that "the period covering today" had
     // one answer — a rule that became impossible to keep the moment every tenant started owning an open-ended
-    // free period: every sale overlaps it, so rejecting overlap would reject every sale. Ambiguity is now
+    // base period: every sale overlaps it, so rejecting overlap would reject every sale. Ambiguity is now
     // resolved rather than prevented, by the projection picking the highest plan tier among the periods
     // covering a date. Kept as accept-cases so the reversal is visible and cannot be undone by accident.
 
@@ -307,7 +307,7 @@ class SubscriptionPeriodValidationTest {
     @Test
     @DisplayName("an open-ended existing period no longer blocks what comes after it")
     void openEndedIncumbent_doesNotBlockLater() {
-        // The free period is exactly this shape — open-ended, starting at tenant creation. Under the old rule
+        // The base period is exactly this shape — open-ended, starting at tenant creation. Under the old rule
         // it blocked every later period, i.e. it blocked selling anything at all.
         stored.add(storedPeriod(1L, START, null));
 

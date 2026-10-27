@@ -75,8 +75,8 @@ public class TenantProvisioningService {
         // System context — persist the subscription row + the registry row that links it.
         Long tenantId = inSystemContext(() -> {
             // Every tenant gets a subscription row at birth: it is the projection carrier the tenant list
-            // and authorization read. Its projected columns are left unset — ensureFreePeriod writes the
-            // free period below and the projection refresh fills them in from the period rows, which is the
+            // and authorization read. Its projected columns are left unset — ensureBasePeriod writes the
+            // base period below and the projection refresh fills them in from the period rows, which is the
             // only writer of this row's projected state. Seeding a status here would be a guess that the
             // refresh immediately overwrites, and a wrong one for the window in between.
             TenantSubscription subscription = new TenantSubscription();
@@ -118,9 +118,9 @@ public class TenantProvisioningService {
         // Initial periods are optional: a tenant sold nothing yet simply has none and runs on the floor
         // plan. Recorded after the tenant row exists so the projection refresh can read its timezone.
         recordInitialPeriods(tenantId, request.getSubscriptionId());
-        // After the operator's periods, not before: the create form pre-populates the free row, so if one
+        // After the operator's periods, not before: the create form pre-populates the base row, so if one
         // arrived in the patch this finds it and adds nothing. Running first would create a second one.
-        ensureFreePeriod(tenantId);
+        ensureBasePeriod(tenantId);
 
         // Mark the initialization axis before broadcasting: no expected seeders (single-tenant / no-MQ)
         // → ACTIVE immediately; otherwise INITIALIZING until the expected seeders report done.
@@ -191,14 +191,14 @@ public class TenantProvisioningService {
     }
 
     /**
-     * Guarantee the tenant has its free period — the row that makes "what is this tenant entitled to" a
+     * Guarantee the tenant has its base period — the row that makes "what is this tenant entitled to" a
      * question about data rather than about a fallback rule.
      *
      * <p>Every tenant gets exactly one, and it is the reason the entitlement resolver no longer needs a
      * floor-plan fallback: a tenant always has at least one period, so its standing is always derivable
      * from dates. That also makes {@code NEVER_SUBSCRIBED} unreachable.
      *
-     * <p><b>Idempotent by search, not by flag.</b> The create form pre-populates the free row so the
+     * <p><b>Idempotent by search, not by flag.</b> The create form pre-populates the base row so the
      * operator can set an expiry at creation time, so the row may already have arrived through
      * {@link #recordInitialPeriods}. Checking for it is what keeps the UI path and the API / seed paths
      * from producing two.
@@ -209,7 +209,7 @@ public class TenantProvisioningService {
      * sells versions has a catalog; one that does not should not have tenant-starter's period machinery
      * writing rows at all.
      */
-    private void ensureFreePeriod(Long tenantId) {
+    private void ensureBasePeriod(Long tenantId) {
         TenantInfo tenant = tenantInfoService.getById(tenantId).orElse(null);
         if (tenant == null || tenant.getSubscriptionId() == null) {
             return;
@@ -225,21 +225,21 @@ public class TenantProvisioningService {
             if (alreadyThere) {
                 return null;
             }
-            SubscriptionPeriodPatch.PeriodInput free = new SubscriptionPeriodPatch.PeriodInput();
-            free.setPlanId(floor.getId());
+            SubscriptionPeriodPatch.PeriodInput base = new SubscriptionPeriodPatch.PeriodInput();
+            base.setPlanId(floor.getId());
             // TRIAL, not PAID: nobody paid for it. The projection turns this into "on trial" while the row
-            // is open, and into "expired" if an operator later sets an end date — which is how a free tenant
+            // is open, and into "expired" if an operator later sets an end date — which is how a base-only tenant
             // can be cut off without deleting anything.
-            free.setPeriodType(SubscriptionPeriodType.TRIAL);
+            base.setPeriodType(SubscriptionPeriodType.TRIAL);
             // The tenant's own today, not the server's: a tenant whose day has not started yet would
             // otherwise get a period beginning "tomorrow" and spend its first hours uncovered.
-            free.setEffectiveStartDate(LocalDate.now(Timezone.zoneIdOrUtc(tenant.getDefaultTimezone())));
+            base.setEffectiveStartDate(LocalDate.now(Timezone.zoneIdOrUtc(tenant.getDefaultTimezone())));
             // Open-ended = permanent. An operator may set an end date afterwards; that is the whole
-            // mechanism for time-boxing a free tenant (a competitor evaluating the product, say).
-            free.setEffectiveEndDate(null);
+            // mechanism for time-boxing a base-only tenant (a competitor evaluating the product, say).
+            base.setEffectiveEndDate(null);
 
             SubscriptionPeriodPatch patch = new SubscriptionPeriodPatch();
-            patch.setCreate(List.of(free));
+            patch.setCreate(List.of(base));
             periodService.applyPatch(tenant.getSubscriptionId(), patch);
             return null;
         });

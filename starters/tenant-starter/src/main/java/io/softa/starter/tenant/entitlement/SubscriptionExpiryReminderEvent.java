@@ -28,7 +28,7 @@ import java.time.LocalDate;
  *                    lapse. A non-null value means the tenant keeps working on a <b>lower</b> plan (a
  *                    downgrade; a same-or-higher successor is not reminded about at all), so the mail must say
  *                    "you drop to this" rather than "you lose access" — the second is simply untrue now that
- *                    every tenant owns an open-ended free period underneath whatever it bought.
+ *                    every tenant owns an open-ended base period underneath whatever it bought.
  */
 public record SubscriptionExpiryReminderEvent(Long tenantId, String tenantName, String planId,
                                               LocalDate effectiveTo, int daysLeft, boolean trial,

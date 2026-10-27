@@ -20,7 +20,7 @@ import io.softa.framework.base.enums.OptionItemTone;
  *   <li><b>{@code PAID}, not {@code ACTIVE}</b> — {@code TenantStatus.ACTIVE} already means "may log in"
  *       (the operational axis). The two axes are orthogonal and can contradict: a tenant can be suspended
  *       by ops while still inside a paid period.</li>
- *   <li><b>No blanket {@code FREE} / {@code AT_FLOOR}</b> — the free plan is a period like any other now,
+ *   <li><b>No blanket {@code FREE} / {@code AT_FLOOR}</b> — the floor plan is a period like any other now,
  *       so its standing follows from its dates: {@link #TRIAL} while the row is open, {@link #EXPIRED} once
  *       an operator gives it an end date that passes. Avoiding the word "free" also keeps the enum honest on
  *       a deployment whose lowest tier is paid.</li>
@@ -28,7 +28,7 @@ import io.softa.framework.base.enums.OptionItemTone;
  *
  * <h3>Four states, not five</h3>
  * {@code NEVER_SUBSCRIBED} meant "no period rows at all", which every tenant passed through at birth.
- * Provisioning now writes a free period at creation, so that state became unreachable — a tenant always has
+ * Provisioning now writes a base period at creation, so that state became unreachable — a tenant always has
  * at least one row and its standing is always derivable from dates. Keeping an unreachable value would leave
  * the UI with a branch nothing produces and the next reader hunting for what triggers it.
  */
@@ -71,7 +71,7 @@ public enum SubscriptionStatus {
 
     /**
      * Periods exist but none covers the projection date and none is upcoming — the tenant lapsed. Reachable
-     * even for a tenant that bought nothing: its free period lapses too if an operator gave it an end date.
+     * even for a tenant that bought nothing: its base period lapses too if an operator gave it an end date.
      */
     @OptionItem(itemTone = OptionItemTone.NEUTRAL, sequence = 4)
     EXPIRED("Expired");
