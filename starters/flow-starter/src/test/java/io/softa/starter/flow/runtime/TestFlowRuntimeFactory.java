@@ -42,6 +42,18 @@ public final class TestFlowRuntimeFactory {
                                     ApprovalNodeExecutionHandler approvalHandler,
                                     FlowStateChangeListener taskSyncListener,
                                     FlowStateChangeListener recordSyncListener) {
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSyncListener,
+                recordSyncListener, Mockito.mock(ModelService.class));
+    }
+
+    /** As above, with the model service an approval's form edits are written to the record through. */
+    public static FlowRuntimeFacade create(FlowBundleRegistry bundleRegistry,
+                                    FlowInstanceStore instanceStore,
+                                    DefaultNodeHandlerRegistry nodeHandlerRegistry,
+                                    ApprovalNodeExecutionHandler approvalHandler,
+                                    FlowStateChangeListener taskSyncListener,
+                                    FlowStateChangeListener recordSyncListener,
+                                    ModelService<?> recordModelService) {
         FlowProjectionPublisher projectionPublisher =
                 new FlowProjectionPublisher(List.of(taskSyncListener, recordSyncListener));
 
@@ -67,7 +79,7 @@ public final class TestFlowRuntimeFactory {
 
         return new FlowRuntimeFacade(contextService, orchestrator, instanceStore, autoCcService,
                 new ApproveActionHandler(contextService, actorValidator, lifecycleService, auditService, orchestrator, notificationService,
-                        new ApprovalFormWriteService(Mockito.mock(ModelService.class)), replayGuard),
+                        new ApprovalFormWriteService(recordModelService), replayGuard),
                 new RejectActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService, replayGuard),
                 new TransferActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService),
                 new DelegateActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService),
@@ -76,7 +88,7 @@ public final class TestFlowRuntimeFactory {
                 new CcActionHandler(contextService, actorValidator, auditService, notificationService),
                 new BatchCcActionHandler(contextService, actorValidator, auditService),
                 new ReadCcActionHandler(contextService, auditService),
-                new ReturnApprovalActionHandler(contextService, auditService, notificationService),
+                new ReturnApprovalActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService),
                 new WithdrawActionHandler(contextService, auditService),
                 new UrgeActionHandler(contextService, auditService, notificationService),
                 new CommentActionHandler(contextService, auditService));

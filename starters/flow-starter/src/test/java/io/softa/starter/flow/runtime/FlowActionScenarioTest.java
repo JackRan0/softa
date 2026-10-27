@@ -145,6 +145,19 @@ class FlowActionScenarioTest {
     }
 
     @Test
+    void aRejectionWithoutACommentIsRefusedAndChangesNothing() {
+        FlowExecutionState started = startAndExpectPending();
+        FlowRejectRequest req = new FlowRejectRequest();
+        req.setInstanceId(started.getInstanceId());
+        req.setNodeId("approval");
+        req.setActorId(APPROVER);
+        req.setComment(" ");
+
+        assertThrows(FlowActionValidationException.class, () -> engine.reject(req));
+        assertEquals(FlowExecutionStatus.WAITING, engine.getInstance(started.getInstanceId()).orElseThrow().getStatus());
+    }
+
+    @Test
     void rejectByNonApproverIsRejectedWithValidationError() {
         FlowExecutionState started = startAndExpectPending();
         FlowRejectRequest req = new FlowRejectRequest();

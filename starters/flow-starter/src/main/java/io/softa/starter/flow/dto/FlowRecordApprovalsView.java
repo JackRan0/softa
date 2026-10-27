@@ -59,6 +59,25 @@ public class FlowRecordApprovalsView {
 
         @Schema(description = "Approval actions in the order they happened; CC reads are left out")
         private List<Action> actions;
+
+        @Schema(description = "Where and why the approval stopped, when it failed; its submitter withdraws the record to take it back")
+        private Failure failure;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Schema(name = "FlowRecordApprovalFailure")
+    public static class Failure {
+
+        @Schema(description = "Node the approval stopped at")
+        private String nodeId;
+
+        @Schema(description = "Label of that node")
+        private String nodeLabel;
+
+        @Schema(description = "Why it stopped")
+        private String message;
     }
 
     @Data

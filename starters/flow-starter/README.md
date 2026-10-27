@@ -150,19 +150,19 @@ Base path: `/flow/instances` — launch, reads and approval actions on runtime i
 | `GET` | `/flow/instances/{instanceId}/trace?sinceSequence=` | Incremental trace rows for polling |
 | `POST` | `/flow/instances/search` | Paged summaries of the caller's own instances — the initiator filter is always the authenticated user (filters: flowId/status/model/row/createdFrom/createdTo) |
 | `POST` | `/flow/instances/approve` | Approve a pending approval |
-| `POST` | `/flow/instances/reject` | Reject a pending approval |
+| `POST` | `/flow/instances/reject` | Reject a pending approval; the comment saying why is required |
 | `POST` | `/flow/instances/transfer` | Transfer a pending approval task |
 | `POST` | `/flow/instances/delegate` | Delegate a pending approval task |
 | `POST` | `/flow/instances/add-sign-before` | Insert a prerequisite signer |
 | `POST` | `/flow/instances/add-sign-after` | Insert a follow-up signer |
 | `POST` | `/flow/instances/cc` | Send a CC notification |
 | `POST` | `/flow/instances/cc/read` | Mark a CC as read |
-| `POST` | `/flow/instances/return` | Return a pending approval to the initiator, ending the instance as `Returned` |
+| `POST` | `/flow/instances/return` | Return a pending approval to the initiator, ending the instance as `Returned`. Only the step's approver, with a comment saying what to change |
 | `POST` | `/flow/instances/withdraw` | Withdraw a flow instance |
 | `POST` | `/flow/instances/urge` | Urge pending approvers |
 | `POST` | `/flow/instances/comment` | Add a comment audit entry |
 | `GET` | `/flow/instances/{instanceId}/nodes/{nodeId}/formPermissions` | Get field-level form permissions |
-| `GET` | `/flow/instances/by-record?modelName=&rowId=` | A business record's approval history: its approval instances newest first, with the steps still waiting, the approvers yet to act and the approval actions, every user named (names are resolved only once the caller is allowed). Allowed to whoever took part in its approvals or can read the record |
+| `GET` | `/flow/instances/by-record?modelName=&rowId=` | A business record's approval history: its approval instances newest first, with the steps still waiting, the approvers yet to act and the approval actions, every user named (names are resolved only once the caller is allowed); a failed instance says where and why it stopped (`failure`). Allowed to whoever took part in its approvals or can read the record |
 | `GET` | `/flow/instances/preview?modelName=&rowId=` | What submitting the record would do now, without submitting it: the Submit flow it would get and its approval steps, each with the approvers who would be asked or why it passes on its own; a refusal, no applicable flow or several are reported, a route decided only once the approval runs is reported as undecided. Nothing is started or written. Allowed to whoever can read the record (see [Previewing a record's approval](#previewing-a-records-approval)) |
 | `GET` | `/flow/instances/{instanceId}/record` | The business record the instance approves, for its initiator and the people it gives a task to: read past their own row permissions, limited to the fields the waiting steps list in their field permissions (`Readonly` / `Editable` / `Required`; once nothing waits, those of every approval step). A step that lists no fields shows them all; a field marked `Hidden` never shows. Read as the model read API returns a record (relations and options as references, masked fields masked), with each one-to-many's rows in full — an expense claim comes with its lines |
 
@@ -324,7 +324,9 @@ Once the actor is validated as the node's approver, the approval's form edits an
 run with the actor's own row scope set aside. Approving is the grant: an approver rarely holds update on
 the record they approve, and with row scope granted per action (permission-starter) that would refuse
 the approval itself. Host endpoints that apply an approval outside the engine do the same, after an
-entry check that the approver can see the request (`@RequirePermission`).
+entry check that the approver can see the request (`@RequirePermission`). A record's own write rules
+(`ModelWriteValidator`) therefore see these writes as the system's: a rule that freezes a record while it is
+in approval — no person edits it — still lets through the fields a node marks editable.
 
 Set aside means **every** permission check, not only row scope — sensitive-field write checks included.
 The node's form configuration (its field permissions, `formPermissions`) is the only authorization for the
