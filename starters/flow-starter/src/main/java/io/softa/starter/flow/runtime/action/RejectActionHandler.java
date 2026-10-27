@@ -20,7 +20,7 @@ import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.*;
 
 /**
- * Handles reject actions for pending approvals.
+ * Handles reject actions for pending approvals. A rejection carries a comment saying why.
  */
 @Component
 public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest> {
@@ -66,6 +66,10 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
 
         actorValidator.validateRejectActor(pendingApproval, request.getActorId(), node);
         lifecycleService.assertActorNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
+        // A rejection says why: the submitter is told, and the record's approval history keeps it.
+        if (!StringUtils.hasText(request.getComment())) {
+            throw new FlowActionValidationException("A comment is required to reject approval node: " + request.getNodeId());
+        }
         if (lifecycleService.requiresTrackedReject(pendingApproval)) {
             if (!StringUtils.hasText(request.getActorId())) {
                 throw new FlowActionValidationException("actorId is required to reject this approval node: " + request.getNodeId());

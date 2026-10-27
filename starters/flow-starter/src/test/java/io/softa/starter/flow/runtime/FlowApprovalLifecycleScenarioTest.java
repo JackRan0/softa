@@ -142,6 +142,28 @@ class FlowApprovalLifecycleScenarioTest {
         assertThrows(FlowActionValidationException.class, () -> engine.withdraw(withdraw));
     }
 
+    @Test
+    void aReturnSaysWhatToChangeAndComesFromTheStepsApprover() {
+        FlowExecutionState started = start();
+
+        FlowReturnRequest silent = new FlowReturnRequest();
+        silent.setInstanceId(started.getInstanceId());
+        silent.setNodeId("approval");
+        silent.setActorId(APPROVER);
+        silent.setComment(" ");
+        assertThrows(FlowActionValidationException.class, () -> engine.returnApproval(silent));
+
+        FlowReturnRequest notTheirs = new FlowReturnRequest();
+        notTheirs.setInstanceId(started.getInstanceId());
+        notTheirs.setNodeId("approval");
+        notTheirs.setActorId(OTHER);
+        notTheirs.setComment("please add detail");
+        assertThrows(FlowActionValidationException.class, () -> engine.returnApproval(notTheirs));
+
+        assertEquals(FlowExecutionStatus.WAITING, engine.getInstance(started.getInstanceId()).orElseThrow().getStatus(),
+                "a refused return changes nothing");
+    }
+
     private static DesignFlowDefinition flowDefinition() {
         return DesignFlowDefinition.builder()
                 .name("Approval Lifecycle")

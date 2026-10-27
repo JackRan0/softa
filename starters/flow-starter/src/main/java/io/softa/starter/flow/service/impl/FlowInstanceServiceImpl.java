@@ -240,16 +240,29 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     private ApprovalRun approvalRun(FlowInstance instance) {
-        String flowName = bundleRegistry.getByBundleId(instance.getBundleId())
-                .map(CompiledFlowDefinition::getFlowName)
-                .orElse(null);
+        CompiledFlowDefinition definition = bundleRegistry.getByBundleId(instance.getBundleId()).orElse(null);
         List<PendingApproval> pending = FlowExecutionStatus.WAITING.equals(instance.getStatus())
                 ? pendingApprovalsOf(instance)
                 : List.of();
         List<ApprovalActionAuditEntry> actions = approvalLedger.findByInstanceId(instance.getInstanceId()).stream()
                 .filter(entry -> !ApprovalActionType.READ.equals(entry.getAction()))
                 .toList();
-        return new ApprovalRun(instance, flowName, pending, actions);
+        return new ApprovalRun(instance, definition == null ? null : definition.getFlowName(), pending, actions,
+                failureOf(instance, definition));
+    }
+
+    /**
+     * Where and why a failed approval stopped, or null for one that did not fail. The record stays in
+     * approval with nobody to act on it, so the panel says so and that its submitter takes it back.
+     */
+    private static FlowRecordApprovalsView.Failure failureOf(FlowInstance instance, CompiledFlowDefinition definition) {
+        if (!FlowExecutionStatus.FAILED.equals(instance.getStatus())) {
+            return null;
+        }
+        String nodeId = instance.getFailedNodeId();
+        CompiledFlowNode node = nodeId == null || definition == null || definition.getNodeIndex() == null
+                ? null : definition.getNodeIndex().get(nodeId);
+        return new FlowRecordApprovalsView.Failure(nodeId, node == null ? null : node.getLabel(), instance.getErrorMessage());
     }
 
     /** Names every user the history mentions — done once the caller is known to be allowed to see it. */
@@ -359,7 +372,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
 
     /** One approval instance of a record with what its history view is built from. */
     private record ApprovalRun(FlowInstance instance, String flowName, List<PendingApproval> pending,
-                               List<ApprovalActionAuditEntry> actions) {
+                               List<ApprovalActionAuditEntry> actions, FlowRecordApprovalsView.Failure failure) {
 
         /** The view, its users as ids; {@link #nameUsers} names them. */
         FlowRecordApprovalsView.Instance toView() {
@@ -384,6 +397,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
                             .comment(entry.getComment())
                             .eventTime(entry.getEventTime())
                             .build()).toList())
+                    .failure(failure)
                     .build();
         }
 

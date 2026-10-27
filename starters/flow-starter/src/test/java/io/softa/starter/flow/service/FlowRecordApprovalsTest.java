@@ -140,6 +140,22 @@ class FlowRecordApprovalsTest {
     }
 
     @Test
+    void aFailedApprovalSaysWhereAndWhyItStopped() {
+        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+        instance("failed", approval, true, FlowExecutionStatus.FAILED, LocalDateTime.of(2026, 10, 20, 9, 0), null);
+        instances.getLast().setFailedNodeId("approval");
+        instances.getLast().setErrorMessage("Approval node 'approval' resolved an empty approver list (strategy=ERROR)");
+        instance("old", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
+
+        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, view -> {});
+
+        assertEquals(new FlowRecordApprovalsView.Failure("approval", "Manager",
+                        "Approval node 'approval' resolved an empty approver list (strategy=ERROR)"),
+                history.getInstances().getFirst().getFailure());
+        assertNull(history.getInstances().get(1).getFailure());
+    }
+
+    @Test
     void usersAreNamedOnlyOnceTheCallerMaySeeTheHistory() {
         CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
         instance("i1", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
