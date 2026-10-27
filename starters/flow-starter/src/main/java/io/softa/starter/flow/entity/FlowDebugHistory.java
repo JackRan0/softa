@@ -24,7 +24,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
     idStrategy = IdStrategy.DISTRIBUTED_LONG,
     copyable = false
 )
-@Index(fields = {"tenantId", "flowCode"})
+@Index(fields = {"tenantId", "flowId"})
 @Index(fields = {"tenantId", "instanceId"})
 @EqualsAndHashCode(callSuper = true)
 public class FlowDebugHistory extends AuditableModel {
@@ -38,8 +38,8 @@ public class FlowDebugHistory extends AuditableModel {
     @Field(label = "Tenant ID", required = true)
     private Long tenantId;
 
-    @Field(length = 100)
-    private String flowCode;
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = FlowDesign.class, label = "Flow")
+    private String flowId;
 
     @Field
     private Integer flowRevision;

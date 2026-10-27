@@ -12,24 +12,24 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 public interface FlowPublishService {
 
     /**
-     * Editor publish: read the saved draft for {@code designId} (single source of truth,
+     * Editor publish: read the saved draft for {@code flowId} (single source of truth,
      * no canvas payload accepted), compile it, publish a new revision, stamp the change
      * description on the bundle row, and update the draft's publish markers.
      *
      * @return a lightweight summary of the new revision
      */
-    FlowBundleSummaryView publishDraft(Long designId, String changeDescription);
+    FlowBundleSummaryView publishDraft(String flowId, String changeDescription);
 
     /**
      * Compile the supplied {@code definition} and publish it.
-     * {@code designId} is optional — pass null for headless / test publishing.
+     * {@code flowId} is optional — pass null for headless / test publishing.
      */
-    CompiledFlowDefinition publish(Long designId, DesignFlowDefinition definition);
+    CompiledFlowDefinition publish(String flowId, DesignFlowDefinition definition);
 
     /**
      * Activate the specified published bundle as its design's effective revision
      * (rollback and roll-forward are the same operation). The target bundle's
-     * {@code designId} is read from the bundle itself.
+     * {@code flowId} is read from the bundle itself.
      */
     Optional<CompiledFlowDefinition> activateBundle(Long bundleId);
 

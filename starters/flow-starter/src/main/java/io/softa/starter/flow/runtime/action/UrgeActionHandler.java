@@ -66,7 +66,7 @@ public class UrgeActionHandler implements FlowActionHandler<FlowUrgeRequest> {
 
         // Add trace
         state.getTrace().add(FlowExecutionTraceEntry.builder()
-                .flowCode(state.getFlowCode())
+                .flowId(state.getFlowId())
                 .eventType(FlowTraceEventType.FLOW_URGED)
                 .eventTime(LocalDateTime.now())
                 .message("Urge sent by " + request.getActorId() + " to " + pendingActorIds + ": " + message)
@@ -75,7 +75,7 @@ public class UrgeActionHandler implements FlowActionHandler<FlowUrgeRequest> {
         // Add audit entry
         auditService.appendApprovalAudit(state, ApprovalActionAuditEntry.builder()
                 .action(ApprovalActionType.URGE)
-                .flowCode(state.getFlowCode())
+                .flowId(state.getFlowId())
                 .flowRevision(state.getFlowRevision())
                 .actorId(request.getActorId())
                 .comment(message)

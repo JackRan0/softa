@@ -363,4 +363,65 @@ class UserListViewPreferenceServiceImplTest {
         assertThat(dto.getViewSettings()).isNull();
         assertThat(dto.getExportFields()).containsExactly("remark");
     }
+
+    @Test
+    void columnWidthsAreFilteredAsColumnsAre() {
+        UserListViewPreferenceDTO dto = arrangement();
+        Map<String, Double> widths = new LinkedHashMap<>();
+        widths.put("fullName", 20.0);
+        widths.put("salary", 15.0);
+        widths.put("employeeProfileId.idNumber", 10.0);
+        widths.put("employeeProfileId.passNumber", 12.5);
+        dto.setColumnWidths(widths);
+
+        assertThat(service.readable(dto).getColumnWidths())
+                .containsExactly(Map.entry("fullName", 20.0), Map.entry("employeeProfileId.passNumber", 12.5));
+    }
+
+    @Test
+    void columnWidthsMergeKeyByKeyAndAKeySentAsNullIsRemoved() {
+        Map<String, Double> incoming = new LinkedHashMap<>();
+        incoming.put("code", 18.0);
+        incoming.put("fullName", null);
+
+        assertThat(UserListViewPreferenceServiceImpl.mergeWidths("{\"fullName\":20.0,\"remark\":30.0}", incoming))
+                .isEqualTo("{\"remark\":30.0,\"code\":18.0}");
+        Map<String, Double> removal = new LinkedHashMap<>();
+        removal.put("remark", null);
+        assertThat(UserListViewPreferenceServiceImpl.mergeWidths("{\"remark\":30.0}", removal)).isNull();
+    }
+
+    @Test
+    void columnWidthsAreSharesOfTheTableKeptToTwoDecimals() {
+        Map<String, Double> sent = new LinkedHashMap<>();
+        sent.put("code", 12.3456);
+        sent.put("remark", null);
+
+        Map<String, Double> out = UserListViewPreferenceServiceImpl.normalizedWidths(sent);
+        assertThat(out).containsOnlyKeys("code", "remark");
+        assertThat(out.get("code")).isEqualTo(12.35);
+        assertThat(out.get("remark")).isNull();
+        for (double bad : new double[] {0, -1, 100.5, Double.NaN, Double.POSITIVE_INFINITY}) {
+            assertThatThrownBy(() -> UserListViewPreferenceServiceImpl.normalizedWidths(Map.of("code", bad)))
+                    .isInstanceOf(BusinessException.class);
+        }
+        assertThatThrownBy(() -> UserListViewPreferenceServiceImpl.normalizedWidths(Map.of(" ", 10.0)))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void aWidthSaveWritesOnlyTheWidthsAndLeavesTheColumnsUnarranged() {
+        // Dragging a width must not turn the list's columns into the person's own.
+        UserListViewPreference stored = new UserListViewPreference();
+        stored.setId(7L);
+        stored.setColumnWidths("{\"code\":10.0}");
+        UserListViewPreferenceDTO incoming = new UserListViewPreferenceDTO();
+        incoming.setModelName(EMPLOYEE);
+        incoming.setColumnWidths(new LinkedHashMap<>(Map.of("fullName", 25.0)));
+
+        Map<String, Object> row = UserListViewPreferenceServiceImpl.changes(stored, incoming);
+
+        assertThat(row).containsOnlyKeys("id", "modelName", "columnWidths");
+        assertThat((String) row.get("columnWidths")).contains("\"code\":10.0").contains("\"fullName\":25.0");
+    }
 }

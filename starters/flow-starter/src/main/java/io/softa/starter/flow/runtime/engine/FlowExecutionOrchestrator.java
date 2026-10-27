@@ -68,7 +68,7 @@ public class FlowExecutionOrchestrator {
     public void executeRoot(CompiledFlowDefinition definition, FlowExecutionState state) {
         FlowVariableContext ctx = buildContextFromState(state);
         executeDefinition(definition, state, definition.getEntryNodeIds(), false,
-                new LinkedHashSet<>(List.of(definition.getDesignId())), ctx, true);
+                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
     }
 
     /**
@@ -79,7 +79,7 @@ public class FlowExecutionOrchestrator {
     public void evaluateRoot(CompiledFlowDefinition definition, FlowExecutionState state) {
         FlowVariableContext ctx = buildContextFromState(state);
         executeDefinition(definition, state, definition.getEntryNodeIds(), false,
-                new LinkedHashSet<>(List.of(definition.getDesignId())), ctx, false);
+                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, false);
     }
 
     /**
@@ -92,13 +92,13 @@ public class FlowExecutionOrchestrator {
         state.getPendingApprovals().removeIf(item -> pendingApproval.getNodeId().equals(item.getNodeId()));
         state.setReturnedApproval(null);
         addCompletedNode(state, node.getNodeId());
-        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_RESUMED,
+        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_RESUMED,
                 "Approval granted for node " + node.getNodeId());
         FlowStatusTransitions.apply(state, FlowExecutionStatus.RUNNING);
 
         FlowVariableContext ctx = buildContextFromState(state);
         executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, node, ctx), false,
-                new LinkedHashSet<>(List.of(definition.getDesignId())), ctx, true);
+                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
     }
 
     /**
@@ -131,11 +131,11 @@ public class FlowExecutionOrchestrator {
         FlowVariableContext ctx = buildContextFromState(state);
         CompiledFlowNode suspendedNode = contextService.requiredNode(definition, suspendedNodeId);
         executeDefinition(definition, state, gatewayRouter.resolveNextNodeIds(definition, suspendedNode, ctx), false,
-                new LinkedHashSet<>(List.of(definition.getDesignId())), ctx, true);
+                new LinkedHashSet<>(List.of(definition.getFlowId())), ctx, true);
     }
 
     public void failState(FlowExecutionState state,
-                          String flowCode,
+                          String flowId,
                           CompiledFlowNode node,
                           String message) {
         FlowStatusTransitions.apply(state, FlowExecutionStatus.FAILED);
@@ -144,7 +144,7 @@ public class FlowExecutionOrchestrator {
         FlowNodeType failedNodeType = node != null ? node.getType() : null;
         state.setFailedNodeId(failedNodeId);
         state.getTrace().add(FlowExecutionTraceEntry.builder()
-                .flowCode(flowCode)
+                .flowId(flowId)
                 .nodeId(failedNodeId)
                 .flowNodeType(failedNodeType)
                 .eventType(FlowTraceEventType.FLOW_FAILED)
@@ -183,7 +183,7 @@ public class FlowExecutionOrchestrator {
                                    FlowExecutionState state,
                                    Collection<String> startingNodeIds,
                                    boolean subflow,
-                                   Set<Long> flowStack,
+                                   Set<String> flowStack,
                                    FlowVariableContext ctx,
                                    boolean notifyOnComplete) {
         ArrayDeque<String> queue = new ArrayDeque<>(startingNodeIds);
@@ -196,7 +196,7 @@ public class FlowExecutionOrchestrator {
                 continue;
             }
 
-            auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.ENTER_NODE,
+            auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.ENTER_NODE,
                     "Entering node " + node.getNodeId());
 
             NodeExecutionHandler handler = nodeHandlerRegistry.getHandler(node.getType());
@@ -218,7 +218,7 @@ public class FlowExecutionOrchestrator {
                 case NodeOutcome.Ended ended -> {
                     state.setReturnData(ended.outputs());
                     addCompletedNode(state, node.getNodeId());
-                    auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.COMPLETE_NODE,
+                    auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
                             "Node " + node.getNodeId() + " ended flow gracefully");
                     break execution;
                 }
@@ -226,7 +226,7 @@ public class FlowExecutionOrchestrator {
                     PendingApproval pendingApproval = pendingApprovalFactory.buildPendingApproval(definition, node, state);
                     if (pendingApproval == null) {
                         addCompletedNode(state, node.getNodeId());
-                        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.COMPLETE_NODE,
+                        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
                                 "Approval node " + node.getNodeId() + " skipped (empty approver strategy)");
                         enqueueNextNodes(definition, node, queue, state, ctx);
                         continue;
@@ -235,13 +235,13 @@ public class FlowExecutionOrchestrator {
                     // instance; if the node is thereby complete, advance instead of waiting.
                     if (approverDedupService.applyAndCheckComplete(definition, node, state, pendingApproval)) {
                         addCompletedNode(state, node.getNodeId());
-                        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.COMPLETE_NODE,
+                        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
                                 "Approval node " + node.getNodeId() + " auto-approved (approver dedup)");
                         enqueueNextNodes(definition, node, queue, state, ctx);
                         continue;
                     }
                     state.getPendingApprovals().add(pendingApproval);
-                    auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.WAIT_APPROVAL,
+                    auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.WAIT_APPROVAL,
                             "Waiting for approval at node " + node.getNodeId());
                     FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
                     notificationService.notify(new FlowNotificationEvent.TaskAssigned(state, pendingApproval));
@@ -252,7 +252,7 @@ public class FlowExecutionOrchestrator {
                             : LocalDateTime.ofInstant(timer.dueAt(), ZoneId.systemDefault());
                     state.addWaitToken(FlowWaitToken.builder()
                             .nodeId(node.getNodeId()).type(WaitType.TIMER).dueAt(dueAt).build());
-                    auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.COMPLETE_NODE,
+                    auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
                             "Timer node " + node.getNodeId() + " suspending instance");
                     FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
                     continue;
@@ -260,7 +260,7 @@ public class FlowExecutionOrchestrator {
                 case NodeOutcome.WaitAsync _ -> {
                     state.addWaitToken(FlowWaitToken.builder()
                             .nodeId(node.getNodeId()).type(WaitType.ASYNC).build());
-                    auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.COMPLETE_NODE,
+                    auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
                             "Async task node " + node.getNodeId() + " dispatched, waiting for callback");
                     FlowStatusTransitions.apply(state, FlowExecutionStatus.WAITING);
                     continue;
@@ -277,7 +277,7 @@ public class FlowExecutionOrchestrator {
             }
 
             addCompletedNode(state, node.getNodeId());
-            auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.COMPLETE_NODE,
+            auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
                     "Completed node " + node.getNodeId());
             enqueueNextNodes(definition, node, queue, state, ctx);
         }
@@ -292,32 +292,32 @@ public class FlowExecutionOrchestrator {
     private void executeSubflow(FlowExecutionState parentState,
                                 CompiledFlowNode parentNode,
                                 NodeOutcome.RunSubflow subflowCall,
-                                Set<Long> flowStack,
+                                Set<String> flowStack,
                                 FlowVariableContext parentCtx,
                                 boolean notifyOnComplete) {
-        Long subflowDesignId = subflowCall.designId();
-        if (flowStack.contains(subflowDesignId)) {
+        String subflowId = subflowCall.flowId();
+        if (flowStack.contains(subflowId)) {
             FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
-            parentState.setErrorMessage("Recursive subflow invocation is not supported: " + flowStack + " -> " + subflowDesignId);
-            auditService.addTrace(parentState, String.valueOf(subflowDesignId), parentNode, FlowTraceEventType.FLOW_FAILED,
+            parentState.setErrorMessage("Recursive subflow invocation is not supported: " + flowStack + " -> " + subflowId);
+            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
                     parentState.getErrorMessage());
             return;
         }
-        CompiledFlowDefinition subflow = bundleRegistry.getActiveByDesignId(subflowDesignId)
-                .orElseThrow(() -> new FlowRuntimeException("Compiled subflow bundle not found: designId=" + subflowDesignId));
-        String subflowCode = subflow.getFlowCode();
-        auditService.addTrace(parentState, subflowCode, parentNode, FlowTraceEventType.SUBFLOW_START,
-                "Starting subflow " + subflowCode + " (designId=" + subflowDesignId + ") from node " + parentNode.getNodeId());
+        CompiledFlowDefinition subflow = bundleRegistry.getActiveByFlowId(subflowId)
+                .orElseThrow(() -> new FlowRuntimeException("Compiled subflow bundle not found: flowId=" + subflowId));
+        String subflowName = subflow.getFlowName();
+        auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.SUBFLOW_START,
+                "Starting subflow " + subflowName + " (flowId=" + subflowId + ") from node " + parentNode.getNodeId());
 
         // Fork child context from parent using the outcome's input mapping
         FlowVariableContext childCtx = FlowVariableContextUtils.forkForSubflow(
                 parentCtx, subflowCall.inputMapping());
 
         FlowExecutionState childState = FlowExecutionState.builder()
-                .instanceId(parentState.getInstanceId() + ":" + subflowDesignId)
+                .instanceId(parentState.getInstanceId() + ":" + subflowId)
                 .bundleId(subflow.getBundleId())
-                .designId(subflow.getDesignId())
-                .flowCode(subflowCode)
+                .flowId(subflow.getFlowId())
+                .flowName(subflowName)
                 .flowRevision(subflow.getRevision())
                 .status(FlowExecutionStatus.RUNNING)
                 .inputPayload(new LinkedHashMap<>(childCtx.getInput()))
@@ -331,24 +331,24 @@ public class FlowExecutionOrchestrator {
                 .trace(new ArrayList<>())
                 .build();
 
-        Set<Long> childFlowStack = new LinkedHashSet<>(flowStack);
-        childFlowStack.add(subflowDesignId);
+        Set<String> childFlowStack = new LinkedHashSet<>(flowStack);
+        childFlowStack.add(subflowId);
         executeDefinition(subflow, childState, subflow.getEntryNodeIds(), true, childFlowStack, childCtx, notifyOnComplete);
         finalizeRootState(childState, notifyOnComplete);
 
         FlowExecutionStatus childStatus = childState.getStatus();
         if (FlowExecutionStatus.WAITING.equals(childStatus)) {
             FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
-            parentState.setErrorMessage("Subflow '" + subflowCode
+            parentState.setErrorMessage("Subflow '" + subflowName
                     + "' paused (" + childStatus + "), which is not supported in synchronous subflow mode");
-            auditService.addTrace(parentState, subflowCode, parentNode, FlowTraceEventType.FLOW_FAILED,
+            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
                     parentState.getErrorMessage());
             return;
         }
         if (FlowExecutionStatus.FAILED.equals(childState.getStatus())) {
             FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
             parentState.setErrorMessage(childState.getErrorMessage());
-            auditService.addTrace(parentState, subflowCode, parentNode, FlowTraceEventType.FLOW_FAILED,
+            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
                     childState.getErrorMessage());
             return;
         }
@@ -363,8 +363,8 @@ public class FlowExecutionOrchestrator {
         parentCtx.varsView().forEach((k, v) -> parentState.getVariables().put(k, v));
 
         parentState.getTrace().addAll(childState.getTrace());
-        auditService.addTrace(parentState, subflowCode, parentNode, FlowTraceEventType.SUBFLOW_END,
-                "Completed subflow " + subflowCode + " from node " + parentNode.getNodeId());
+        auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.SUBFLOW_END,
+                "Completed subflow " + subflowName + " from node " + parentNode.getNodeId());
     }
 
     // ── Parallel join ─────────────────────────────────────────────────────────
@@ -380,12 +380,12 @@ public class FlowExecutionOrchestrator {
         if (!isJoin) {
             return false;
         }
-        String counterKey = definition.getFlowCode() + ":" + node.getNodeId();
+        String counterKey = definition.getFlowId() + ":" + node.getNodeId();
         int arrivals = state.getJoinArrivalCounts().merge(counterKey, 1, Integer::sum);
         if (arrivals < node.getIncomingEdgeIds().size()) {
             return true;
         }
-        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.JOIN_PARALLEL,
+        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.JOIN_PARALLEL,
                 "All branches joined at " + node.getNodeId());
         return false;
     }
@@ -404,7 +404,7 @@ public class FlowExecutionOrchestrator {
         boolean isParallelFork = FlowNodeType.PARALLEL_FORK.equals(node.getType())
                 && node.getOutgoingEdgeIds().size() > 1;
         if (isParallelFork) {
-            auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.FORK_PARALLEL,
+            auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.FORK_PARALLEL,
                     "Forked " + nextNodeIds.size() + " branches from " + node.getNodeId());
         }
         boolean isGateway = FlowNodeType.PARALLEL_FORK.equals(node.getType())
@@ -432,7 +432,7 @@ public class FlowExecutionOrchestrator {
         // re-entry), and a merged subflow's FLOW_COMPLETED entry must not suppress the
         // parent's own marker.
         state.getTrace().add(FlowExecutionTraceEntry.builder()
-                .flowCode(state.getFlowCode())
+                .flowId(state.getFlowId())
                 .eventType(FlowTraceEventType.FLOW_COMPLETED)
                 .eventTime(LocalDateTime.now())
                 .message("Flow execution completed")

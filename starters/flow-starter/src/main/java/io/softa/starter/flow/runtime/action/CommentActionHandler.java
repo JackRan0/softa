@@ -42,7 +42,7 @@ public class CommentActionHandler implements FlowActionHandler<FlowCommentReques
 
         auditService.appendApprovalAudit(state, ApprovalActionAuditEntry.builder()
                 .action(ApprovalActionType.COMMENT)
-                .flowCode(definition.getFlowCode())
+                .flowId(definition.getFlowId())
                 .flowRevision(definition.getRevision())
                 .actorId(request.getActorId())
                 .comment(request.getComment())

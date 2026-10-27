@@ -17,7 +17,6 @@ public final class FlowBundleViews {
             return null;
         }
         return FlowBundleSummaryView.builder()
-                .flowCode(def.getFlowCode())
                 .flowName(def.getFlowName())
                 .scenario(def.getScenario())
                 .triggerType(def.getTrigger() == null
@@ -27,7 +26,7 @@ public final class FlowBundleViews {
                 .rollbackOnFail(def.getRollbackOnFail())
                 .revision(def.getRevision())
                 .bundleId(def.getBundleId())
-                .designId(def.getDesignId())
+                .flowId(def.getFlowId())
                 .compiledAt(def.getCompiledAt())
                 .publishedAt(def.getPublishedAt())
                 .nodeCount(def.getNodeIndex() == null ? 0 : def.getNodeIndex().size())

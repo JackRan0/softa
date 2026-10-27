@@ -14,9 +14,9 @@ import io.softa.starter.flow.entity.FlowDesign;
  * which delegates here. The generic {@code /FlowDesign} model API remains available
  * as the platform data plane and is intentionally not intercepted.</p>
  */
-public interface FlowDesignService extends EntityService<FlowDesign, Long> {
+public interface FlowDesignService extends EntityService<FlowDesign, String> {
 
-    /** Create a new draft; the flow code must be unique within the tenant. */
+    /** Create a new draft; the flow name must be unique within the tenant. */
     FlowDesign createDesign(FlowDesignCreateRequest request);
 
     /**
@@ -26,28 +26,28 @@ public interface FlowDesignService extends EntityService<FlowDesign, Long> {
      *
      * @return the updated draft (with the incremented version)
      */
-    FlowDesign saveDraft(Long id, FlowDesignSaveRequest request);
+    FlowDesign saveDraft(String id, FlowDesignSaveRequest request);
 
-    /** Duplicate a draft under a fresh flow code (publish state is not copied). */
-    FlowDesign duplicateDesign(Long id, FlowDesignDuplicateRequest request);
+    /** Duplicate a draft under a fresh name (publish state is not copied). */
+    FlowDesign duplicateDesign(String id, FlowDesignDuplicateRequest request);
 
     /** Draft-vs-published status for the editor header (revision badge + dirty flag). */
-    FlowDesignStatusView getStatus(Long id);
+    FlowDesignStatusView getStatus(String id);
 
     /**
      * Update the draft's publish markers ({@code FlowDesign#getPublishedRevision()} and
      * {@code FlowDesign#getPublishedChecksum()}) after a successful publish.
      * Called by {@link FlowPublishService} once the bundle has been persisted.
      */
-    void upsertFromPublish(Long designId, Integer publishedRevision);
+    void upsertFromPublish(String flowId, Integer publishedRevision);
 
     /**
      * Overwrite the draft's {@code designJson} with the snapshot stored in the specified bundle.
      * Effectively rolls the canvas back to the state at that publish point.
      *
-     * @param designId the target FlowDesign id
+     * @param flowId the target FlowDesign id
      * @param bundleId the source FlowBundle id whose designJson to restore
      * @return the updated draft
      */
-    FlowDesign restoreFromBundle(Long designId, Long bundleId);
+    FlowDesign restoreFromBundle(String flowId, Long bundleId);
 }

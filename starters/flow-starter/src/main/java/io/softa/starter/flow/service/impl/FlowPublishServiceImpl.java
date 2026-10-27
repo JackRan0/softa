@@ -39,14 +39,14 @@ public class FlowPublishServiceImpl implements FlowPublishService {
     }
 
     @Override
-    public FlowBundleSummaryView publishDraft(Long designId, String changeDescription) {
+    public FlowBundleSummaryView publishDraft(String flowId, String changeDescription) {
         if (designService == null) {
             throw new FlowRuntimeException("FlowDesignService is not available; cannot load draft for publish");
         }
-        DesignFlowDefinition definition = designService.getById(designId)
+        DesignFlowDefinition definition = designService.getById(flowId)
                 .map(FlowDesign::getDesignJson)
-                .orElseThrow(() -> new FlowRuntimeException("FlowDesign not found: " + designId));
-        CompiledFlowDefinition compiled = publish(designId, definition);
+                .orElseThrow(() -> new FlowRuntimeException("FlowDesign not found: " + flowId));
+        CompiledFlowDefinition compiled = publish(flowId, definition);
         if (bundleService != null && StringUtils.hasText(changeDescription)) {
             bundleService.findById(compiled.getBundleId()).ifPresent(bundle -> {
                 bundle.setChangeDescription(changeDescription);
@@ -57,11 +57,11 @@ public class FlowPublishServiceImpl implements FlowPublishService {
     }
 
     @Override
-    public CompiledFlowDefinition publish(Long designId, DesignFlowDefinition definition) {
+    public CompiledFlowDefinition publish(String flowId, DesignFlowDefinition definition) {
         CompiledFlowDefinition compiled = bundleRegistry.register(
-                flowCompiler.compile(definition), definition, designId);
-        if (designService != null && designId != null) {
-            designService.upsertFromPublish(designId, compiled.getRevision());
+                flowCompiler.compile(definition), definition, flowId);
+        if (designService != null && flowId != null) {
+            designService.upsertFromPublish(flowId, compiled.getRevision());
         }
         return compiled;
     }
@@ -74,7 +74,7 @@ public class FlowPublishServiceImpl implements FlowPublishService {
         }
         return bundleService.activateBundle(bundleId)
                 .map(entity -> {
-                    bundleRegistry.refreshActiveForDesignId(entity.getDesignId());
+                    bundleRegistry.refreshActiveForFlowId(entity.getFlowId());
                     CompiledFlowDefinition def = FlowBundleMapper.toDefinition(entity);
                     if (def != null && entity.getId() != null) {
                         return bundleRegistry.getByBundleId(entity.getId()).orElse(def);

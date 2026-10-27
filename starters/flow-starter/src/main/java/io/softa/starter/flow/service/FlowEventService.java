@@ -30,7 +30,7 @@ public interface FlowEventService {
      * payload the list rows exclude.
      * <p>
      * Dimension-specific list finders were removed: {@link #searchEvents} with
-     * {@code Filters} covers flowCode / source / instanceId / time-range lookups
+     * {@code Filters} covers flowId / source / instanceId / time-range lookups
      * (REST: {@code GET /flow/events}).
      */
     default Optional<FlowEvent> findEventById(Long id) {

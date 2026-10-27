@@ -31,10 +31,10 @@ public class FlowExecutionState {
     private Long bundleId;
 
     @Schema(description = "Source FlowDesign.id (stable flow handle)")
-    private Long designId;
+    private String flowId;
 
-    @Schema(description = "Root flow code (display/logging only)")
-    private String flowCode;
+    @Schema(description = "Flow name (display only)")
+    private String flowName;
 
     @Schema(description = "Resolved published flow revision (display/logging only)")
     private Integer flowRevision;

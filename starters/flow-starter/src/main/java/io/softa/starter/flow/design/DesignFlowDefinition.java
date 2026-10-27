@@ -35,9 +35,6 @@ import io.softa.starter.flow.enums.FlowScenario;
 @Schema(name = "DesignFlowDefinition")
 public class DesignFlowDefinition implements DTOFieldObject {
 
-    @Schema(description = "Unique flow code")
-    private String code;
-
     @Schema(description = "Display name")
     private String name;
 

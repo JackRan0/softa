@@ -51,6 +51,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
     private static final TypeReference<List<Column>> COLUMN_LIST = new TypeReference<>() {};
     private static final TypeReference<Map<String, List<String>>> STRING_LIST_MAP = new TypeReference<>() {};
     private static final TypeReference<Map<String, Object>> OBJECT_MAP = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Double>> WIDTH_MAP = new TypeReference<>() {};
 
     @Autowired
     private PermissionService permissionService;
@@ -134,7 +135,9 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             Map<String, Object> cleared = new LinkedHashMap<>();
             cleared.put("id", row.getId());
             if (columns) {
+                // The widths go with the columns: Reset to default gives back the list's own widths too.
                 cleared.put("columns", null);
+                cleared.put("columnWidths", null);
             }
             if (export) {
                 cleared.put("exportFields", null);
@@ -145,6 +148,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             }
             if (columns) {
                 row.setColumns(null);
+                row.setColumnWidths(null);
             }
             if (export) {
                 row.setExportFields(null);
@@ -173,12 +177,14 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
     /**
      * The update for a stored row: its id and only the parts {@code incoming} carries. A part it omits
      * is not written at all — written back as this request read it, it would undo a save of that part
-     * made in between (the side tree and the columns of one page save at once). View settings merge
-     * key by key into the stored ones; two saves of different keys at the same instant can still race.
+     * made in between (the side tree and the columns of one page save at once). View settings and
+     * column widths merge key by key into the stored ones; two saves of different keys at the same
+     * instant can still race.
      */
     static Map<String, Object> changes(UserListViewPreference existing, UserListViewPreferenceDTO incoming) {
         UserListViewPreference patch = new UserListViewPreference();
         patch.setViewSettings(existing.getViewSettings());
+        patch.setColumnWidths(existing.getColumnWidths());
         applied(patch, incoming);
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", existing.getId());
@@ -187,6 +193,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         if (incoming.getExportFields() != null) row.put("exportFields", patch.getExportFields());
         if (incoming.getExportObjectFields() != null) row.put("exportObjectFields", patch.getExportObjectFields());
         if (incoming.getViewSettings() != null) row.put("viewSettings", patch.getViewSettings());
+        if (incoming.getColumnWidths() != null) row.put("columnWidths", patch.getColumnWidths());
         return row;
     }
 
@@ -201,13 +208,16 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         if (incoming.getViewSettings() != null) {
             row.setViewSettings(mergeSettings(row.getViewSettings(), incoming.getViewSettings()));
         }
+        if (incoming.getColumnWidths() != null) {
+            row.setColumnWidths(mergeWidths(row.getColumnWidths(), incoming.getColumnWidths()));
+        }
         return row;
     }
 
     private static boolean isEmpty(UserListViewPreference row) {
         return row.getColumns() == null
                 && row.getExportFields() == null && row.getExportObjectFields() == null
-                && row.getViewSettings() == null;
+                && row.getViewSettings() == null && row.getColumnWidths() == null;
     }
 
     /**
@@ -226,6 +236,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             return dto;
         }
         dto.setColumns(visibleColumns(model, dto.getColumns()));
+        dto.setColumnWidths(visibleWidths(model, dto.getColumnWidths()));
         dto.setExportFields(exportable(model, dto.getExportFields()));
         Map<String, List<String>> objects = dto.getExportObjectFields();
         if (objects != null) {
@@ -333,6 +344,27 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
             }
             MetaField field = ModelManager.getModelFieldOrNull(model, id);
             if (field == null || (readable.contains(id) && inMyCountries(field))) out.add(column);
+        }
+        return out;
+    }
+
+    /**
+     * The widths of the columns the caller may see right now, judged as {@link #visibleColumns}
+     * judges a column. A width of a column they cannot see stays stored: a save sends only the keys
+     * it changes, and the merge leaves the rest as they are.
+     */
+    private Map<String, Double> visibleWidths(String model, Map<String, Double> widths) {
+        if (widths == null) {
+            return null;
+        }
+        List<Column> asColumns = widths.keySet().stream().map(id -> {
+            Column column = new Column();
+            column.setId(id);
+            return column;
+        }).toList();
+        Map<String, Double> out = new LinkedHashMap<>();
+        for (Column column : visibleColumns(model, asColumns)) {
+            out.put(column.getId(), widths.get(column.getId()));
         }
         return out;
     }
@@ -447,9 +479,30 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         return json;
     }
 
+    /**
+     * The stored widths with {@code incoming} laid over them key by key; a key sent as null is
+     * removed. Null when nothing is left.
+     */
+    static String mergeWidths(String stored, Map<String, Double> incoming) {
+        Map<String, Double> merged = new LinkedHashMap<>();
+        if (stored != null) {
+            Map<String, Double> existing = parsed(stored, WIDTH_MAP);
+            if (existing != null) merged.putAll(existing);
+        }
+        incoming.forEach((key, value) -> {
+            if (value == null) merged.remove(key);
+            else merged.put(key, value);
+        });
+        if (merged.size() > MAX_NAMES) {
+            throw new BusinessException("Too many column widths in the arrangement.");
+        }
+        return merged.isEmpty() ? null : JsonUtils.objectToString(merged);
+    }
+
     /** Refuse what no real list produces, so a row cannot be used to store anything else. */
     private static UserListViewPreferenceDTO bounded(UserListViewPreferenceDTO dto) {
         dto.setColumns(normalized(dto.getColumns()));
+        dto.setColumnWidths(normalizedWidths(dto.getColumnWidths()));
         checkNames(dto.getExportFields());
         if (dto.getViewSettings() != null) {
             dto.getViewSettings().keySet().forEach(UserListViewPreferenceServiceImpl::checkName);
@@ -489,6 +542,28 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         return out;
     }
 
+    /**
+     * The widths checked and in canonical form: each a share of the table in percent, above 0 and at
+     * most 100, kept to two decimals; null stays null, for the merge to remove that key.
+     */
+    static Map<String, Double> normalizedWidths(Map<String, Double> widths) {
+        if (widths == null) {
+            return null;
+        }
+        if (widths.size() > MAX_NAMES) {
+            throw new BusinessException("Too many column widths in the arrangement.");
+        }
+        Map<String, Double> out = new LinkedHashMap<>();
+        widths.forEach((id, width) -> {
+            checkName(id);
+            if (width != null && (!Double.isFinite(width) || width <= 0 || width > 100)) {
+                throw new BusinessException("A column width must be a share of the table above 0 and at most 100.");
+            }
+            out.put(id, width == null ? null : Math.round(width * 100) / 100.0);
+        });
+        return out;
+    }
+
     private static void checkNames(List<String> names) {
         if (names == null) {
             return;
@@ -513,6 +588,7 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
         dto.setExportFields(parseList(row.getExportFields()));
         dto.setExportObjectFields(parsed(row.getExportObjectFields(), STRING_LIST_MAP));
         dto.setViewSettings(parsed(row.getViewSettings(), OBJECT_MAP));
+        dto.setColumnWidths(parsed(row.getColumnWidths(), WIDTH_MAP));
         return dto;
     }
 

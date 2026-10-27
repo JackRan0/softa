@@ -56,7 +56,7 @@ public sealed interface NodeOutcome {
     }
 
     /** SUBFLOW: execute the referenced flow synchronously, then continue past this node. */
-    record RunSubflow(Long designId,
+    record RunSubflow(String flowId,
                       Map<String, String> inputMapping,
                       String outputVariable,
                       Map<String, String> outputMapping) implements NodeOutcome {

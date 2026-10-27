@@ -11,19 +11,19 @@ import io.softa.starter.flow.dto.FlowInboxCountView;
  */
 public interface FlowApprovalTaskQueryService {
 
-    List<FlowApprovalTaskView> getPendingTasks(String actorId, String flowCode, String instanceId, String nodeId);
+    List<FlowApprovalTaskView> getPendingTasks(String actorId, String flowId, String instanceId, String nodeId);
 
-    Page<FlowApprovalTaskView> pagePendingTasks(String actorId, String flowCode, String instanceId, String nodeId,
+    Page<FlowApprovalTaskView> pagePendingTasks(String actorId, String flowId, String instanceId, String nodeId,
                                                 Integer pageNumber, Integer pageSize);
 
-    List<FlowApprovalTaskView> getCompletedTasks(String actorId, String flowCode, String instanceId, String nodeId);
+    List<FlowApprovalTaskView> getCompletedTasks(String actorId, String flowId, String instanceId, String nodeId);
 
-    Page<FlowApprovalTaskView> pageCompletedTasks(String actorId, String flowCode, String instanceId, String nodeId,
+    Page<FlowApprovalTaskView> pageCompletedTasks(String actorId, String flowId, String instanceId, String nodeId,
                                                   Integer pageNumber, Integer pageSize);
 
-    List<FlowApprovalTaskView> getCcTasks(String actorId, Boolean read, String flowCode, String instanceId, String nodeId);
+    List<FlowApprovalTaskView> getCcTasks(String actorId, Boolean read, String flowId, String instanceId, String nodeId);
 
-    Page<FlowApprovalTaskView> pageCcTasks(String actorId, Boolean read, String flowCode, String instanceId,
+    Page<FlowApprovalTaskView> pageCcTasks(String actorId, Boolean read, String flowId, String instanceId,
                                            String nodeId, Integer pageNumber, Integer pageSize);
 
     /**

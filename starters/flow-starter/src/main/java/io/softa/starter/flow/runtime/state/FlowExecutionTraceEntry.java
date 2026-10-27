@@ -19,8 +19,8 @@ import io.softa.starter.flow.enums.FlowNodeType;
 @Schema(name = "FlowExecutionTraceEntry")
 public class FlowExecutionTraceEntry {
 
-    @Schema(description = "Flow code where the event happened")
-    private String flowCode;
+    @Schema(description = "ID of the flow where the event happened")
+    private String flowId;
 
     @Schema(description = "Node id")
     private String nodeId;

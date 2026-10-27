@@ -37,7 +37,7 @@ class FlowInstanceServiceImplSearchTest {
     private static FlowInstanceSearchRequest request(String initiatorId,
                                                      LocalDateTime createdFrom, LocalDateTime createdTo,
                                                      Integer pageNumber, Integer pageSize) {
-        return new FlowInstanceSearchRequest(null, null, null, initiatorId, null, null,
+        return new FlowInstanceSearchRequest(null, null, initiatorId, null, null,
                 createdFrom, createdTo, pageNumber, pageSize);
     }
 
@@ -83,7 +83,7 @@ class FlowInstanceServiceImplSearchTest {
         runSearch(request(null, null, null, null, null), null);
         List<String> fields = queryCaptor.getValue().getFields();
         assertEquals(16, fields.size());
-        assertTrue(fields.containsAll(List.of("id", "instanceId", "bundleId", "designId", "flowCode",
+        assertTrue(fields.containsAll(List.of("id", "instanceId", "bundleId", "flowId", "flowName",
                 "flowRevision", "title", "modelName", "rowId", "initiatorId", "status", "failedNodeId",
                 "nextFireAt", "resubmissionCount", "createdTime", "updatedTime")));
         assertFalse(fields.contains("variables"));

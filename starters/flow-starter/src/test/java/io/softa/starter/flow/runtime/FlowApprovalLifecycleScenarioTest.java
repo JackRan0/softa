@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  */
 class FlowApprovalLifecycleScenarioTest {
 
-    private static final Long DESIGN_ID = 9200L;
+    private static final String FLOW_ID = "9200";
     private static final String APPROVER = "manager-1";
     private static final String OTHER = "manager-2";
     private static final String INITIATOR = "initiator-1";
@@ -56,12 +56,12 @@ class FlowApprovalLifecycleScenarioTest {
 
     @BeforeEach
     void publishFlow() {
-        publishService.publish(DESIGN_ID, flowDefinition());
+        publishService.publish(FLOW_ID, flowDefinition());
     }
 
     private FlowExecutionState start() {
         FlowStartRequest start = new FlowStartRequest();
-        start.setDesignId(DESIGN_ID);
+        start.setFlowId(FLOW_ID);
         start.setInitiatorId(INITIATOR);
         FlowExecutionState state = engine.start(start);
         assertEquals(FlowExecutionStatus.WAITING, state.getStatus());
@@ -156,7 +156,6 @@ class FlowApprovalLifecycleScenarioTest {
 
     private static DesignFlowDefinition flowDefinition() {
         return DesignFlowDefinition.builder()
-                .code("approval-lifecycle")
                 .name("Approval Lifecycle")
                 .scenario(FlowScenario.PROCESS)
                 .allowInitiatorWithdraw(true)

@@ -149,9 +149,9 @@ public class SubscriptionProjectionJob {
                 // about one subscription, and the customer is told the one that is wrong.
                 //
                 // Overlap makes the old test ("is there a period starting after this one ends") unusable.
-                // Every tenant owns an open-ended free period that starts at tenant creation — before this
+                // Every tenant owns an open-ended base period that starts at tenant creation — before this
                 // period, never after — so it was never found, and a Pro period ending was reported as a
-                // total lapse when in fact the tenant drops to Free.
+                // total lapse when in fact the tenant drops to the floor plan.
                 List<TenantSubscriptionPeriod> siblings =
                         allBySubscription.getOrDefault(period.getSubscriptionId(), List.of());
                 LocalDate dayAfter = period.getEffectiveEndDate().plusDays(1);
@@ -160,7 +160,7 @@ public class SubscriptionProjectionJob {
                 if (successor != null
                         && tierOfPeriod(tierByPlan, successor) >= tierOfPeriod(tierByPlan, period)) {
                     // Renewed, or a higher plan already covers the day after. Nothing is lost, so nothing to
-                    // say — this is also the case where an operator time-boxes the free period while Pro runs.
+                    // say — this is also the case where an operator time-boxes the base period while Pro runs.
                     continue;
                 }
 

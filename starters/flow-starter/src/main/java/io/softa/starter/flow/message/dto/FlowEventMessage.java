@@ -14,10 +14,10 @@ import io.softa.framework.base.context.Context;
 @NoArgsConstructor
 public class FlowEventMessage {
 
-    /** Flow design id to start directly (optional — when null, trigger matching is used). */
-    private Long designId;
+    /** Flow id to start directly (optional — when null, trigger matching is used). */
+    private String flowId;
 
-    /** Pinned bundle id to start directly (optional; overrides {@link #designId} when set). */
+    /** Pinned bundle id to start directly (optional; overrides {@link #flowId} when set). */
     private Long bundleId;
 
     /** Trigger type string (maps to FlowTriggerType). */

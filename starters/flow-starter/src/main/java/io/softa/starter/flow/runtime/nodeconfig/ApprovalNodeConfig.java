@@ -98,6 +98,8 @@ public class ApprovalNodeConfig {
     /**
      * Field-level permissions for this approval step.
      * Key = field path; value = HIDDEN | READONLY | EDITABLE | REQUIRED.
+     * On approve only EDITABLE / REQUIRED fields are written back to the business row: a field not
+     * listed here is not writable, and a node without this map writes nothing.
      * Compiled into the bundle at design time; {@code FormPermissionService} and
      * {@code GET /flow/runtime/instances/{instanceId}/nodes/{nodeId}/formPermissions}
      * expose the same map at runtime for read-only clients.

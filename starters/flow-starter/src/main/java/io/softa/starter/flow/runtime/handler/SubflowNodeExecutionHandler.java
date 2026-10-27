@@ -12,7 +12,7 @@ import io.softa.starter.flow.runtime.nodeconfig.SubflowNodeConfig;
  * Handler for {@link FlowNodeType#SUBFLOW} nodes.
  * <p>
  * Reads the new {@link SubflowNodeConfig} (which contains {@code inputMapping} and
- * {@code outputMapping}) and returns a {@code subflowCode} signal to the engine.
+ * {@code outputMapping}) and returns a {@code RunSubflow} outcome to the engine.
  * The engine is responsible for:
  * <ol>
  *   <li>Forking a child {@link FlowVariableContext} via
@@ -35,10 +35,10 @@ public class SubflowNodeExecutionHandler implements NodeExecutionHandler {
     @Override
     public NodeOutcome execute(CompiledFlowNode node, FlowVariableContext ctx) {
         if (!(node.getParsedConfig() instanceof SubflowNodeConfig cfg)
-                || cfg.getSubflowDesignId() == null) {
-            throw new FlowRuntimeException("Subflow node '" + node.getNodeId() + "' must configure subflowDesignId");
+                || cfg.getSubflowId() == null) {
+            throw new FlowRuntimeException("Subflow node '" + node.getNodeId() + "' must configure subflowId");
         }
-        return new NodeOutcome.RunSubflow(cfg.getSubflowDesignId(), cfg.getInputMapping(),
+        return new NodeOutcome.RunSubflow(cfg.getSubflowId(), cfg.getInputMapping(),
                 cfg.getOutputVariable(), cfg.getOutputMapping());
     }
 }

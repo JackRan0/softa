@@ -86,7 +86,6 @@ public class DefaultFlowCompiler {
         List<String> topologicalOrder = analysis.topologicalOrder;
 
         return CompiledFlowDefinition.builder()
-                .flowCode(definition.getCode())
                 .flowName(definition.getName())
                 .scenario(definition.getScenario())
                 .compiledAt(LocalDateTime.now())

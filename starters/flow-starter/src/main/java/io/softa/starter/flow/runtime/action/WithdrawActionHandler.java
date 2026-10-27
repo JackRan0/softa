@@ -55,14 +55,14 @@ public class WithdrawActionHandler implements FlowActionHandler<FlowWithdrawRequ
         FlowStatusTransitions.apply(state, FlowExecutionStatus.WITHDRAWN);
         contextService.mergeVariables(state, Map.of("withdrawalDecision", auditService.buildWithdrawalDecisionPayload(request)));
         state.getTrace().add(FlowExecutionTraceEntry.builder()
-                .flowCode(definition.getFlowCode())
+                .flowId(definition.getFlowId())
                 .eventType(FlowTraceEventType.FLOW_WITHDRAWN)
                 .eventTime(LocalDateTime.now())
                 .message(auditService.buildWithdrawalMessage(request))
                 .build());
         auditService.appendApprovalAudit(state, ApprovalActionAuditEntry.builder()
                 .action(ApprovalActionType.WITHDRAW)
-                .flowCode(definition.getFlowCode())
+                .flowId(definition.getFlowId())
                 .flowRevision(definition.getRevision())
                 .actorId(request.getActorId())
                 .comment(request.getComment())

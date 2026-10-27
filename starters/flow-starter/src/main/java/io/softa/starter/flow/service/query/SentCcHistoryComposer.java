@@ -19,7 +19,7 @@ public final class SentCcHistoryComposer {
     public static List<FlowSentCcView> compose(List<FlowApprovalRecord> records,
                                                       String actorId,
                                                       Boolean read,
-                                                      String flowCode,
+                                                      String flowId,
                                                       String instanceId,
                                                       String nodeId) {
         Map<SentCcKey, FlowApprovalRecord> latestReadByKey = new LinkedHashMap<>();
@@ -36,7 +36,7 @@ public final class SentCcHistoryComposer {
         return records.stream()
                 .filter(record -> ApprovalActionType.CC.equals(record.getAction()))
                 .filter(record -> Objects.equals(actorId, record.getActorId()))
-                .filter(record -> !StringUtils.hasText(flowCode) || Objects.equals(flowCode, record.getFlowCode()))
+                .filter(record -> !StringUtils.hasText(flowId) || Objects.equals(flowId, record.getFlowId()))
                 .filter(record -> !StringUtils.hasText(instanceId) || Objects.equals(instanceId, record.getInstanceId()))
                 .filter(record -> !StringUtils.hasText(nodeId) || Objects.equals(nodeId, record.getNodeId()))
                 .map(record -> toView(record, latestReadByKey.get(keyOf(
@@ -57,7 +57,8 @@ public final class SentCcHistoryComposer {
                                                 FlowApprovalRecord readRecord) {
         return FlowSentCcView.builder()
                 .instanceId(ccRecord.getInstanceId())
-                .flowCode(ccRecord.getFlowCode())
+                .flowId(ccRecord.getFlowId())
+                .flowName(ccRecord.getFlowName())
                 .flowRevision(ccRecord.getFlowRevision())
                 .nodeId(ccRecord.getNodeId())
                 .nodeLabel(ccRecord.getNodeLabel())

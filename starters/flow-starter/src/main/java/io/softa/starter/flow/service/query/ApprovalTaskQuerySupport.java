@@ -68,10 +68,10 @@ public final class ApprovalTaskQuerySupport {
 
     public static List<FlowApprovalTask> filterAndSortPendingTasks(List<FlowApprovalTask> tasks,
                                                                           String actorId,
-                                                                          String flowCode,
+                                                                          String flowId,
                                                                           String instanceId,
                                                                           String nodeId) {
-        return filterTasks(tasks, actorId, flowCode, instanceId, nodeId).stream()
+        return filterTasks(tasks, actorId, flowId, instanceId, nodeId).stream()
                 .filter(task -> FlowApprovalTaskStatus.PENDING.equals(task.getStatus()))
                 .sorted(pendingTaskComparator())
                 .toList();
@@ -79,10 +79,10 @@ public final class ApprovalTaskQuerySupport {
 
     public static List<FlowApprovalTask> filterAndSortCompletedTasks(List<FlowApprovalTask> tasks,
                                                                             String actorId,
-                                                                            String flowCode,
+                                                                            String flowId,
                                                                             String instanceId,
                                                                             String nodeId) {
-        return filterTasks(tasks, actorId, flowCode, instanceId, nodeId).stream()
+        return filterTasks(tasks, actorId, flowId, instanceId, nodeId).stream()
                 .filter(task -> COMPLETED_STATUSES.contains(task.getStatus()))
                 .sorted(completedTaskComparator())
                 .toList();
@@ -91,10 +91,10 @@ public final class ApprovalTaskQuerySupport {
     public static List<FlowApprovalTask> filterAndSortCcTasks(List<FlowApprovalTask> tasks,
                                                                      String actorId,
                                                                      Boolean read,
-                                                                     String flowCode,
+                                                                     String flowId,
                                                                      String instanceId,
                                                                      String nodeId) {
-        return filterTasks(tasks, actorId, flowCode, instanceId, nodeId).stream()
+        return filterTasks(tasks, actorId, flowId, instanceId, nodeId).stream()
                 .filter(ApprovalTaskQuerySupport::isCcTask)
                 .filter(task -> read == null
                         || (read && isReadCcTask(task))
@@ -111,12 +111,12 @@ public final class ApprovalTaskQuerySupport {
 
     private static List<FlowApprovalTask> filterTasks(List<FlowApprovalTask> tasks,
                                                              String actorId,
-                                                             String flowCode,
+                                                             String flowId,
                                                              String instanceId,
                                                              String nodeId) {
         return tasks.stream()
                 .filter(task -> Objects.equals(actorId, task.getActorId()))
-                .filter(task -> !StringUtils.hasText(flowCode) || Objects.equals(flowCode, task.getFlowCode()))
+                .filter(task -> !StringUtils.hasText(flowId) || Objects.equals(flowId, task.getFlowId()))
                 .filter(task -> !StringUtils.hasText(instanceId) || Objects.equals(instanceId, task.getInstanceId()))
                 .filter(task -> !StringUtils.hasText(nodeId) || Objects.equals(nodeId, task.getNodeId()))
                 .toList();

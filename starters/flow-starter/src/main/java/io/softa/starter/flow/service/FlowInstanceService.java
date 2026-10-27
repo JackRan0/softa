@@ -43,12 +43,12 @@ public interface FlowInstanceService {
     List<FlowInstance> findByInstanceIds(Collection<String> instanceIds);
 
     /**
-     * Find all instances by flow code.
+     * Find all instances of a flow.
      *
-     * @param flowCode the flow code
+     * @param flowId the flow ID
      * @return list of matching instances
      */
-    List<FlowInstance> findByFlowCode(String flowCode);
+    List<FlowInstance> findByFlowId(String flowId);
 
     /**
      * Find all instances by execution status.

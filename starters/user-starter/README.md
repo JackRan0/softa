@@ -195,6 +195,7 @@ it, and the active tab of a tabbed page (empty when there is none, so the key en
 | `columns` | The columns the person shows, left to right: `[{"id":"fullName","frozen":true},{"id":"code"},{"id":"employeeProfileId.passType"}]`. An id is a field of the list's model, a field one level into a one-to-one record, or a column of the list's own (a pivot column, a cascaded path the page declares); `frozen` is present only when true |
 | `exportFields` / `exportObjectFields` | Dynamic Export fields in order, and each related object's, keyed by its collection field |
 | `viewSettings` | Other view state (`sidePanelCollapsed` …), saved key by key; a key sent as `null` is removed |
+| `columnWidths` | The widths the person dragged columns to, as a share of the table's width in percent: `{"fullName":18.5,"code":10}`. Saved key by key like `viewSettings`; each width is above 0 and at most 100, kept to two decimals. Filtered as the columns are, and cleared with them by `part = columns` |
 
 `UserListViewPreferenceController` (`/UserListViewPreference/*`) has only three endpoints —
 `getMyPreference`, `saveMyPreference`, `resetMyPreference` (`part = columns | export | settings`,
@@ -219,6 +220,10 @@ a path that is not one level into a one-to-one record is dropped, as is a field 
 a column the page adds is not shown until the person ticks it, and one it stops declaring stays while
 the field does. Freezing is marked on the columns, not counted, so a frozen column that goes does not
 pull the next one in. Without saved columns, or after a reset, the list shows its own.
+
+**Widths are not an arrangement.** They are kept apart from `columns`, so dragging a column wider on
+a list whose columns the person never arranged leaves the list's own columns in charge. A share of
+the table rather than pixels, so a column keeps its proportion on a narrower or wider screen.
 
 **Not seeing is not deleting.** A column — or an export field — the caller cannot see *right now* (a
 sensitive set withdrawn, a country no longer theirs) is not erased by their next save: it is put back

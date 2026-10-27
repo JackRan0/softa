@@ -24,8 +24,8 @@ public class FlowDebugHistoryServiceImpl extends EntityServiceImpl<FlowDebugHist
     }
 
     @Override
-    public List<FlowDebugHistory> listByFlowCode(String flowCode) {
-        Filters filters = new Filters().eq(FlowDebugHistory::getFlowCode, flowCode);
+    public List<FlowDebugHistory> listByFlowId(String flowId) {
+        Filters filters = new Filters().eq(FlowDebugHistory::getFlowId, flowId);
         FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowDebugHistory::getStartTime));
         return this.searchList(query);
     }

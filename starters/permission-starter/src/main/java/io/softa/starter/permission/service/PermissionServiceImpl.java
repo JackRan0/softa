@@ -189,7 +189,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (PermissionInfo.hasFullDataAccess(pi)) return originalFilters;
         // A read performed for another action — the count behind "may I update these ids", an
         // export — reaches the rows of the roles holding that action, not every role's.
-        AccessType access = AccessScope.current();
+        AccessType access = AccessScope.currentFor(model);
         originalFilters = expandConditionFields(model, originalFilters);
         originalFilters = guardSensitiveConditions(pi, model, access, originalFilters);
         originalFilters = boundRelatedConditions(pi, model, originalFilters);
@@ -214,7 +214,7 @@ public class PermissionServiceImpl implements PermissionService {
      */
     private Filters guardSensitiveConditions(PermissionInfo pi, String model, AccessType access, Filters filters) {
         if (filters == null || Filters.isEmpty(filters) || sfsCache == null) return filters;
-        AccessType read = readAccess(access);
+        AccessType read = readAccess(model, access);
         Map<String, FieldPlan> plans = new java.util.HashMap<>();
         if (!mentionsMasked(pi, model, read, filters, plans)) return filters;
         return guardNode(pi, model, read, filters, plans);
@@ -684,7 +684,7 @@ public class PermissionServiceImpl implements PermissionService {
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return originalFilters;
         originalFilters = expandConditionFields(model, originalFilters);
-        originalFilters = guardSensitiveConditions(pi, model, AccessScope.current(), originalFilters);
+        originalFilters = guardSensitiveConditions(pi, model, AccessScope.currentFor(model), originalFilters);
         return boundRelatedConditions(pi, model, originalFilters);
     }
 
@@ -1010,7 +1010,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (requested == null || requested.isEmpty() || shouldBypass()) return requested;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return requested;
-        Set<String> blocked = fieldPlan(pi, model, readAccess(accessType)).blocked();
+        Set<String> blocked = fieldPlan(pi, model, readAccess(model, accessType)).blocked();
         if (blocked.isEmpty()) return requested;
         List<String> out = new ArrayList<>(requested.size());
         for (String f : requested) if (!blocked.contains(f)) out.add(f);
@@ -1030,7 +1030,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (value == null || shouldBypass()) return value;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return value;
-        FieldPlan plan = fieldPlan(pi, model, readAccess(accessType));
+        FieldPlan plan = fieldPlan(pi, model, readAccess(model, accessType));
         if (plan.isEmpty()) return value;
         List<Map<String, Object>> rows = new ArrayList<>();
         collectRows(value, rows);
@@ -1049,15 +1049,15 @@ public class PermissionServiceImpl implements PermissionService {
         if (rows == null || rows.isEmpty() || shouldBypass()) return;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return;
-        FieldPlan plan = fieldPlan(pi, model, readAccess(AccessType.READ));
+        FieldPlan plan = fieldPlan(pi, model, readAccess(model, AccessType.READ));
         if (!plan.isEmpty()) {
             maskRows(model, rows, plan);
         }
     }
 
-    /** A read performed for an export masks by the exporting roles; any other read by the readers. */
-    private static AccessType readAccess(AccessType requested) {
-        AccessType bound = AccessScope.current();
+    /** A read performed for an export of this model masks by the exporting roles; any other read by the readers. */
+    private static AccessType readAccess(String model, AccessType requested) {
+        AccessType bound = AccessScope.currentFor(model);
         return bound == AccessType.EXPORT ? bound : (requested == null ? AccessType.READ : requested);
     }
 
@@ -1226,7 +1226,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (flexQuery == null || shouldBypass()) return;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return;
-        AccessType read = readAccess(AccessType.READ);
+        AccessType read = readAccess(model, AccessType.READ);
         Map<String, FieldPlan> plans = new java.util.HashMap<>();
         // A declared cascaded field is judged by the path it stands for, and a path into a related row the
         // caller reads under a range — past its label — is held back as a masked field is: sorted or
@@ -1434,7 +1434,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (fields == null || fields.isEmpty() || shouldBypass()) return;
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return;
-        Set<String> blocked = fieldPlan(pi, model, readAccess(accessType)).blocked();
+        Set<String> blocked = fieldPlan(pi, model, readAccess(model, accessType)).blocked();
         if (blocked.isEmpty()) return;
         for (String f : fields) {
             if (blocked.contains(f)) {
@@ -1753,7 +1753,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (shouldBypass()) return Set.of();
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return Set.of();
-        return new java.util.HashSet<>(fieldPlan(pi, model, readAccess(accessType)).blocked());
+        return new java.util.HashSet<>(fieldPlan(pi, model, readAccess(model, accessType)).blocked());
     }
 
     // ─────────────────────── helpers ───────────────────────
@@ -1927,7 +1927,9 @@ public class PermissionServiceImpl implements PermissionService {
      *       ({@link Kind#CHILD_BY_BACKREF}); the FK lives on the CHILD
      *       ({@code relatedField}) and holds the parent's id — the inverse direction,
      *       so the two cannot share one filter shape;</li>
-     *   <li>else a {@code MANY_TO_ONE} referrer → shared reference/config
+     *   <li>the join model of a {@code MANY_TO_MANY} field → the same kind, keyed on the join
+     *       model's left column ({@code joinLeft}): the links are the granted record's own;</li>
+     *   <li>else a {@code MANY_TO_ONE} or {@code MANY_TO_MANY} referrer → shared reference/config
      *       ({@link Kind#SHARED});</li>
      *   <li>failing all three, a {@code MANY_TO_ONE} referrer on an <b>owned child</b> of a granted
      *       model → also shared ({@link #sharedThroughOwnedChild});</li>
@@ -1948,6 +1950,11 @@ public class PermissionServiceImpl implements PermissionService {
      * tighter statement than a shared reference, so it wins when a model is reachable
      * both ways.
      */
+    private static boolean isProjection(String model) {
+        MetaModel meta = ModelManager.getModel(model);
+        return meta != null && meta.isProjection();
+    }
+
     private List<Referencer> findReferencers(String childModel, Grant g) {
         List<Referencer> owners = new ArrayList<>();
         List<Referencer> backRefs = new ArrayList<>();
@@ -1956,13 +1963,30 @@ public class PermissionServiceImpl implements PermissionService {
         // Sorted, so the answer never depends on the order the grant happens to hold its models in.
         for (String granted : new TreeSet<>(g.scopes().keySet())) {
             if (!ModelManager.existModel(granted)) continue;
+            // A projection reads another model's table and owns no row: what it points at one-to-one
+            // or one-to-many it only refers to. Taken for an owner, a report over the employee table
+            // opened every person's profile to whoever reads the report.
+            boolean projection = isProjection(granted);
             for (MetaField f : ModelManager.getModelFields(granted)) {
+                // The join rows of a many-to-many field are the granted record's own, like a
+                // one-to-many child: the join model's left key holds the record's id. Without this
+                // edge a join model is reached by nothing, fail-closes, and a many-to-many write
+                // checked as the caller could not remove a single link.
+                if (f.getFieldType() == FieldType.MANY_TO_MANY && childModel.equals(f.getJoinModel())
+                        && StringUtils.isNotBlank(f.getJoinLeft())) {
+                    backRefs.add(new Referencer(granted, f.getJoinLeft(), Kind.CHILD_BY_BACKREF));
+                    continue;
+                }
                 String related = f.getRelatedModel();
                 if (related == null) continue;
-                boolean owned = f.getFieldType() == FieldType.ONE_TO_ONE
-                        || f.getFieldType() == FieldType.ONE_TO_MANY;
+                boolean owned = !projection && (f.getFieldType() == FieldType.ONE_TO_ONE
+                        || f.getFieldType() == FieldType.ONE_TO_MANY);
                 if (!childModel.equals(related)) {
                     if (owned) ownedChildren.add(related);
+                    continue;
+                }
+                if (projection) {
+                    if (shared == null) shared = new Referencer(granted, f.getFieldName(), Kind.SHARED);
                     continue;
                 }
                 if (f.getFieldType() == FieldType.ONE_TO_ONE) {
@@ -1977,7 +2001,10 @@ public class PermissionServiceImpl implements PermissionService {
                 if (f.getFieldType() == FieldType.ONE_TO_MANY && StringUtils.isNotBlank(f.getRelatedField())) {
                     backRefs.add(new Referencer(granted, f.getRelatedField(), Kind.CHILD_BY_BACKREF));
                 }
-                if (f.getFieldType() == FieldType.MANY_TO_ONE && shared == null) {
+                // A record a many-to-many field links to is referenced as a many-to-one target is: the
+                // granted record points at it without owning it.
+                if ((f.getFieldType() == FieldType.MANY_TO_ONE || f.getFieldType() == FieldType.MANY_TO_MANY)
+                        && shared == null) {
                     shared = new Referencer(granted, f.getFieldName(), Kind.SHARED);
                 }
             }
@@ -2056,6 +2083,16 @@ public class PermissionServiceImpl implements PermissionService {
      * <p>Asked by the action segment of the permission id, the way {@link #actionPermissions} asks for an
      * export: no endpoint path names the model.
      */
+    @Override
+    public boolean hasModelExportGrant(String model) {
+        if (shouldBypass() || model == null) return true;
+        EndpointIndex endpointIndex = endpointIndexSupplier.get();
+        if (endpointIndex == null) return true;
+        PermissionInfo pi = currentPi();
+        if (PermissionInfo.isAdmin(pi)) return true;
+        return holdsAny(pi, endpointIndex.actionPermissions(model, "export"));
+    }
+
     @Override
     public boolean hasModelImportGrant(String model) {
         if (shouldBypass() || model == null) return true;

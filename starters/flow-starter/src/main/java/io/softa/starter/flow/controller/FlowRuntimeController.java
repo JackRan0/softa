@@ -255,7 +255,7 @@ public class FlowRuntimeController {
     @Operation(summary = "Evaluate validation flows",
             description = "Transiently runs all Validation-scenario flows bound to the source model "
                     + "against the candidate row data and returns each flow's declared outputs keyed "
-                    + "by flow code. No instance is persisted.")
+                    + "by flow ID. No instance is persisted.")
     public ApiResponse<Map<String, Map<String, Object>>> validate(@Valid @RequestBody FlowValidationRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(flowAutomationService.evaluateValidation(request));

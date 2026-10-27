@@ -222,7 +222,7 @@ public class FlowAutomationService {
     /**
      * Evaluate all {@link FlowScenario#VALIDATION} flows bound to the given model transiently
      * and return each flow's declared outputs (plus {@code _returnData} when present), keyed
-     * by flow code. Fail-closed: a validation flow that cannot run propagates its exception
+     * by flow ID. Fail-closed: a validation flow that cannot run propagates its exception
      * instead of being silently skipped — a validation that did not execute must not read as
      * "passed".
      */
@@ -248,7 +248,7 @@ public class FlowAutomationService {
                 continue;
             }
             FlowTriggerResult result = startFlowWithPropagation(definition, event);
-            outputsByFlow.put(definition.getFlowCode(), projectDeclaredOutputs(definition, result.getState()));
+            outputsByFlow.put(definition.getFlowId(), projectDeclaredOutputs(definition, result.getState()));
         }
         return outputsByFlow;
     }
@@ -276,14 +276,14 @@ public class FlowAutomationService {
         try {
             FlowExecutionState state = doStartFlow(definition, event);
             return FlowTriggerResult.builder()
-                    .flowCode(definition.getFlowCode())
+                    .flowId(definition.getFlowId())
                     .success(true)
                     .state(state)
                     .build();
         } catch (Exception e) {
-            log.error("Failed to start flow {} from trigger: {}", definition.getFlowCode(), e.getMessage(), e);
+            log.error("Failed to start flow {} from trigger: {}", definition.getFlowId(), e.getMessage(), e);
             return FlowTriggerResult.builder()
-                    .flowCode(definition.getFlowCode())
+                    .flowId(definition.getFlowId())
                     .success(false)
                     .error(e.getMessage())
                     .build();
@@ -296,7 +296,7 @@ public class FlowAutomationService {
     private FlowTriggerResult startFlowWithPropagation(CompiledFlowDefinition definition, FlowTriggerEvent event) {
         FlowExecutionState state = doStartFlow(definition, event);
         return FlowTriggerResult.builder()
-                .flowCode(definition.getFlowCode())
+                .flowId(definition.getFlowId())
                 .success(true)
                 .state(state)
                 .build();
@@ -310,7 +310,7 @@ public class FlowAutomationService {
         // Start-dedup: a change-log redelivery must not open a SECOND active instance
         // for the same business row + flow. If one is already active, return it idempotently.
         FlowExecutionState active = findActiveInstanceState(
-                definition.getFlowCode(), event.getSourceModel(), event.getSourceRowId());
+                definition.getFlowId(), event.getSourceModel(), event.getSourceRowId());
         if (active != null) {
             return active;
         }
@@ -342,12 +342,12 @@ public class FlowAutomationService {
      * a new one. Returns null when no {@link FlowInstanceService} is wired or the event carries no
      * business row (modelName / rowId).
      */
-    FlowExecutionState findActiveInstanceState(String flowCode, String model, String rowId) {
+    FlowExecutionState findActiveInstanceState(String flowId, String model, String rowId) {
         if (instanceService == null || model == null || model.isBlank() || rowId == null || rowId.isBlank()) {
             return null;
         }
         return instanceService.findByModelNameAndRowId(model, rowId).stream()
-                .filter(i -> flowCode != null && flowCode.equals(i.getFlowCode()))
+                .filter(i -> flowId != null && flowId.equals(i.getFlowId()))
                 .filter(i -> i.getStatus() != null && !i.getStatus().isTerminal())
                 .findFirst()
                 .flatMap(i -> runtimeEngine.getInstance(i.getInstanceId()))
@@ -367,7 +367,7 @@ public class FlowAutomationService {
             logEntry.setSourceModel(event.getSourceModel());
             logEntry.setSourceRowId(event.getSourceRowId());
             logEntry.setActorId(event.getActorId());
-            logEntry.setFlowCode(definition.getFlowCode());
+            logEntry.setFlowId(definition.getFlowId());
             logEntry.setFlowRevision(definition.getRevision());
             logEntry.setInstanceId(result.getState() != null ? result.getState().getInstanceId() : null);
             logEntry.setSuccess(result.isSuccess());

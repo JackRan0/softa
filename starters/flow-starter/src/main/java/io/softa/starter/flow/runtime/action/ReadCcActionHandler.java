@@ -50,11 +50,11 @@ public class ReadCcActionHandler implements FlowActionHandler<FlowCcReadRequest>
         CompiledFlowDefinition definition = contextService.resolveDefinition(state.getBundleId());
         CompiledFlowNode node = contextService.requiredNode(definition, ccAudit.getNodeId());
 
-        auditService.addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_CC_READ,
+        auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_CC_READ,
                 auditService.buildCcReadMessage(node, request, ccAudit));
         auditService.appendApprovalAudit(state, ApprovalActionAuditEntry.builder()
                 .action(ApprovalActionType.READ)
-                .flowCode(definition.getFlowCode())
+                .flowId(definition.getFlowId())
                 .flowRevision(definition.getRevision())
                 .nodeId(node.getNodeId())
                 .nodeLabel(node.getLabel())

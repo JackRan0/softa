@@ -30,12 +30,12 @@ public class FlowAuditService {
     }
 
     public void addTrace(FlowExecutionState state,
-                         String flowCode,
+                         String flowId,
                          CompiledFlowNode node,
                          FlowTraceEventType eventType,
                          String message) {
         state.getTrace().add(FlowExecutionTraceEntry.builder()
-                .flowCode(flowCode)
+                .flowId(flowId)
                 .nodeId(node.getNodeId())
                 .flowNodeType(node.getType())
                 .eventType(eventType)
@@ -62,7 +62,7 @@ public class FlowAuditService {
                               String targetActorId,
                               String comment,
                               FlowExecutionStatus statusBefore) {
-        addTrace(state, definition.getFlowCode(), node, FlowTraceEventType.APPROVAL_CCED,
+        addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_CCED,
                 buildCcMessage(node, actorId, targetActorId, comment));
         appendApprovalAudit(state, baseEntry(definition, node, pendingApproval, statusBefore, state.getStatus()).toBuilder()
                 .action(ApprovalActionType.CC)
@@ -116,7 +116,7 @@ public class FlowAuditService {
             FlowExecutionStatus statusBefore,
             FlowExecutionStatus statusAfter) {
         return ApprovalActionAuditEntry.builder()
-                .flowCode(definition.getFlowCode())
+                .flowId(definition.getFlowId())
                 .flowRevision(definition.getRevision())
                 .nodeId(node.getNodeId())
                 .nodeLabel(node.getLabel())

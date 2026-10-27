@@ -24,29 +24,29 @@ public class FlowInboxServiceImpl implements FlowInboxService {
 
     @Override
     public FlowInboxView getInbox(String actorId,
-                                         String flowCode,
+                                         String flowId,
                                          String instanceId,
                                          String nodeId,
                                          Boolean includeCompletedApprovals) {
-        return getInbox(actorId, flowCode, instanceId, nodeId, includeCompletedApprovals, 1, 50);
+        return getInbox(actorId, flowId, instanceId, nodeId, includeCompletedApprovals, 1, 50);
     }
 
     @Override
     public FlowInboxView getInbox(String actorId,
-                                  String flowCode,
+                                  String flowId,
                                   String instanceId,
                                   String nodeId,
                                   Boolean includeCompletedApprovals,
                                   Integer pageNumber,
                                   Integer pageSize) {
         Page<FlowApprovalTaskView> approvalPendingTasks =
-                approvalTaskService.pagePendingTasks(actorId, flowCode, instanceId, nodeId, pageNumber, pageSize);
+                approvalTaskService.pagePendingTasks(actorId, flowId, instanceId, nodeId, pageNumber, pageSize);
         Page<FlowApprovalTaskView> ccUnreadTasks =
-                approvalTaskService.pageCcTasks(actorId, false, flowCode, instanceId, nodeId, pageNumber, pageSize);
+                approvalTaskService.pageCcTasks(actorId, false, flowId, instanceId, nodeId, pageNumber, pageSize);
         Page<FlowApprovalTaskView> ccReadTasks =
-                approvalTaskService.pageCcTasks(actorId, true, flowCode, instanceId, nodeId, pageNumber, pageSize);
+                approvalTaskService.pageCcTasks(actorId, true, flowId, instanceId, nodeId, pageNumber, pageSize);
         List<FlowApprovalTaskView> approvalCompletedTasks = Boolean.TRUE.equals(includeCompletedApprovals)
-                ? approvalTaskService.pageCompletedTasks(actorId, flowCode, instanceId, nodeId, pageNumber, pageSize).getRows()
+                ? approvalTaskService.pageCompletedTasks(actorId, flowId, instanceId, nodeId, pageNumber, pageSize).getRows()
                 : List.of();
 
         return InboxViewAssembler.assemble(

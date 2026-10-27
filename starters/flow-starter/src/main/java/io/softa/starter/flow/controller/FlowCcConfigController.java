@@ -31,9 +31,9 @@ public class FlowCcConfigController {
     }
 
     @GetMapping
-    @Operation(summary = "List CC configurations", description = "Lists all CC configurations for a flow code.")
-    public ApiResponse<List<FlowCcConfig>> list(@RequestParam String flowCode) {
-        return ApiResponse.success(ccConfigService.listByFlowCode(flowCode));
+    @Operation(summary = "List CC configurations", description = "Lists all CC configurations for a flow.")
+    public ApiResponse<List<FlowCcConfig>> list(@RequestParam String flowId) {
+        return ApiResponse.success(ccConfigService.listByFlowId(flowId));
     }
 
     @PostMapping("/{id}/deactivate")

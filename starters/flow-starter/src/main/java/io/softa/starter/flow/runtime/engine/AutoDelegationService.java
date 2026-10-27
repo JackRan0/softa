@@ -41,21 +41,21 @@ public class AutoDelegationService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        String flowCode = pending.getFlowCode();
+        String flowId = pending.getFlowId();
         String nodeId = pending.getNodeId();
         List<String> approvers = new ArrayList<>(pending.getApprovers());
         boolean changed = false;
 
         for (int i = 0; i < approvers.size(); i++) {
             String currentApprover = approvers.get(i);
-            String resolvedDelegate = resolveDelegateChain(currentApprover, flowCode, nodeId, now, approvers);
+            String resolvedDelegate = resolveDelegateChain(currentApprover, flowId, nodeId, now, approvers);
             if (resolvedDelegate != null && !resolvedDelegate.equals(currentApprover)) {
                 log.info("Auto-delegating approval at node {} from {} to {}", nodeId, currentApprover, resolvedDelegate);
                 approvers.set(i, resolvedDelegate);
                 changed = true;
 
                 if (auditService != null && state != null && node != null) {
-                    auditService.addTrace(state, flowCode, node, FlowTraceEventType.APPROVAL_DELEGATED,
+                    auditService.addTrace(state, flowId, node, FlowTraceEventType.APPROVAL_DELEGATED,
                             "Auto-delegated from " + currentApprover + " to " + resolvedDelegate + " at node " + nodeId);
                 }
             }
@@ -72,14 +72,14 @@ public class AutoDelegationService {
      *
      * @return the final delegate, or null if no delegation applies
      */
-    private String resolveDelegateChain(String actorId, String flowCode, String nodeId,
+    private String resolveDelegateChain(String actorId, String flowId, String nodeId,
                                         LocalDateTime now, List<String> existingApprovers) {
         Set<String> visited = new HashSet<>();
         visited.add(actorId);
         String current = actorId;
 
         while (true) {
-            Optional<FlowDelegation> delegation = delegationService.findActiveDelegation(current, flowCode, nodeId, now);
+            Optional<FlowDelegation> delegation = delegationService.findActiveDelegation(current, flowId, nodeId, now);
             if (delegation.isEmpty()) {
                 break;
             }

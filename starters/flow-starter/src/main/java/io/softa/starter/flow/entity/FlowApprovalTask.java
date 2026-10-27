@@ -44,8 +44,11 @@ public class FlowApprovalTask extends AuditableModel {
     @Field(label = "Instance ID", required = true, description = "Runtime instance id")
     private String instanceId;
 
-    @Field(length = 100, description = "Flow code")
-    private String flowCode;
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = FlowDesign.class, label = "Flow")
+    private String flowId;
+
+    @Field(cascadedField = "flowId.flowName", dynamic = true, readonly = true)
+    private String flowName;
 
     @Field(description = "Published flow revision")
     private Integer flowRevision;

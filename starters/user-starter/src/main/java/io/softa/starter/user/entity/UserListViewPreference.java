@@ -37,6 +37,7 @@ import io.softa.framework.orm.enums.OnDelete;
  * exportFields         ["orderNo","customer","amount"]
  * exportObjectFields   {"lines":["product","quantity","price"]}   (keyed by the collection field)
  * viewSettings         {"sidePanelCollapsed":true}
+ * columnWidths         {"orderNo":12.5,"customer":24}            (percent of the table's width)
  * </pre>
  * A part left null is not arranged, and the list uses its own default for it; a row whose parts are
  * all null is deleted.
@@ -115,4 +116,12 @@ public class UserListViewPreference extends AuditableModel {
      */
     @Field(label = "View Settings", fieldType = FieldType.TEXT)
     private String viewSettings;
+
+    /**
+     * The widths the person dragged columns to, as a JSON object of column id to a share of the
+     * table's width in percent. Kept apart from the columns: a list whose columns are not arranged
+     * can still have its widths. Column ids, so filtered as the columns are.
+     */
+    @Field(label = "Column Widths", fieldType = FieldType.TEXT)
+    private String columnWidths;
 }

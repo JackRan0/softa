@@ -27,8 +27,7 @@ import io.softa.starter.flow.enums.FlowScenario;
     versionLock = true,
     copyable = false
 )
-@Index(indexName = "uk_tenant_design_revision", fields = {"tenantId", "designId", "revision"}, unique = true)
-@Index(indexName = "idx_tenant_flow_revision", fields = {"tenantId", "flowCode", "revision", "active"})
+@Index(indexName = "uk_tenant_flow_revision", fields = {"tenantId", "flowId", "revision"}, unique = true)
 @EqualsAndHashCode(callSuper = true)
 public class FlowBundle extends AuditableModel {
 
@@ -45,9 +44,6 @@ public class FlowBundle extends AuditableModel {
             + "cannot end up with two active revisions", required = true, defaultValue = "1")
     private Integer version;
 
-    @Field(required = true, length = 100, description = "Flow code (business identifier)")
-    private String flowCode;
-
     @Field(length = 100)
     private String flowName;
 
@@ -63,8 +59,8 @@ public class FlowBundle extends AuditableModel {
     @Field(description = "Whether to roll back on failure")
     private Boolean rollbackOnFail;
 
-    @Field(label = "Design ID", description = "FK to FlowDesign.id; null for bundles published before this field was added")
-    private Long designId;
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = FlowDesign.class, label = "Flow", description = "The flow this revision belongs to")
+    private String flowId;
 
     @Field(fieldType = FieldType.TEXT, description = "Compiled flow definition (JSON)")
     private String compiledJson;

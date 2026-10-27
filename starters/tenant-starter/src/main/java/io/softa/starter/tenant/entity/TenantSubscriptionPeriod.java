@@ -44,7 +44,7 @@ import io.softa.starter.tenant.enums.SubscriptionPeriodType;
 // asks it — every other access already goes through the unique key below.
 @Index(fields = {"tenantId"})
 // The plan is part of the key, not just the date. Two periods legitimately start on the same day now: every
-// tenant owns an open-ended free period from its creation date, so anything sold on that day starts alongside
+// tenant owns an open-ended base period from its creation date, so anything sold on that day starts alongside
 // it. Keying on (subscription, date) alone rejected exactly that — a tenant could not be created with a plan.
 // What remains worth blocking is the same plan recorded twice from the same day, which is a mis-entry rather
 // than an arrangement.

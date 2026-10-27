@@ -20,7 +20,7 @@ public interface FlowDelegationService {
     /**
      * Find the best matching active delegation for a delegator, considering scope (ALL, flow-code, node-id).
      */
-    Optional<FlowDelegation> findActiveDelegation(String delegatorId, String flowCode, String nodeId, LocalDateTime now);
+    Optional<FlowDelegation> findActiveDelegation(String delegatorId, String flowId, String nodeId, LocalDateTime now);
 
     /**
      * Expire delegations that have passed their end time and have autoExpire enabled.

@@ -30,8 +30,11 @@ public class FlowApprovalTaskView {
     @Schema(description = "Runtime instance id")
     private String instanceId;
 
-    @Schema(description = "Flow code")
-    private String flowCode;
+    @Schema(description = "Flow ID")
+    private String flowId;
+
+    @Schema(description = "Flow name")
+    private String flowName;
 
     @Schema(description = "Published flow revision")
     private Integer flowRevision;

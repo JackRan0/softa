@@ -11,6 +11,7 @@ import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.starter.flow.runtime.state.AddSignPosition;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
@@ -44,8 +45,11 @@ public class FlowApprovalRecord extends AuditableModel {
     @Field(label = "Instance ID", required = true, description = "Runtime instance id")
     private String instanceId;
 
-    @Field(length = 100, description = "Flow code")
-    private String flowCode;
+    @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = FlowDesign.class, label = "Flow")
+    private String flowId;
+
+    @Field(cascadedField = "flowId.flowName", dynamic = true, readonly = true)
+    private String flowName;
 
     @Field(description = "Published flow revision")
     private Integer flowRevision;

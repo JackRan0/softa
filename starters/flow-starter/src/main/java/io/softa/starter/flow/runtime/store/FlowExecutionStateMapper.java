@@ -28,8 +28,7 @@ final class FlowExecutionStateMapper {
         entity.setInstanceId(state.getInstanceId());
         entity.setVersion(state.getVersion());
         entity.setBundleId(state.getBundleId());
-        entity.setDesignId(state.getDesignId());
-        entity.setFlowCode(state.getFlowCode());
+        entity.setFlowId(state.getFlowId());
         entity.setFlowRevision(state.getFlowRevision());
         entity.setTitle(state.getTitle());
         entity.setModelName(state.getModelName());
@@ -60,8 +59,8 @@ final class FlowExecutionStateMapper {
                 .instanceId(entity.getInstanceId())
                 .version(entity.getVersion())
                 .bundleId(entity.getBundleId())
-                .designId(entity.getDesignId())
-                .flowCode(entity.getFlowCode())
+                .flowId(entity.getFlowId())
+                .flowName(entity.getFlowName())
                 .flowRevision(entity.getFlowRevision())
                 .title(entity.getTitle())
                 .modelName(entity.getModelName())

@@ -39,8 +39,8 @@ public class FlowEventProducer {
         Assert.notBlank(flowEventTopic, "Flow event topic is not configured");
         try {
             pulsarTemplate.sendAsync(flowEventTopic, message).join();
-            log.debug("Sent flow event to MQ: designId={}, triggerType={}",
-                    message.getDesignId(), message.getTriggerType());
+            log.debug("Sent flow event to MQ: flowId={}, triggerType={}",
+                    message.getFlowId(), message.getTriggerType());
         } catch (CompletionException e) {
             Throwable cause = e.getCause() == null ? e : e.getCause();
             throw new FlowRuntimeException("Failed to send flow event to MQ: " + cause.getMessage(), cause);
