@@ -1950,6 +1950,11 @@ public class PermissionServiceImpl implements PermissionService {
      * tighter statement than a shared reference, so it wins when a model is reachable
      * both ways.
      */
+    private static boolean isProjection(String model) {
+        MetaModel meta = ModelManager.getModel(model);
+        return meta != null && meta.isProjection();
+    }
+
     private List<Referencer> findReferencers(String childModel, Grant g) {
         List<Referencer> owners = new ArrayList<>();
         List<Referencer> backRefs = new ArrayList<>();
@@ -1958,6 +1963,10 @@ public class PermissionServiceImpl implements PermissionService {
         // Sorted, so the answer never depends on the order the grant happens to hold its models in.
         for (String granted : new TreeSet<>(g.scopes().keySet())) {
             if (!ModelManager.existModel(granted)) continue;
+            // A projection reads another model's table and owns no row: what it points at one-to-one
+            // or one-to-many it only refers to. Taken for an owner, a report over the employee table
+            // opened every person's profile to whoever reads the report.
+            boolean projection = isProjection(granted);
             for (MetaField f : ModelManager.getModelFields(granted)) {
                 // The join rows of a many-to-many field are the granted record's own, like a
                 // one-to-many child: the join model's left key holds the record's id. Without this
@@ -1970,10 +1979,14 @@ public class PermissionServiceImpl implements PermissionService {
                 }
                 String related = f.getRelatedModel();
                 if (related == null) continue;
-                boolean owned = f.getFieldType() == FieldType.ONE_TO_ONE
-                        || f.getFieldType() == FieldType.ONE_TO_MANY;
+                boolean owned = !projection && (f.getFieldType() == FieldType.ONE_TO_ONE
+                        || f.getFieldType() == FieldType.ONE_TO_MANY);
                 if (!childModel.equals(related)) {
                     if (owned) ownedChildren.add(related);
+                    continue;
+                }
+                if (projection) {
+                    if (shared == null) shared = new Referencer(granted, f.getFieldName(), Kind.SHARED);
                     continue;
                 }
                 if (f.getFieldType() == FieldType.ONE_TO_ONE) {
