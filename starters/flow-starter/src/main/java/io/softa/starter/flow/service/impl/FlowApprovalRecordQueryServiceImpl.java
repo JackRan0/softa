@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -103,8 +104,10 @@ public class FlowApprovalRecordQueryServiceImpl implements FlowApprovalRecordQue
         return SentCcHistoryComposer.compose(records, actorId, read, flowId, instanceId, nodeId);
     }
 
+    /** Every record of an instance, past the caller's data permissions — the access guard rules on them. */
     private List<FlowApprovalRecord> getRecordEntitiesByInstanceId(String instanceId) {
-        return recordService.searchList(new Filters().eq(FlowApprovalRecord::getInstanceId, instanceId)).stream()
+        return ContextUtils.withoutPermissionChecks(
+                () -> recordService.searchList(new Filters().eq(FlowApprovalRecord::getInstanceId, instanceId))).stream()
                 .sorted(historyComparator())
                 .toList();
     }

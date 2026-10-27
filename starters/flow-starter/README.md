@@ -80,7 +80,8 @@ Defined `FlowExecutionStatus` values:
   specific reasons live in the instance's pending-approval list and wait-token list, so a single
   status covers parallel branches suspended for different reasons at once.
 - `Rejected`
-- `Returned`
+- `Returned` — sent back to the initiator; ends the instance like a rejection. The initiator edits and
+  submits again, which starts a new instance from the beginning
 - `Withdrawn`
 - `Cancelled`
 - `Completed`
@@ -91,8 +92,9 @@ Defined `FlowExecutionStatus` values:
 Host applications embedding the engine in-process should integrate through the
 `FlowClient` facade (`io.softa.starter.flow.api`) rather than looping back over
 REST — actor / initiator / tenant identity is always resolved server-side from the
-context, never passed as call parameters. See
-[docs/integration-guide.md](docs/integration-guide.md).
+context, never passed as call parameters. `FlowAutoConfiguration` registers the default
+`InProcessFlowClient` only when the application defines no `FlowClient` bean of its own.
+See [docs/integration-guide.md](docs/integration-guide.md).
 
 ### Design APIs (flow editor)
 
@@ -136,41 +138,69 @@ Base path: `/flow/nodeDescriptors`
 | `GET` | `/flow/nodeDescriptors` | List all node descriptors for the editor palette |
 | `GET` | `/flow/nodeDescriptors?scenario=Process` | Filter descriptors by `FlowScenario` |
 
-### Runtime APIs
+### Instance APIs
 
-Base path: `/flow/runtime`
+Base path: `/flow/instances` — launch, reads and approval actions on runtime instances.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/flow/runtime/instances/start` | Start a flow instance |
-| `GET` | `/flow/runtime/instances/{instanceId}?includeTrace=` | Get one runtime instance (trace excluded by default) |
-| `GET` | `/flow/runtime/instances/{instanceId}/overlay` | Per-node run state for canvas painting |
-| `GET` | `/flow/runtime/instances/{instanceId}/trace?sinceSequence=` | Incremental trace rows for polling |
-| `POST` | `/flow/runtime/instances/search` | Paged summaries of the caller's own instances — the initiator filter is always the authenticated user (filters: flowId/status/model/row/createdFrom/createdTo) |
-| `POST` | `/flow/runtime/instances/approve` | Approve a pending approval |
-| `POST` | `/flow/runtime/instances/reject` | Reject a pending approval |
-| `POST` | `/flow/runtime/instances/transfer` | Transfer a pending approval task |
-| `POST` | `/flow/runtime/instances/delegate` | Delegate a pending approval task |
-| `POST` | `/flow/runtime/instances/add-sign-before` | Insert a prerequisite signer |
-| `POST` | `/flow/runtime/instances/add-sign-after` | Insert a follow-up signer |
-| `POST` | `/flow/runtime/instances/cc` | Send a CC notification |
-| `POST` | `/flow/runtime/instances/cc/read` | Mark a CC as read |
-| `POST` | `/flow/runtime/instances/return` | Return a pending approval |
-| `POST` | `/flow/runtime/instances/resubmit` | Resubmit a returned instance |
-| `POST` | `/flow/runtime/instances/withdraw` | Withdraw a flow instance |
-| `POST` | `/flow/runtime/instances/urge` | Urge pending approvers |
-| `POST` | `/flow/runtime/instances/comment` | Add a comment audit entry |
-| `GET` | `/flow/runtime/instances/{instanceId}/nodes/{nodeId}/formPermissions` | Get field-level form permissions |
-| `POST` | `/flow/runtime/trigger` | Fire a trigger event and start matching flows |
-| `POST` | `/flow/runtime/onchange` | Run `COMPUTE` flows transiently and return variable diffs |
-| `POST` | `/flow/runtime/validate` | Run `VALIDATION` flows transiently against candidate row data; returns each flow's declared outputs keyed by `flowId` |
+| `POST` | `/flow/instances/start` | Start a flow instance |
+| `GET` | `/flow/instances/{instanceId}?includeTrace=` | Get one runtime instance (trace excluded by default) |
+| `GET` | `/flow/instances/{instanceId}/overlay` | Per-node run state for canvas painting |
+| `GET` | `/flow/instances/{instanceId}/trace?sinceSequence=` | Incremental trace rows for polling |
+| `POST` | `/flow/instances/search` | Paged summaries of the caller's own instances — the initiator filter is always the authenticated user (filters: flowId/status/model/row/createdFrom/createdTo) |
+| `POST` | `/flow/instances/approve` | Approve a pending approval |
+| `POST` | `/flow/instances/reject` | Reject a pending approval |
+| `POST` | `/flow/instances/transfer` | Transfer a pending approval task |
+| `POST` | `/flow/instances/delegate` | Delegate a pending approval task |
+| `POST` | `/flow/instances/add-sign-before` | Insert a prerequisite signer |
+| `POST` | `/flow/instances/add-sign-after` | Insert a follow-up signer |
+| `POST` | `/flow/instances/cc` | Send a CC notification |
+| `POST` | `/flow/instances/cc/read` | Mark a CC as read |
+| `POST` | `/flow/instances/return` | Return a pending approval to the initiator, ending the instance as `Returned` |
+| `POST` | `/flow/instances/withdraw` | Withdraw a flow instance |
+| `POST` | `/flow/instances/urge` | Urge pending approvers |
+| `POST` | `/flow/instances/comment` | Add a comment audit entry |
+| `GET` | `/flow/instances/{instanceId}/nodes/{nodeId}/formPermissions` | Get field-level form permissions |
+| `GET` | `/flow/instances/by-record?modelName=&rowId=` | A business record's approval history: its approval instances newest first, with the steps still waiting, the approvers yet to act and the approval actions, every user named (names are resolved only once the caller is allowed). Allowed to whoever took part in its approvals or can read the record |
+| `GET` | `/flow/instances/preview?modelName=&rowId=` | What submitting the record would do now, without submitting it: the Submit flow it would get and its approval steps, each with the approvers who would be asked or why it passes on its own; a refusal, no applicable flow or several are reported, a route decided only once the approval runs is reported as undecided. Nothing is started or written. Allowed to whoever can read the record (see [Previewing a record's approval](#previewing-a-records-approval)) |
+| `GET` | `/flow/instances/{instanceId}/record` | The business record the instance approves, for its initiator and the people it gives a task to: read past their own row permissions, limited to the fields the waiting steps list in their field permissions (`Readonly` / `Editable` / `Required`; once nothing waits, those of every approval step). A step that lists no fields shows them all; a field marked `Hidden` never shows. Read as the model read API returns a record (relations and options as references, masked fields masked), with each one-to-many's rows in full — an expense claim comes with its lines |
 
-Engine-internal resume callbacks live on `/internal/flow/runtime/instances/{resumeAsync|resumeTimer}`
-(INTERNAL identity scope) — they are not part of the user-facing surface.
+Who may view an instance: its initiator and the people it gives a task to (approvers pending or done, CC
+recipients, transfer, delegation and add-sign targets) by default; anyone else through the standard role and
+data-scope configuration — they may read the `FlowInstance` row with their own permissions, or, for a
+record's approval, read the record itself.
+
+The defaults need no grant on the flow models, which no business role holds. The engine's own bookkeeping —
+loading and saving instances, the approval ledger, the task and branch projections, delegation and auto-CC
+rules — runs past the caller's data permissions: who may act is the action handlers' call, who may see the
+access guard's. The current user's own lists — inbox counts, pending / completed / CC tasks and the inbox
+(`/flow/approvalTasks`), their approval history and sent CCs (`/flow/approvalRecords`), their delegations,
+and `POST /flow/instances/search`, with their `FlowClient` counterparts — carry `@SkipPermissionCheck`:
+pinned to the caller, row scope could only empty them. The per-instance reads (`.../instance/{instanceId}`,
+the instance detail endpoints) are not waived, because the guard judges everyone but the initiator and the
+task holders by their own permissions.
+
+### Automation APIs
+
+Base path: `/flow/automation` — trigger firing and transient runs; none of these reads or
+acts on an existing instance.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/flow/automation/trigger` | Fire a trigger event and start matching flows |
+| `POST` | `/flow/automation/onchange` | Run `COMPUTE` flows transiently and return variable diffs |
+| `POST` | `/flow/automation/validate` | Run `VALIDATION` flows transiently against candidate row data; returns each flow's declared outputs keyed by `flowId` |
+
+Async-task and timer resumes have no REST endpoint: `FlowAsyncTaskConsumer`,
+`FlowTimerConsumer` and the due-timer sweep of the maintenance cron call
+`FlowRuntimeEngine` in-process.
 
 `actorId` / `initiatorId` / `tenantId` are **never** sent by clients: every action
 request stamps them server-side from the login context (`@JsonProperty(READ_ONLY)`),
-and all query endpoints resolve the current actor from the context.
+and all query endpoints resolve the current actor from the context. The in-process
+`FlowClient` resolves the actor the same way and calls the same services as these
+endpoints.
 
 ## Approval Projection APIs
 
@@ -216,11 +246,11 @@ Base path: `/flow/delegations`
 | `POST` | `/flow/delegations` | Create a delegation rule |
 | `GET` | `/flow/delegations/my` | Delegations created by the caller (delegator resolved from the login context) |
 | `GET` | `/flow/delegations/to-me` | Active delegations assigned to the caller (delegate resolved from the login context) |
-| `POST` | `/flow/delegations/{id}/cancel` | Cancel a delegation rule |
+| `POST` | `/flow/delegations/{id}/cancel` | Cancel one of the caller's delegation rules; another user's is refused (403) |
 
 ### Monitor
 
-Base path: `/flow/monitor` — operator-facing; the search endpoint requires the system admin role (`@RequireRole(SystemRoleAdmin)`, fail-closed when the host app wires no role provider). A caller holding that role also bypasses the participant scoping on the instance detail / overlay / trace / approval-history reads.
+Base path: `/flow/monitor` — operator-facing; the search endpoint requires the system admin role (`@RequireRole(SystemRoleAdmin)`, fail-closed when the host app wires no role provider). Opening another user's instance (detail / overlay / trace / approval history) is decided by the caller's permissions on `FlowInstance`, as for any viewer who is not a participant.
 
 | Method | Path | Description |
 |---|---|---|
@@ -253,17 +283,35 @@ Approval nodes support:
 - dynamic approvers via `config.approverSource`
 - empty-approver strategies via `config.emptyApproverStrategy`
 
-Supported dynamic source types in the current default resolution path:
+Supported dynamic source types:
 
-- `VariableList`
-- `Expression`
-- `InitiatorManager`
-- `Role`
+- from start variables: `VariableList`, `Expression`, `InitiatorManager` (`initiatorManagerId`), `Role` (`roleApprovers`)
+- from the organization: `Supervisor` (the initiator's N-th level supervisor), `DeptLeader` and `DeptHrbp`
+  (of a department, by default the initiator's), `RoleQuery` (holders of the roles named by `roleIds`, by
+  `roleCodes`, or both — optionally narrowed to the initiator's or one department), `Position`, `Department`
 
-Important integration note:
+Approvers are **login account ids**. The organization is read through the `OrganizationService` SPI, whose
+default `FlowOrgService` follows the HR conventions permission-starter already reads, so an application on
+those models configures nothing:
 
-- `OrganizationService` is defined as an SPI (`MetadataOrganizationService` is the default when wired). The default resolver path also supports variable-based sources via `ApproverResolutionService`.
-- If you need real org-tree lookup, provide a custom `OrganizationService` bean or populate resolution variables such as `initiatorManagerId` and `roleApprovers` before the flow reaches the approval node.
+| Purpose | Model.field |
+|---|---|
+| Account → employee | `Employee.userId` |
+| Name, department, position | `Employee.fullName`, `departmentId`, `jobPositionId` |
+| Supervisor (an employee id) | `Employee.piEmployeeId` |
+| Department leader, HRBP (employee ids), parent | `Department.picEmpId`, `hrbpEmpId`, `parentId` |
+| Role holders, role codes | `UserRoleRel.userId` / `roleId`, `Role.code` |
+
+An employee without an account counts as nobody, so a step resolving only to such employees is empty and
+follows its empty-approver strategy; a role holder is an account and approves even without an employee
+profile. A department without a leader (or HRBP) defers to its parent's. Lookups skip row scope — who
+approves must not depend on what the initiator may see. Every model and field name can be overridden
+under `softa.flow.org.*` (`OrganizationServiceProperties`); an application with another organization
+system provides its own `OrganizationService` bean.
+
+Role codes, unlike role ids, are the same in every tenant, so a flow seeded to many tenants names its built-in
+roles by code (`roleCodes`); the designer offers both lists, since roles an administrator creates have no code
+and are picked by id.
 
 Approver dedup: the default policy is **`GLOBAL`** — a user who already approved an
 earlier node is auto-passed on later nodes (recorded as `AUTO_APPROVE`). Residual
@@ -296,8 +344,7 @@ off the form.
 - add-sign-after
 - cc
 - read-cc
-- return
-- resubmit
+- return (to the initiator; ends the instance)
 - withdraw
 - urge
 - comment
@@ -370,6 +417,96 @@ Current module notes:
 
 - `CALL_SERVICE` ships a bundled executor but is **disabled by default**: it invokes an arbitrary Spring bean method by name, so it must be explicitly enabled and given a non-empty bean-name allow-list.
 
+## Approving Business Records
+
+A business record — a leave request, an expense claim — is approved by a Process flow whose trigger is a
+`SubmitTrigger(modelName, conditionExpression)`. The host implements one `ModelApprovalHandler` per model
+(`runtime/spi`, a Spring bean) and calls `FlowClient` from its own submit and withdraw endpoints:
+
+| `FlowClient` | What happens |
+|---|---|
+| `submitRecord(modelName, rowId)` | `handler.prepare(rowId)` checks the record with the submitter's own permissions and returns the instance title and routing variables; the flow is chosen among the tenant's active flows whose submit trigger names the model and whose condition holds for the record — exactly one must match, else the submission is refused naming why; `handler.onSubmitted(rowId)` moves the record to "in approval"; the record's approval starts. All in the caller's transaction. Every submission starts a new approval from the beginning — after a return too, with the flow chosen again for the record as it is now |
+| `withdrawRecord(modelName, rowId, comment)` | Withdraws the waiting approval (the engine checks the actor is the initiator and the flow allows it). When the record's approval **failed**, its submitter takes the record back the same way — the handler is told it was withdrawn; the failed instance stays for flow monitoring. Refused when the record has no approval in progress |
+| `recordApprovals(modelName, rowId)` | The approval history, as `GET /flow/instances/by-record` |
+| `previewRecord(modelName, rowId)` | The approval a submission would start, as `GET /flow/instances/preview` — see below. Call it outside a transaction |
+
+Only the instance a submission starts is the record's **approval** (`FlowExecutionState.recordApproval`): a
+debug run or an API start of the same flow on the same record is not, and is never written back. A record has
+at most one approval in progress — `FlowInstance.openRecordId` holds the record's id while its approval is
+unfinished, under a unique index with the model, so a second submission is refused even when two arrive at
+once.
+
+Results reach the record through one listener, `ApprovalOutcomeListener`: when a record's approval completes,
+is rejected, returned, withdrawn or cancelled, it calls `handler.onOutcome(rowId, outcome)` with the type, the
+deciding user and their comment (none for an automatic approval) — in the action's transaction, with
+permission checks skipped, so a handler that throws vetoes the action. Failed instances write nothing; the
+submitter takes the record back by withdrawing it. A finished instance is saved again on a comment or a CC
+read; such saves are not handed on, but handlers must still be idempotent (change the record only while it is
+in approval). `onSubmitted` runs before the instance starts because a flow with no approval step completes
+while it starts. A step whose approver resolves to nobody fails at runtime under its empty-approver strategy
+(`Error` by default); the record's approval preview shows where before anyone submits.
+
+On a submit flow the submitter's own step approves itself: when a step's approvers include the submitter,
+they are counted as having approved — recorded as `AUTO_APPROVE` ("Auto-approved (submitter)") in the
+approval history — and the step's approval mode decides the rest: an any-one step passes, an all-approve step
+still waits for the others. An empty step whose strategy is `AutoApprove` is recorded the same way, with no
+actor ("Auto-approved (no approver)").
+
+### Previewing a record's approval
+
+`GET /flow/instances/preview?modelName=&rowId=` (`FlowClient.previewRecord`) answers what submitting the record
+would do now, without submitting it — for a record page that shows the approval path before anyone presses
+Submit. It makes the submission's own checks and choice of flow: `handler.prepare(rowId)` with the requester's
+own permissions, the check that no approval is in progress, the submit triggers. A refusal, no applicable flow
+or several are reported in `status` (`Refused`, `NoFlow`, `SeveralFlows`, with the flows that apply in
+`candidates`) and `message` — the message the submission would be refused with — rather than raised.
+`onSubmitted` is never called.
+
+When one flow applies (`Ready`), `ApprovalPathPreviewer` walks it from its start node the way the engine runs it,
+every approval step assumed approved: routes are decided by `FlowGatewayRouter` over the variables the
+submission would start with, approvers by `PendingApprovalFactory` (auto-delegation included) and automatic
+approvals by `ApproverDedupService`, on a state that is never saved. `steps` lists the approval steps in the
+order the approval reaches them, each with an `outcome`:
+
+| Outcome | The step |
+|---|---|
+| `Waiting` | Waits for `approvers`, of whom `requiredApprovals` must approve |
+| `AutoApproved` | Passes on its own: `autoApprovals` counts as having approved the submitter (`Submitter`) or someone who approved an earlier step, under the flow's approver dedup (`EarlierApproval`) |
+| `NoApproverApproved`, `NoApproverSkipped` | Resolves to nobody; its empty-approver strategy approves it on record or skips it |
+| `NoApproverFails` | Resolves to nobody under strategy `Error`: the approval would stop there, as `failure` says |
+| `Undetermined` | Who approves it, or whether it passes on its own, depends on data only known once the approval runs |
+
+Nothing is guessed. The preview runs no node: once the walk passes a script, a task or a subflow, the variables
+that node writes are unknown — all of them for a task without an output variable and for an async task — and
+the instance id is unknown from the start. A route whose conditions read an unknown variable is listed in
+`undecided` and not followed; a step whose approvers come from a dynamic source, reached after such a node, is
+`Undetermined`; with approver dedup on, so is a step whose approver may or may not have approved an earlier
+step, one of several there who could pass it. An error the engine would fail on — a route matching no edge or
+several, a condition that cannot be evaluated — ends the walk in `failure`.
+
+Nothing is written: no instance, task, ledger row or notification, and no delegation's use is counted. The
+preview is allowed to whoever can read the record with their own permissions
+(`FlowInstanceAccessGuard.requireRecordReader`) and is never waived from row scope; taking part in the record's
+earlier approvals is not enough. Users are named as in the approval history. It runs in no transaction of its
+own, and `FlowClient.previewRecord` should be called outside one: a refusal thrown through a transactional
+method marks the transaction it joins rollback-only.
+
+Default flows reach tenants as tenant seed files: one `FlowDesign` row per file, its trigger naming the
+model. When seed-starter announces the rows a file created (`SeedFileLoadedEvent`), `SeedFlowPublisher`
+publishes each new design; a design that does not compile fails the file in that tenant. Tenants then edit
+their own copy in the designer.
+
+## Notifications
+
+The default `ApprovalNotificationService` is `InboxApprovalNotificationService`: Workflow-type inbox messages
+through message-starter that point at the flow instance (`sourceModel` = `FlowInstance`, `sourceId` = its
+instance id; the client opens the instance and goes on from there) — tasks to the approvers still to act
+(assigned, transferred, delegated, urged, about to time out), CCs to their recipients, and the result to the
+initiator (approved; rejected or returned, with the comment). Messages are written after the action commits,
+in a transaction of their own: a rolled-back action sends nothing, and a message that cannot be written is
+logged without failing the action. Titles longer than the inbox's 200 characters are cut. Texts are translated
+into the tenant's default language. Provide your own `ApprovalNotificationService` bean for email, SMS or IM.
+
 ## Trigger And Messaging Integration
 
 Supported trigger sources (`TriggerSource` sealed sub-types):
@@ -379,6 +516,9 @@ Supported trigger sources (`TriggerSource` sealed sub-types):
 - `Cron`
 - `Subflow`
 - `FieldChange` (COMPUTE scenario only)
+- `Submit` (PROCESS scenario only) — names the model whose records the flow approves and, optionally, a
+  condition over the record. Started only by record submission (see Approving Business Records); change
+  logs never produce it and `POST /flow/automation/trigger` refuses it
 
 Pulsar-connected components are conditionally registered:
 
@@ -457,8 +597,9 @@ Before enabling `flow-starter` in a real app, verify:
 
 - add `flow-starter` to the application classpath
 - create and expose `FlowDesign` drafts through the generic model APIs
-- provide a real `ApprovalNotificationService` if you need email, SMS, IM, or in-app notifications
-- provide a custom `OrganizationService` or populate approver resolution variables if you need manager/role/department based approvers
+- provide your own `ApprovalNotificationService` if you need email, SMS or IM beyond the default inbox messages
+- check the organization follows the default HR conventions, or override `softa.flow.org.*`, or provide your own `OrganizationService`
+- for business records: implement a `ModelApprovalHandler` per model, submit and withdraw through `FlowClient`, and ship each default flow as a tenant seed file
 - enable Pulsar topics if using triggers or async tasks
 - provide timer scheduling/publishing if using `TIMER` nodes
 - enable `CALL_SERVICE` explicitly (plus its bean-name allow-list) if flows need to invoke Spring beans; all other task node types ship working executors, conditionally registered on their capability beans

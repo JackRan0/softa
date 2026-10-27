@@ -8,7 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import io.softa.starter.flow.enums.ApprovalReturnTarget;
 import io.softa.starter.flow.enums.VoteThresholdMode;
 
 /**
@@ -57,9 +56,6 @@ public class ApprovalActionAuditEntry {
     @Schema(description = "Execution status after the action")
     private FlowExecutionStatus statusAfter;
 
-    @Schema(description = "Return target type when the action is Return")
-    private ApprovalReturnTarget targetType;
-
     @Schema(description = "Approval mode of the node when applicable")
     private VoteThresholdMode approvalMode;
 
@@ -89,17 +85,5 @@ public class ApprovalActionAuditEntry {
 
     @Schema(description = "Add-sign position when the action is AddSign")
     private AddSignPosition addSignPosition;
-
-    @Schema(description = "Target node id when returning to a previous approval")
-    private String targetNodeId;
-
-    @Schema(description = "Target node label when returning to a previous approval")
-    private String targetNodeLabel;
-
-    @Schema(description = "Resubmission count after a resubmit action")
-    private Integer resubmissionCount;
-
-    @Schema(description = "Updated variable keys during a resubmit action")
-    private List<String> variableKeys;
 }
 

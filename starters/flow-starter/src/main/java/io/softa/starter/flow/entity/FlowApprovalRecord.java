@@ -81,12 +81,6 @@ public class FlowApprovalRecord extends AuditableModel {
     @Field(label = "Add-Sign Position", description = "Add-sign position when the record represents an add-sign action")
     private AddSignPosition addSignPosition;
 
-    @Field(label = "Target Node ID", length = 100, description = "Target node id")
-    private String targetNodeId;
-
-    @Field(length = 200, description = "Target node label")
-    private String targetNodeLabel;
-
     @Field(length = 2000, description = "Comment")
     private String comment;
 
@@ -101,9 +95,6 @@ public class FlowApprovalRecord extends AuditableModel {
 
     @Field(length = 4000, description = "Actors who had already rejected")
     private List<String> rejectedActors;
-
-    @Field(length = 2000, description = "Updated variable keys")
-    private List<String> variableKeys;
 
     @Field(description = "Recorded time")
     private LocalDateTime eventTime;

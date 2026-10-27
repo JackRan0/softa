@@ -1,59 +1,32 @@
 package io.softa.starter.permission.service;
 
+import java.io.Serializable;
+import java.util.*;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import tools.jackson.databind.JsonNode;
+
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.base.exception.PermissionException;
-import io.softa.framework.orm.domain.CreateAccess;
-import io.softa.framework.orm.domain.AggFunctions;
-import io.softa.framework.orm.domain.FilterUnit;
-import io.softa.framework.orm.domain.FlexQuery;
-import io.softa.framework.orm.domain.Orders;
-import io.softa.framework.orm.domain.Filters;
-import io.softa.framework.orm.domain.Page;
-import io.softa.framework.orm.domain.RecordAccess;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.enums.Operator;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.orm.constant.ModelConstant;
-import io.softa.framework.orm.enums.AccessType;
-import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.enums.FilterType;
-import io.softa.framework.orm.enums.LogicOperator;
-import io.softa.framework.orm.enums.OnDelete;
+import io.softa.framework.orm.domain.*;
+import io.softa.framework.orm.enums.*;
 import io.softa.framework.orm.meta.MetaField;
-import org.apache.commons.lang3.StringUtils;
-
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ImportScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
-import io.softa.starter.permission.spi.PermissionInfo;
-import io.softa.starter.permission.spi.RoleGrant;
-import io.softa.starter.permission.spi.ScopeRule;
-import io.softa.starter.permission.spi.ScopeType;
-import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.index.EndpointIndex;
-import io.softa.starter.permission.scope.IdPath;
-import io.softa.starter.permission.scope.SubtreeFilterRewriter;
-import io.softa.starter.permission.scope.ModelDefaultScopeRegistry;
-import io.softa.starter.permission.scope.ScopeApplicabilityResolver;
-import io.softa.starter.permission.scope.ScopeRuleCompiler;
-import io.softa.starter.permission.spi.PermissionSnapshotProvider;
-import lombok.extern.slf4j.Slf4j;
-import tools.jackson.databind.JsonNode;
-
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.EnumSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.TreeSet;
-import java.util.function.Supplier;
-import java.util.stream.Collectors;
+import io.softa.starter.permission.scope.*;
+import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
+import io.softa.starter.permission.spi.*;
 
 /**
  * Bridges the framework's {@link PermissionService} contract to the
@@ -65,7 +38,7 @@ import java.util.stream.Collectors;
  *       {@code Context.skipPermissionCheck=true}, or when {@code userId}
  *       is null (bootstrap / async / cron paths).</li>
  *   <li>Loads {@link PermissionInfo} via
- *       {@link PermissionInfoEnricher#enrich} (request-scoped + Redis
+ *       PermissionInfoEnricher#enrich (request-scoped + Redis
  *       cached — repeat calls in one request are free).</li>
  *   <li>Super-admin short-circuits every check.</li>
  *   <li>Delegates rule → SQL translation to {@link ScopeRuleCompiler}
@@ -103,7 +76,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     /** The endpoint gate's own index, asked directly by {@link #hasModelActionGrant} for the endpoints
      *  it cannot reach by URL. Resolved through a supplier, not injected directly, and deliberately:
-     *  {@link EndpointIndex#init()} reads the permission table at {@code @PostConstruct}, which needs
+     *  EndpointIndex#init() reads the permission table at {@code @PostConstruct}, which needs
      *  {@code ModelManager} already loaded. Taking the index as a constructor argument made Spring
      *  build it the moment THIS bean is built — before {@code AppStartup} runs {@code ModelManager.init()}
      *  — so the index read an unloaded catalog and came back empty, and every endpoint answered
@@ -698,7 +671,7 @@ public class PermissionServiceImpl implements PermissionService {
      * standing on that owner's row.
      *
      * <p>An anchored child is not lost by answering true: read under the range, a one-to-many child of a
-     * granted model still follows its owner ({@link #followOwner}), so the sub-rows of a row the caller
+     * granted model still follows its owner followOwner, so the sub-rows of a row the caller
      * sees come back, and those of a row they do not, do not.
      *
      * <p>False where the range would add nothing — no bound context, a bypass, full data access — so the
@@ -991,9 +964,7 @@ public class PermissionServiceImpl implements PermissionService {
      * of the caller on top of the one grant being asked about.
      */
     private static <T> T unscoped(Supplier<T> read) {
-        Context ctx = ContextHolder.cloneContext();
-        ctx.setSkipPermissionCheck(true);
-        return ContextHolder.callWith(ctx, read::get);
+        return ContextUtils.withoutPermissionChecks(read);
     }
 
     // ─────────────────────── field mask ───────────────────────

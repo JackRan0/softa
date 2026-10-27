@@ -44,11 +44,8 @@ public final class FlowStatusTransitions {
                 FlowExecutionStatus.RUNNING, FlowExecutionStatus.REJECTED,
                 FlowExecutionStatus.RETURNED, FlowExecutionStatus.WITHDRAWN,
                 FlowExecutionStatus.CANCELLED));
-        // Returned-to-initiator can only be re-opened by a resubmit (back to waiting).
-        ALLOWED.put(FlowExecutionStatus.RETURNED, EnumSet.of(
-                FlowExecutionStatus.WAITING, FlowExecutionStatus.CANCELLED));
-        // REJECTED / WITHDRAWN / CANCELLED / COMPLETED / FAILED are terminal:
-        // no outgoing business transition (a re-opened approval resubmits from RETURNED only).
+        // REJECTED / RETURNED / WITHDRAWN / CANCELLED / COMPLETED / FAILED are terminal: no
+        // outgoing business transition. A returned initiator submits again, as a new instance.
     }
 
     private FlowStatusTransitions() {

@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowApprovalRecord;
@@ -22,6 +23,9 @@ import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
  * {@link FlowApprovalRecordQueryServiceImpl} instead): the runtime's audit reader depends on
  * this ledger, and the instance access guard depends on that reader, so a query method here
  * needing the guard would close a dependency cycle back onto this very bean.
+ * <p>
+ * Both port methods run past the caller's data permissions: the ledger is the engine's bookkeeping,
+ * read by the actor checks and the access guard before either has decided anything about the caller.
  */
 @Service
 public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprovalRecord, Long>
@@ -30,6 +34,10 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void appendNewEntries(FlowExecutionState state) {
+        ContextUtils.withoutPermissionChecks(() -> flush(state));
+    }
+
+    private void flush(FlowExecutionState state) {
         if (state == null || state.getInstanceId() == null) {
             return;
         }
@@ -60,7 +68,8 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
 
     @Override
     public List<ApprovalActionAuditEntry> findByInstanceId(String instanceId) {
-        return this.searchList(new Filters().eq(FlowApprovalRecord::getInstanceId, instanceId)).stream()
+        return ContextUtils.withoutPermissionChecks(
+                () -> this.searchList(new Filters().eq(FlowApprovalRecord::getInstanceId, instanceId))).stream()
                 .sorted(Comparator.comparing(FlowApprovalRecord::getSequence,
                         Comparator.nullsLast(Integer::compareTo)))
                 .map(FlowApprovalRecordServiceImpl::toEntry)
@@ -80,14 +89,11 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
         record.setActorId(entry.getActorId());
         record.setTargetActorId(entry.getTargetActorId());
         record.setAddSignPosition(entry.getAddSignPosition());
-        record.setTargetNodeId(entry.getTargetNodeId());
-        record.setTargetNodeLabel(entry.getTargetNodeLabel());
         record.setComment(entry.getComment());
         record.setStatusBefore(entry.getStatusBefore());
         record.setStatusAfter(entry.getStatusAfter());
         record.setApprovedActors(entry.getApprovedActors());
         record.setRejectedActors(entry.getRejectedActors());
-        record.setVariableKeys(entry.getVariableKeys());
         record.setEventTime(entry.getEventTime());
         return record;
     }
@@ -106,14 +112,11 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
                 .actorId(record.getActorId())
                 .targetActorId(record.getTargetActorId())
                 .addSignPosition(record.getAddSignPosition())
-                .targetNodeId(record.getTargetNodeId())
-                .targetNodeLabel(record.getTargetNodeLabel())
                 .comment(record.getComment())
                 .statusBefore(record.getStatusBefore())
                 .statusAfter(record.getStatusAfter())
                 .approvedActors(record.getApprovedActors())
                 .rejectedActors(record.getRejectedActors())
-                .variableKeys(record.getVariableKeys())
                 .build();
     }
 }

@@ -14,7 +14,7 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
  * Detects an at-least-once REPLAY of a once-only vote (approve / reject) so the engine can return
  * the current state idempotently instead of throwing or double-applying (idempotency
  * via domain state). A replay = the actor already recorded that vote for this node's CURRENT cycle;
- * a fresh action after a return/resubmit (a new cycle) is correctly NOT a replay.
+ * a fresh action on a later cycle of the node is correctly NOT a replay.
  *
  * <p>Application-level on purpose (not a blanket unique on the audit log, which would wrongly forbid
  * legitimately repeatable actions — comment / urge / cc / read). It covers the replay of both an

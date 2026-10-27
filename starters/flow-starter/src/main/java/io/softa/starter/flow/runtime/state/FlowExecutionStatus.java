@@ -28,6 +28,10 @@ public enum FlowExecutionStatus {
      */
     WAITING("Waiting"),
     REJECTED("Rejected"),
+    /**
+     * Returned to the initiator. Ends the instance like a rejection does: the initiator edits and
+     * submits again, which starts a new instance from the beginning.
+     */
     RETURNED("Returned"),
     WITHDRAWN("Withdrawn"),
     /** Externally force-cancelled (distinct from business-level Withdrawn). */
@@ -42,7 +46,7 @@ public enum FlowExecutionStatus {
     /** Terminal states have no outgoing business transition (the flow has ended). */
     public boolean isTerminal() {
         return switch (this) {
-            case REJECTED, WITHDRAWN, CANCELLED, COMPLETED, FAILED -> true;
+            case REJECTED, RETURNED, WITHDRAWN, CANCELLED, COMPLETED, FAILED -> true;
             default -> false;
         };
     }

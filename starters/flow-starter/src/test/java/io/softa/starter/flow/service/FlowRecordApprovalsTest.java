@@ -1,0 +1,280 @@
+package io.softa.starter.flow.service;
+
+import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.domain.SubQueries;
+import io.softa.framework.orm.enums.ConvertType;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.utils.IdUtils;
+import io.softa.starter.flow.compiler.DefaultFlowCompiler;
+import io.softa.starter.flow.design.DesignFlowDefinition;
+import io.softa.starter.flow.design.FlowGraphDocument;
+import io.softa.starter.flow.design.FlowGraphEdge;
+import io.softa.starter.flow.design.FlowGraphNode;
+import io.softa.starter.flow.design.trigger.ApiTrigger;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
+import io.softa.starter.flow.design.trigger.TriggerSource;
+import io.softa.starter.flow.dto.FlowRecordApprovalsView;
+import io.softa.starter.flow.entity.FlowInstance;
+import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
+import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
+import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
+import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
+import io.softa.starter.flow.runtime.spi.ApproverInfo;
+import io.softa.starter.flow.runtime.spi.OrganizationService;
+import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
+import io.softa.starter.flow.runtime.state.ApprovalActionType;
+import io.softa.starter.flow.runtime.state.FlowExecutionState;
+import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
+import io.softa.starter.flow.runtime.state.PendingApproval;
+import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
+import io.softa.starter.flow.service.impl.FlowInstanceServiceImpl;
+import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
+import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
+import io.softa.starter.flow.service.support.FlowUserNames;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+
+/**
+ * A record's approval history and the record as its approvers see it: only the record's approval
+ * flows count, users are named, CC reads and hidden fields stay out, and the history is shown to
+ * readers of the record and to whoever took part.
+ */
+class FlowRecordApprovalsTest {
+
+    private static final String MODEL = "ExpenseClaim";
+    private static final String ROW = "7";
+
+    private final StubFlowBundleRegistry bundleRegistry = new StubFlowBundleRegistry();
+    private final FlowPublishServiceImpl publishService = new FlowPublishServiceImpl(new DefaultFlowCompiler(), bundleRegistry);
+    private final ApprovalActionLedger ledger = mock(ApprovalActionLedger.class);
+    private final OrganizationService organization = mock(OrganizationService.class);
+    @SuppressWarnings("unchecked")
+    private final ModelService<Serializable> modelService = mock(ModelService.class);
+    private final FlowInstanceServiceImpl service = spy(new FlowInstanceServiceImpl());
+    private final List<FlowInstance> instances = new ArrayList<>();
+    private MockedStatic<ModelManager> modelManager;
+    private MockedStatic<IdUtils> idUtils;
+
+    @BeforeEach
+    @SuppressWarnings("unchecked")
+    void setUp() {
+        ObjectProvider<OrganizationService> organizationProvider = mock(ObjectProvider.class);
+        when(organizationProvider.getIfAvailable()).thenReturn(organization);
+        ReflectionTestUtils.setField(service, "bundleRegistry", bundleRegistry);
+        ReflectionTestUtils.setField(service, "approvalLedger", ledger);
+        ReflectionTestUtils.setField(service, "userNames", new FlowUserNames(organizationProvider, modelService));
+        ReflectionTestUtils.setField(service, "modelService", modelService);
+        doReturn(instances).when(service).findByModelNameAndRowId(MODEL, ROW);
+        modelManager = mockStatic(ModelManager.class);
+        modelManager.when(() -> ModelManager.existModel(MODEL)).thenReturn(true);
+        idUtils = mockStatic(IdUtils.class);
+        idUtils.when(() -> IdUtils.formatId(anyString(), any(Serializable.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+    }
+
+    @AfterEach
+    void tearDown() {
+        modelManager.close();
+        idUtils.close();
+    }
+
+    @Test
+    void historyListsTheRecordsApprovalInstancesNewestFirstWithNamedUsers() {
+        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+        CompiledFlowDefinition automation = publishService.publish("audit", flow("Audit", new ApiTrigger(null), Map.of()));
+        instance("old", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
+        PendingApproval waiting = PendingApproval.builder().nodeId("approval").nodeLabel("Manager")
+                .approvers(List.of("2001", "2002")).approvedActors(new ArrayList<>(List.of("2001")))
+                .rejectedActors(new ArrayList<>()).build();
+        instance("new", approval, true, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 20, 9, 0), waiting);
+        instance("other", automation, false, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 21, 9, 0), null);
+        // A debug run of the approval flow on the record: not its approval either.
+        instance("debug", approval, false, FlowExecutionStatus.WAITING, LocalDateTime.of(2026, 10, 22, 9, 0), null);
+        when(ledger.findByInstanceId("new")).thenReturn(List.of(
+                entry(ApprovalActionType.APPROVE, "2001", null, "ok"),
+                entry(ApprovalActionType.READ, "3001", null, null),
+                entry(ApprovalActionType.TRANSFER, "2001", "2003", "please take over")));
+        when(ledger.findByInstanceId("old")).thenReturn(List.of(entry(ApprovalActionType.REJECT, "2001", null, "no")));
+        when(organization.getUsersByIds(anyList())).thenReturn(List.of(
+                new ApproverInfo(1001L, "Alice"), new ApproverInfo(2001L, "Bob"), new ApproverInfo(2002L, "Carol")));
+
+        FlowRecordApprovalsView history = service.recordApprovals(MODEL, ROW, view -> {});
+
+        assertEquals(List.of("new", "old"),
+                history.getInstances().stream().map(FlowRecordApprovalsView.Instance::getInstanceId).toList());
+        FlowRecordApprovalsView.Instance latest = history.getInstances().getFirst();
+        assertEquals("Claims", latest.getFlowName());
+        assertEquals(new FlowRecordApprovalsView.Actor("1001", "Alice"), latest.getInitiator());
+        assertEquals(List.of(new FlowRecordApprovalsView.Actor("2002", "Carol")),
+                latest.getPending().getFirst().getApprovers());
+        assertEquals(List.of(ApprovalActionType.APPROVE, ApprovalActionType.TRANSFER),
+                latest.getActions().stream().map(FlowRecordApprovalsView.Action::getAction).toList());
+        assertEquals(new FlowRecordApprovalsView.Actor("2003", null), latest.getActions().get(1).getTarget());
+        assertTrue(history.getInstances().get(1).getPending().isEmpty());
+    }
+
+    @Test
+    void usersAreNamedOnlyOnceTheCallerMaySeeTheHistory() {
+        CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+        instance("i1", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
+
+        assertThrows(FlowAuthorizationException.class, () -> service.recordApprovals(MODEL, ROW, view -> {
+            throw new FlowAuthorizationException("no");
+        }));
+        verify(organization, never()).getUsersByIds(anyList());
+    }
+
+    @Test
+    void theRecordShowsOnlyTheFieldsItsWaitingStepLists() {
+        CompiledFlowDefinition approval = publishService.publish("claims",
+                flow("Claims", new SubmitTrigger(MODEL, null), Map.of("bankAccount", "Hidden", "amount", "Editable")));
+        when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE))).thenReturn(Optional.of(
+                new LinkedHashMap<>(Map.of("id", 7L, "amount", 120, "bankAccount", "DE89 3704", "note", "lunch"))));
+        FlowExecutionState state = waitingAt(approval);
+
+        Map<String, Object> record = service.recordOf(state).orElseThrow();
+
+        // Hidden is left out, and so is a field the step does not list at all.
+        assertEquals(Map.of("id", 7L, "amount", 120), record);
+    }
+
+    @Test
+    void aStepThatListsNoFieldsShowsThemAll() {
+        CompiledFlowDefinition approval = publishService.publish("claims",
+                flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+        Map<String, Object> stored = Map.of("id", 7L, "amount", 120, "note", "lunch");
+        when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE)))
+                .thenReturn(Optional.of(new LinkedHashMap<>(stored)));
+
+        assertEquals(stored, service.recordOf(waitingAt(approval)).orElseThrow());
+    }
+
+    private FlowExecutionState waitingAt(CompiledFlowDefinition approval) {
+        return FlowExecutionState.builder()
+                .instanceId("i1").bundleId(approval.getBundleId()).modelName(MODEL).rowId(ROW)
+                .status(FlowExecutionStatus.WAITING)
+                .pendingApprovals(List.of(PendingApproval.builder().nodeId("approval").build()))
+                .build();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void theRecordComesWithItsChildRowsInFullAndItsManyToManyAsReferences() {
+        CompiledFlowDefinition approval = publishService.publish("claims",
+                flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+        List<MetaField> modelFields = List.of(field("amount", FieldType.BIG_DECIMAL),
+                field("lines", FieldType.ONE_TO_MANY), field("tags", FieldType.MANY_TO_MANY));
+        modelManager.when(() -> ModelManager.getModelStoredFields(MODEL)).thenReturn(List.of("id", "amount"));
+        modelManager.when(() -> ModelManager.getModelFields(MODEL)).thenReturn(modelFields);
+        when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE)))
+                .thenReturn(Optional.of(Map.of("id", 7L)));
+        FlowExecutionState state = FlowExecutionState.builder()
+                .instanceId("i1").bundleId(approval.getBundleId()).modelName(MODEL).rowId(ROW)
+                .status(FlowExecutionStatus.COMPLETED).build();
+
+        service.recordOf(state).orElseThrow();
+
+        ArgumentCaptor<List<String>> fields = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<SubQueries> subQueries = ArgumentCaptor.forClass(SubQueries.class);
+        verify(modelService).getById(eq(MODEL), any(), fields.capture(), subQueries.capture(), eq(ConvertType.REFERENCE));
+        assertEquals(List.of("id", "amount", "lines", "tags"), fields.getValue());
+        assertTrue(subQueries.getValue().contains("lines"));
+        assertFalse(subQueries.getValue().contains("tags"));
+    }
+
+    private static MetaField field(String name, FieldType type) {
+        MetaField field = mock(MetaField.class);
+        when(field.getFieldName()).thenReturn(name);
+        when(field.getFieldType()).thenReturn(type);
+        return field;
+    }
+
+    @Test
+    void theHistoryIsShownToParticipantsAndReadersOnly() {
+        FlowInstanceAccessGuard guard = new FlowInstanceAccessGuard(service,
+                new ApprovalAuditReader(new NoopApprovalActionLedger()), modelService);
+        FlowRecordApprovalsView history = new FlowRecordApprovalsView(List.of(FlowRecordApprovalsView.Instance.builder()
+                .instanceId("i1")
+                .initiator(new FlowRecordApprovalsView.Actor("1001", "Alice"))
+                .pending(List.of())
+                .actions(List.of(FlowRecordApprovalsView.Action.builder()
+                        .action(ApprovalActionType.APPROVE).actor(new FlowRecordApprovalsView.Actor("2001", "Bob")).build()))
+                .build()));
+        when(modelService.getById(eq(MODEL), any(), anyList())).thenReturn(Optional.empty());
+
+        assertDoesNotThrow(() -> guard.requireRecordViewer(MODEL, ROW, history, "1001"));
+        assertDoesNotThrow(() -> guard.requireRecordViewer(MODEL, ROW, history, "2001"));
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordViewer(MODEL, ROW, history, "9999"));
+
+        when(modelService.getById(eq(MODEL), any(), anyList())).thenReturn(Optional.of(Map.of("id", 7L)));
+        assertDoesNotThrow(() -> guard.requireRecordViewer(MODEL, ROW, history, "9999"));
+    }
+
+    private void instance(String instanceId, CompiledFlowDefinition flow, boolean recordApproval,
+                          FlowExecutionStatus status, LocalDateTime createdTime, PendingApproval pending) {
+        FlowInstance instance = new FlowInstance();
+        instance.setInstanceId(instanceId);
+        instance.setBundleId(flow.getBundleId());
+        instance.setFlowId(flow.getFlowId());
+        instance.setRecordApproval(recordApproval);
+        instance.setStatus(status);
+        instance.setInitiatorId("1001");
+        instance.setModelName(MODEL);
+        instance.setRowId(ROW);
+        instance.setCreatedTime(createdTime);
+        instance.setPendingApprovals(JsonUtils.objectToString(pending == null ? List.of() : List.of(pending)));
+        instances.add(instance);
+    }
+
+    private static ApprovalActionAuditEntry entry(ApprovalActionType action, String actorId, String targetActorId,
+                                                  String comment) {
+        return ApprovalActionAuditEntry.builder()
+                .action(action).actorId(actorId).targetActorId(targetActorId).comment(comment)
+                .nodeLabel("Manager").build();
+    }
+
+    private static DesignFlowDefinition flow(String name, TriggerSource trigger, Map<String, String> formPermissions) {
+        return DesignFlowDefinition.builder()
+                .name(name)
+                .scenario(FlowScenario.PROCESS)
+                .trigger(trigger)
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
+                                FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("Manager")
+                                        .config(Map.of("approvers", List.of("2001"), "formPermissions", formPermissions))
+                                        .build(),
+                                FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
+                        .edges(List.of(
+                                FlowGraphEdge.builder().id("e1").source("start").target("approval").build(),
+                                FlowGraphEdge.builder().id("e2").source("approval").target("end").build()))
+                        .build())
+                .build();
+    }
+}

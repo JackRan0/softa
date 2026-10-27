@@ -22,4 +22,5 @@ public sealed interface FlowNotificationEvent {
     record FlowCompleted(FlowExecutionState state, boolean approved) implements FlowNotificationEvent {}
     record Urged(FlowExecutionState state, List<String> pendingActorIds, String urgerId, String message) implements FlowNotificationEvent {}
     record CcSent(FlowExecutionState state, String nodeId, List<String> recipientActorIds, String message) implements FlowNotificationEvent {}
+    record Returned(FlowExecutionState state, PendingApproval pendingApproval, String actorId, String comment) implements FlowNotificationEvent {}
 }

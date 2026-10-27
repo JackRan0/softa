@@ -49,9 +49,16 @@ class FlowStatusTransitionsTest {
     }
 
     @Test
-    void resumeAndResubmitPaths() {
+    void resumePaths() {
         assertTrue(FlowStatusTransitions.isAllowed(WAITING, RUNNING));  // timer / async / approve resume
-        assertTrue(FlowStatusTransitions.isAllowed(RETURNED, WAITING)); // resubmit
+    }
+
+    @Test
+    void aReturnEndsTheInstance() {
+        // The initiator edits and submits again, which starts a new instance.
+        assertTrue(RETURNED.isTerminal());
+        assertFalse(FlowStatusTransitions.isAllowed(RETURNED, WAITING));
+        assertFalse(FlowStatusTransitions.isAllowed(RETURNED, RUNNING));
     }
 
     @Test

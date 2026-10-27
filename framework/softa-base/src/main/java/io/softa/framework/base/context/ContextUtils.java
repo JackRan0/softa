@@ -4,16 +4,18 @@ import java.util.function.Supplier;
 
 /**
  * Helpers to run privileged work under a synthetic {@link Context}. The caller's own context is
- * either the wrong tenant or lacks the skip-permission flag, so these run the action under a fresh,
- * elevated context and restore the previous one on exit (via {@link ContextHolder#callWith}). Both
- * switches set {@code skipPermissionCheck} — they are for trusted, system-level orchestration
- * (provisioning, seeding), not for request-scoped business logic.
+ * either the wrong tenant or lacks the skip-permission flag, so these run the action under an
+ * elevated copy of it and restore the previous one on exit (via {@link ContextHolder#callWith}).
+ * All three set {@code skipPermissionCheck}.
  *
  * <ul>
  *   <li>{@link #inSystemContext} — cross-tenant + permission-skipped: for shared / registry writes
  *       that are not scoped to a single tenant.</li>
  *   <li>{@link #inTenantContext} — pinned to one tenant, {@code crossTenant=false},
  *       permission-skipped: for privileged work that must stay inside one tenant's isolation.</li>
+ *   <li>{@link #withoutPermissionChecks} — the caller's own tenant and identity, permission-skipped:
+ *       for the reads and writes a service makes on the caller's behalf after authorizing the action
+ *       itself (an approval writing its result back, approvers looked up outside the caller's scope).</li>
  * </ul>
  */
 public final class ContextUtils {
@@ -72,6 +74,25 @@ public final class ContextUtils {
     /** Void overload of {@link #inTenantContext(Long, Supplier)}. */
     public static void inTenantContext(Long tenantId, Runnable action) {
         inTenantContext(tenantId, () -> {
+            action.run();
+            return null;
+        });
+    }
+
+    /**
+     * Run on a copy of the caller's context with permission checks skipped: tenant, user and
+     * employee stay as they are; row scope and field checks are set aside. For work a service does on
+     * the caller's behalf once it has authorized the action itself.
+     */
+    public static <T> T withoutPermissionChecks(Supplier<T> action) {
+        Context ctx = ContextHolder.cloneContext();
+        ctx.setSkipPermissionCheck(true);
+        return ContextHolder.callWith(ctx, action::get);
+    }
+
+    /** Void overload of {@link #withoutPermissionChecks(Supplier)}. */
+    public static void withoutPermissionChecks(Runnable action) {
+        withoutPermissionChecks(() -> {
             action.run();
             return null;
         });

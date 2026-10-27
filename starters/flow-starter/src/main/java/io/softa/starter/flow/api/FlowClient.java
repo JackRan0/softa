@@ -5,9 +5,11 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.softa.starter.flow.design.FlowNodeDescriptor;
+import io.softa.starter.flow.dto.FlowApprovalPreview;
 import io.softa.starter.flow.dto.FlowApprovalRecordView;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
 import io.softa.starter.flow.dto.FlowInboxView;
+import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.dto.FlowSentCcView;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.enums.FormFieldPermission;
@@ -23,8 +25,9 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
  * are NEVER call parameters — they are resolved server-side from the context.
  * <p>
  * This is NOT a remote contract: in a microservice topology, actions go to the engine's
- * {@code FlowRuntimeController} REST API and flow-data queries go through the framework model
- * RPC — a linking application neither implements nor proxies {@code FlowClient}.
+ * {@code FlowInstanceController} REST API ({@code /flow/instances}) and flow-data queries go
+ * through the framework model RPC — a linking application neither implements nor proxies
+ * {@code FlowClient}.
  */
 public interface FlowClient {
 
@@ -34,12 +37,47 @@ public interface FlowClient {
     FlowExecutionState publishAndStart(PublishAndStartRequest request);
 
     /**
+     * Submits a business record for approval as the current user: the record's
+     * {@code ModelApprovalHandler} checks it, the flow is chosen by the flows' submit triggers, and
+     * a new approval starts from the beginning — after a return too. Joins the caller's
+     * transaction — call it from the business module's own submit endpoint.
+     */
+    FlowExecutionState submitRecord(String modelName, String rowId);
+
+    /**
+     * What submitting the record as the current user would do now, without submitting it — the same
+     * answer as {@code GET /flow/instances/preview}, under the same check: the current user can read
+     * the record with their own permissions. Nothing is started or written. A refusal by the
+     * handler's {@code prepare} is reported rather than thrown, so call it outside a transaction: a
+     * refusal thrown through a transactional method marks the transaction it joins rollback-only.
+     */
+    FlowApprovalPreview previewRecord(String modelName, String rowId);
+
+    /**
+     * Withdraws the record from approval as the current user, its submitter — or, when its approval
+     * failed, takes the record back. Refused when the record has no approval in progress. Joins the
+     * caller's transaction.
+     */
+    FlowExecutionState withdrawRecord(String modelName, String rowId, String comment);
+
+    /**
+     * The record's approval history — its approval instances newest first, with steps, approvers
+     * and actions, every user named — the same answer as {@code GET /flow/instances/by-record},
+     * under the same check: the current user can read the record or took part in its approvals.
+     */
+    FlowRecordApprovalsView recordApprovals(String modelName, String rowId);
+
+    /**
      * Current state of an instance, viewer-checked: the resolved current user must be the
      * initiator or a participant — the same authorization the REST detail endpoints apply.
      * Trace history is not hydrated.
      */
     Optional<FlowExecutionState> getInstance(String instanceId);
 
+    /**
+     * The current user's own instances, newest first: the first page (up to 50) of the summary
+     * search behind {@code POST /flow/instances/search}, filtered by the query's flow and status.
+     */
     List<FlowInstanceView> myInstances(MineQuery query);
 
     // approval actions (1:1 with FlowRuntimeEngine)
@@ -63,8 +101,6 @@ public interface FlowClient {
 
     FlowExecutionState returnApproval(FlowReturnRequest request);
 
-    FlowExecutionState resubmit(FlowResubmitRequest request);
-
     FlowExecutionState withdraw(FlowWithdrawRequest request);
 
     FlowExecutionState urge(FlowUrgeRequest request);
@@ -72,6 +108,10 @@ public interface FlowClient {
     FlowExecutionState addComment(FlowCommentRequest request);
 
     // form / field-permission
+    /**
+     * Field-level form permissions of one approval node, viewer-checked like
+     * {@link #getInstance}. Empty when the instance, its bundle or the node cannot be found.
+     */
     Map<String, FormFieldPermission> getFormPermissions(String instanceId, String nodeId);
 
     // async / timer resume (engine-internal callers; exposed for custom TaskExecutors)

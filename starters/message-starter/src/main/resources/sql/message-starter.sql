@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS inbox_notification
     content           TEXT                  COMMENT 'Notification body content',
     notification_type VARCHAR(20)  NOT NULL DEFAULT 'System' COMMENT 'System / Workflow / Manual',
     source_model      VARCHAR(50)           COMMENT 'Originating metadata model name (matches sys_model.model_name), e.g. FlowInstance (nullable)',
-    source_id         BIGINT                COMMENT 'Originating object ID (nullable)',
+    source_id         VARCHAR(64)           COMMENT 'Originating object ID as text, e.g. a FlowInstance runtime instance id (nullable)',
     is_read           TINYINT(1)   DEFAULT 0 COMMENT 'Whether the recipient has read this notification',
     read_at           DATETIME              COMMENT 'Timestamp when the notification was read',
     expired_at        DATETIME              COMMENT 'Optional expiry time',

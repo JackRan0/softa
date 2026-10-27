@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -28,13 +29,24 @@ public class FlowGatewayRouter {
                                            CompiledFlowNode node,
                                            FlowVariableContext ctx) {
         Map<String, Object> scope = ctx.toExpressionScope();
+        return resolveNextNodeIds(definition, node,
+                expression -> ComputeUtils.executeBoolean(expression, new LinkedHashMap<>(scope)));
+    }
+
+    /**
+     * The same routing with each edge condition decided by {@code condition}: the engine evaluates it
+     * over the instance's variables, the approval path preview over what is known before submission.
+     */
+    public List<String> resolveNextNodeIds(CompiledFlowDefinition definition,
+                                           CompiledFlowNode node,
+                                           Predicate<String> condition) {
         if (FlowNodeType.PARALLEL_FORK.equals(node.getType())) {
             return resolveAllNextNodeIds(definition, node);
         }
         if (FlowNodeType.INCLUSIVE_GATEWAY.equals(node.getType())) {
-            return resolveInclusiveGatewayNextNodeIds(definition, node, scope);
+            return resolveInclusiveGatewayNextNodeIds(definition, node, condition);
         }
-        return resolveExclusiveEdgeNextNodeIds(definition, node, scope);
+        return resolveExclusiveEdgeNextNodeIds(definition, node, condition);
     }
 
     private List<String> resolveAllNextNodeIds(CompiledFlowDefinition definition,
@@ -51,7 +63,7 @@ public class FlowGatewayRouter {
 
     private List<String> resolveExclusiveEdgeNextNodeIds(CompiledFlowDefinition definition,
                                                          CompiledFlowNode node,
-                                                         Map<String, Object> scope) {
+                                                         Predicate<String> condition) {
         List<CompiledFlowTransition> matches = new ArrayList<>();
         CompiledFlowTransition defaultTransition = null;
         for (String edgeId : node.getOutgoingEdgeIds()) {
@@ -67,7 +79,7 @@ public class FlowGatewayRouter {
                 defaultTransition = transition;
                 continue;
             }
-            if (ComputeUtils.executeBoolean(transition.getConditionExpression(), new LinkedHashMap<>(scope))) {
+            if (condition.test(transition.getConditionExpression())) {
                 matches.add(transition);
             }
         }
@@ -91,7 +103,7 @@ public class FlowGatewayRouter {
 
     private List<String> resolveInclusiveGatewayNextNodeIds(CompiledFlowDefinition definition,
                                                             CompiledFlowNode node,
-                                                            Map<String, Object> scope) {
+                                                            Predicate<String> condition) {
         List<String> matched = new ArrayList<>();
         for (String edgeId : node.getOutgoingEdgeIds()) {
             CompiledFlowTransition transition = definition.getTransitionIndex().get(edgeId);
@@ -99,7 +111,7 @@ public class FlowGatewayRouter {
                 continue;
             }
             if (!StringUtils.hasText(transition.getConditionExpression())
-                    || ComputeUtils.executeBoolean(transition.getConditionExpression(), new LinkedHashMap<>(scope))) {
+                    || condition.test(transition.getConditionExpression())) {
                 matched.add(transition.getTarget());
             }
         }

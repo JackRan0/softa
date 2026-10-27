@@ -6,10 +6,8 @@ import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 
 /**
- * No-op default that logs each event with its key fields. Useful for tests
- * and demos; production deployments should provide a real implementation
- * that routes to {@code message-starter} (see {@link ApprovalNotificationService}).
- * Registered via {@code FlowAutoConfiguration} as a {@code @ConditionalOnMissingBean} default.
+ * Log-only implementation that records each event with its key fields — for tests and demos. The
+ * registered default is {@link InboxApprovalNotificationService}.
  */
 @Slf4j
 public class DefaultApprovalNotificationService implements ApprovalNotificationService {
@@ -32,6 +30,8 @@ public class DefaultApprovalNotificationService implements ApprovalNotificationS
                     + ", recipients=" + e.pendingActorIds();
             case FlowNotificationEvent.CcSent          e -> "CC sent: node=" + e.nodeId()
                     + ", recipients=" + e.recipientActorIds();
+            case FlowNotificationEvent.Returned        e -> "returned to initiator: node=" + e.pendingApproval().getNodeId()
+                    + ", by=" + e.actorId();
         };
         log.info("[Notification] instance={}, {}",
                 event.state() == null ? null : event.state().getInstanceId(),

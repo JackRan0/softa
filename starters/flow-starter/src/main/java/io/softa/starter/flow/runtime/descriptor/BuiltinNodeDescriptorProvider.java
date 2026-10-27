@@ -103,9 +103,16 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                                 "fields", ordered("level", ordered("type", "number", "label", "Level", "default", 1, "min", 1))),
                         ordered("type", "DeptLeader", "label", "Department leader",
                                 "fields", ordered("deptId", ordered("type", "deptPicker", "label", "Department (blank = initiator's)"))),
+                        ordered("type", "DeptHrbp", "label", "Department HRBP",
+                                "fields", ordered("deptId", ordered("type", "deptPicker", "label", "Department (blank = initiator's)"))),
                         ordered("type", "RoleQuery", "label", "Role query",
                                 "fields", ordered(
-                                        "roleIds", ordered("type", "rolePicker", "label", "Roles", "multiple", true, "required", true),
+                                        // Either list, or both. Ids reach every role, the tenant's own included; codes reach
+                                        // the built-in roles (admin-created ones have none) and are the same in every tenant,
+                                        // so a flow seeded to many tenants names roles by code.
+                                        "roleIds", ordered("type", "rolePicker", "label", "Roles", "multiple", true),
+                                        "roleCodes", ordered("type", "rolePicker", "label", "Built-in roles", "multiple", true,
+                                                "valueField", "code"),
                                         "deptScope", ordered("type", "enum", "label", "Department scope",
                                                 "options", List.of("ALL", "INITIATOR_DEPT", "SPECIFIC_DEPT"), "default", "ALL"),
                                         "deptId", ordered("type", "deptPicker", "label", "Department",
@@ -133,13 +140,8 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
         schema.put("rejectPercentage", ordered("type", "number", "label", "Rejection percentage (0-100)", "depends", Map.of("rejectMode", "PERCENTAGE")));
         // ── Timeout ──────────────────────────────────────────────────────────
         schema.put("timeout", ordered("type", "approvalTimeout", "label", "Timeout configuration"));
-        // ── Return policy ────────────────────────────────────────────────────
-        schema.put("returnEnabled",      ordered("type", "boolean", "label", "Allow return"));
-        schema.put("returnTarget",       ordered("type", "enum", "label", "Return target",
-                "options", List.of("INITIATOR", "PREVIOUS_APPROVAL", "SPECIFIC_NODE"),
-                "depends", Map.of("returnEnabled", true)));
-        schema.put("returnTargetNodeId", ordered("type", "nodeId", "label", "Target node",
-                "depends", Map.of("returnTarget", "SPECIFIC_NODE")));
+        // ── Return policy: a return goes to the initiator and ends the instance ──
+        schema.put("returnEnabled",      ordered("type", "boolean", "label", "Allow return to initiator"));
         // ── Form field permissions ────────────────────────────────────────────
         schema.put("formPermissions", ordered("type", "fieldPermissionMap", "label", "Field permissions"));
         return schema;

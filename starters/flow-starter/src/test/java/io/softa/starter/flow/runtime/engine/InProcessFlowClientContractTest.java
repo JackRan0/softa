@@ -34,8 +34,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * In-process {@code FlowClient} contract: start → pending → approve through the
  * {@link InProcessFlowClient} port. Proves the port delegates to the engine AND resolves the
  * actor from {@link ContextHolder} — the approve carries no {@code actorId}, so it can only
- * succeed because {@code me()} ("100") matches the node's approver. Only the {@code engine}
- * delegate is exercised here, so the other bean dependencies are left null.
+ * succeed because {@code FlowActors.currentUserId()} ("100") matches the node's approver.
+ * Only the {@code engine} delegate is exercised here, so the other bean dependencies are left
+ * null.
  */
 class InProcessFlowClientContractTest {
 

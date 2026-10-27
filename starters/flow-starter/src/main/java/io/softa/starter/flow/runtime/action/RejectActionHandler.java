@@ -91,7 +91,6 @@ public class RejectActionHandler implements FlowActionHandler<FlowRejectRequest>
         }
 
         state.getPendingApprovals().clear();
-        state.setReturnedApproval(null);
         FlowStatusTransitions.apply(state, FlowExecutionStatus.REJECTED);
         contextService.mergeVariables(state, Map.of("approvalDecision", auditService.buildApprovalDecisionPayload("Rejected", request)));
         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_REJECTED,

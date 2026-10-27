@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowDelegation;
+import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.service.FlowDelegationService;
 
 /**
@@ -64,11 +65,13 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     }
 
     @Override
-    public void cancelDelegation(Long delegationId) {
-        this.getById(delegationId).ifPresent(d -> {
-            d.setActive(false);
-            this.updateOne(d, false);
-        });
+    public void cancelDelegation(Long delegationId, String requesterId) {
+        FlowDelegation delegation = this.getById(delegationId)
+                .filter(d -> requesterId != null && requesterId.equals(d.getDelegatorId()))
+                .orElseThrow(() -> new FlowAuthorizationException(
+                        "You have no delegation " + delegationId + " to cancel"));
+        delegation.setActive(false);
+        this.updateOne(delegation, false);
     }
 
     @Override

@@ -87,8 +87,9 @@ CREATE TABLE IF NOT EXISTS flow_instance
     model_name              VARCHAR(100)          COMMENT 'Related model name',
     row_id                  VARCHAR(64)           COMMENT 'Related row data ID',
     initiator_id            VARCHAR(64)           COMMENT 'Flow initiator id',
+    record_approval         TINYINT(1)            COMMENT 'Whether the instance is its record''s approval (started by submitting the record)',
+    open_record_id          VARCHAR(64)           COMMENT 'Record id while this record approval is unfinished; unique with the model per tenant',
     status                  VARCHAR(30)  NOT NULL COMMENT 'Execution status',
-    resubmission_count      INT          DEFAULT 0 COMMENT 'Resubmission count after return',
     error_message           TEXT                  COMMENT 'Error message when execution fails',
     failed_node_id          VARCHAR(100)          COMMENT 'Node where execution failed',
     input_payload           LONGTEXT              COMMENT 'Immutable trigger payload (JSON)',
@@ -97,7 +98,6 @@ CREATE TABLE IF NOT EXISTS flow_instance
     next_fire_at            DATETIME              COMMENT 'Earliest timer-wait due time (denormalized from wait_tokens for the sweep index)',
     completed_node_ids      LONGTEXT              COMMENT 'Completed node ids (JSON array)',
     pending_approvals       LONGTEXT              COMMENT 'Pending approvals (JSON array)',
-    returned_approval       LONGTEXT              COMMENT 'Returned approval context (JSON)',
     join_arrival_counts     LONGTEXT              COMMENT 'Parallel join arrival counts (JSON map)',
     return_data             LONGTEXT              COMMENT 'Return data from ReturnData nodes (JSON)',
     created_time            DATETIME              COMMENT 'Created time',
@@ -110,7 +110,8 @@ CREATE TABLE IF NOT EXISTS flow_instance
     INDEX idx_tenant_flow_status (tenant_id, flow_id, status),
     INDEX idx_tenant_status_fire (tenant_id, status, next_fire_at),
     INDEX idx_tenant_initiator_status (tenant_id, initiator_id, status),
-    INDEX idx_tenant_model_row (tenant_id, model_name, row_id)
+    INDEX idx_tenant_model_row (tenant_id, model_name, row_id),
+    UNIQUE INDEX uk_flow_instance_open_record (tenant_id, model_name, open_record_id)
 ) COMMENT = 'Runtime flow execution instance';
 
 -- ------------------------------------------------------------
@@ -205,14 +206,11 @@ CREATE TABLE IF NOT EXISTS flow_approval_record
     actor_id          VARCHAR(64)           COMMENT 'Operator actor id',
     target_actor_id   VARCHAR(64)           COMMENT 'Target actor id',
     add_sign_position VARCHAR(30)           COMMENT 'Add-sign position',
-    target_node_id    VARCHAR(100)          COMMENT 'Target node id',
-    target_node_label VARCHAR(200)          COMMENT 'Target node label',
     comment           TEXT                  COMMENT 'Comment',
     status_before     VARCHAR(30)           COMMENT 'Status before action',
     status_after      VARCHAR(30)           COMMENT 'Status after action',
     approved_actors   TEXT                  COMMENT 'Actors who had already approved (JSON array)',
     rejected_actors   TEXT                  COMMENT 'Actors who had already rejected (JSON array)',
-    variable_keys     TEXT                  COMMENT 'Updated variable keys (JSON array)',
     event_time        DATETIME              COMMENT 'Recorded time',
     created_time      DATETIME              COMMENT 'Created time',
     updated_time      DATETIME              COMMENT 'Updated time',

@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.flow.entity.FlowEvent;
 import io.softa.starter.flow.enums.FlowScenario;
@@ -20,6 +21,7 @@ import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.api.FlowValidationRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.service.FlowEventService;
 import io.softa.starter.flow.service.FlowInstanceService;
@@ -36,6 +38,9 @@ import io.softa.starter.flow.service.FlowInstanceService;
 @Slf4j
 @Service
 public class FlowAutomationService {
+
+    /** Trigger type of {@code SubmitTrigger}: started per record, never fired as an event. */
+    public static final String SUBMIT_TRIGGER_TYPE = "Submit";
 
     private final DefaultFlowTriggerRegistry triggerRegistry;
     private final FlowRuntimeEngine runtimeEngine;
@@ -90,8 +95,16 @@ public class FlowAutomationService {
 
     /**
      * Fire a trigger event. All matching flows will be started synchronously.
+     * <p>
+     * Refuses the {@code Submit} type: a submit-triggered flow is chosen for one record and
+     * started by {@code FlowLaunchService.submitRecord}, which runs the business checks and the
+     * record's callbacks — firing it from here would start the approval without either.
      */
     public List<FlowTriggerResult> fire(FlowTriggerEvent event) {
+        if (SUBMIT_TRIGGER_TYPE.equals(event.getType())) {
+            throw new FlowActionValidationException(
+                    "Submit triggers start only through record submission, not as a trigger event");
+        }
         return dispatch(event, null, definition -> startFlow(definition, event), "fire");
     }
 
@@ -340,13 +353,14 @@ public class FlowAutomationService {
      * The currently-active instance for a business row + flow, or {@code null}. "Active" = not in a
      * terminal status, so a re-submitted row (whose prior instance is terminal) can legitimately start
      * a new one. Returns null when no {@link FlowInstanceService} is wired or the event carries no
-     * business row (modelName / rowId).
+     * business row (modelName / rowId). Read past the caller's data permissions: whether a run is
+     * already open must not depend on whose write fired the trigger.
      */
     FlowExecutionState findActiveInstanceState(String flowId, String model, String rowId) {
         if (instanceService == null || model == null || model.isBlank() || rowId == null || rowId.isBlank()) {
             return null;
         }
-        return instanceService.findByModelNameAndRowId(model, rowId).stream()
+        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByModelNameAndRowId(model, rowId)).stream()
                 .filter(i -> flowId != null && flowId.equals(i.getFlowId()))
                 .filter(i -> i.getStatus() != null && !i.getStatus().isTerminal())
                 .findFirst()

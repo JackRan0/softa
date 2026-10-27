@@ -51,6 +51,10 @@ public class FlowExecutionState {
     @Schema(description = "Flow initiator id")
     private String initiatorId;
 
+    @Schema(description = "Whether the instance is the approval of its record: started by submitting the record, "
+            + "so its result is written back to it. Other instances running on a record are automation or debug runs")
+    private Boolean recordApproval;
+
     @Schema(description = "Execution status")
     private FlowExecutionStatus status;
 
@@ -68,9 +72,6 @@ public class FlowExecutionState {
 
     @Schema(description = "Pending approvals")
     private List<PendingApproval> pendingApprovals;
-
-    @Schema(description = "Returned approval that can be resubmitted by the initiator")
-    private ReturnedApprovalContext returnedApproval;
 
     /**
      * Approval audit delta of the CURRENT attempt only. The authoritative history lives in
@@ -100,9 +101,6 @@ public class FlowExecutionState {
     @Schema(hidden = true)
     @Builder.Default
     private int auditSequenceBase = 0;
-
-    @Schema(description = "How many times the instance has been resubmitted after return")
-    private Integer resubmissionCount;
 
     @Schema(description = "Parallel join arrival counts")
     private Map<String, Integer> joinArrivalCounts;
@@ -188,6 +186,12 @@ public class FlowExecutionState {
                 .map(FlowWaitToken::getDueAt)
                 .min(LocalDateTime::compareTo)
                 .orElse(null);
+    }
+
+    /** Whether this instance is its record's approval (see {@link #recordApproval}). */
+    @JsonIgnore
+    public boolean isApprovalOfRecord() {
+        return Boolean.TRUE.equals(recordApproval);
     }
 
     /** TIMER waits whose due time is at or before {@code cutoff}. */

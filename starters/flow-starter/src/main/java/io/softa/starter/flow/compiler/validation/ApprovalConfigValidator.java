@@ -13,13 +13,8 @@ import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
 
 /**
- * Validates approval node configs: mode parsing, approver constraints,
- * deadlock detection, return-policy rules, and SPECIFIC_NODE target validation.
- *
- * <p>Return policy is now read exclusively from {@link ApprovalNodeConfig} (inside the
- * {@code config} map), using {@code returnEnabled}, {@code returnTarget}, and
- * {@code returnTargetNodeId}. The former separate {@code returnPolicy} field on
- * {@code FlowGraphNode} has been removed.</p>
+ * Validates approval node configs: mode parsing, approver constraints, deadlock detection and
+ * timeouts. A return always goes to the initiator, so {@code returnEnabled} needs no validation.
  */
 public class ApprovalConfigValidator implements FlowValidator {
 
@@ -33,10 +28,6 @@ public class ApprovalConfigValidator implements FlowValidator {
     private static final String PERCENTAGE_NEEDS_APPROVERS = "PERCENTAGE_NEEDS_APPROVERS";
     private static final String INVALID_PERCENTAGE         = "INVALID_PERCENTAGE";
     private static final String DEADLOCK_THRESHOLD         = "DEADLOCK_THRESHOLD";
-    private static final String MISSING_RETURN_TARGET      = "MISSING_RETURN_TARGET";
-    private static final String MISSING_RETURN_TARGET_NODE = "MISSING_RETURN_TARGET_NODE";
-    private static final String UNKNOWN_RETURN_TARGET_NODE = "UNKNOWN_RETURN_TARGET_NODE";
-    private static final String INVALID_RETURN_TARGET_TYPE = "INVALID_RETURN_TARGET_TYPE";
     private static final String UNKNOWN_APPROVER_SOURCE_TYPE = "UNKNOWN_APPROVER_SOURCE_TYPE";
     private static final String INVALID_SUPERVISOR_LEVEL     = "INVALID_SUPERVISOR_LEVEL";
     private static final String MISSING_ROLE_IDS             = "MISSING_ROLE_IDS";
@@ -64,7 +55,6 @@ public class ApprovalConfigValidator implements FlowValidator {
             }
             validateApproverSource(node.getId(), cfg, d);
             validateVoteThresholds(node.getId(), cfg, d);
-            validateReturnPolicy(node.getId(), cfg, nodes, d);
             validateTimeout(node.getId(), cfg, d);
         }
     }
@@ -135,10 +125,10 @@ public class ApprovalConfigValidator implements FlowValidator {
                 }
             }
             case "RoleQuery" -> {
-                if (isEmptyCollection(source.get("roleIds"))) {
-                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.roleIds",
+                if (isEmptyCollection(source.get("roleCodes")) && isEmptyCollection(source.get("roleIds"))) {
+                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.roleCodes",
                             MISSING_ROLE_IDS,
-                            "Approval node '" + nodeId + "' RoleQuery requires non-empty roleIds"));
+                            "Approval node '" + nodeId + "' RoleQuery requires non-empty roleCodes or roleIds"));
                 }
             }
             case "Position" -> {
@@ -157,7 +147,7 @@ public class ApprovalConfigValidator implements FlowValidator {
                             "Approval node '" + nodeId + "' Department requires deptIds or deptScope=INITIATOR_DEPT"));
                 }
             }
-            default -> { /* VariableList, Expression, InitiatorManager, Role, DeptLeader: no extra validation */ }
+            default -> { /* VariableList, Expression, InitiatorManager, Role, DeptLeader, DeptHrbp: no extra validation */ }
         }
     }
 
@@ -283,53 +273,6 @@ public class ApprovalConfigValidator implements FlowValidator {
                         INVALID_PERCENTAGE,
                         "Approval node '" + nodeId + "' must define config.rejectPercentage between 1 and 100"));
             }
-        }
-    }
-
-    // ── Return policy ──────────────────────────────────────────────────────
-
-    private void validateReturnPolicy(String nodeId, ApprovalNodeConfig cfg,
-                                      Collection<FlowGraphNode> nodes, List<CompileDiagnostic> d) {
-        if (!Boolean.TRUE.equals(cfg.getReturnEnabled())) {
-            return;
-        }
-        ApprovalReturnTarget target = cfg.getReturnTarget();
-        if (target == null) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.returnTarget",
-                    MISSING_RETURN_TARGET,
-                    "Approval node '" + nodeId + "' must define config.returnTarget when config.returnEnabled is true"));
-            return;
-        }
-        if (ApprovalReturnTarget.SPECIFIC_NODE.equals(target)) {
-            validateSpecificNodeTarget(nodeId, cfg, nodes, d);
-        }
-    }
-
-    private void validateSpecificNodeTarget(String nodeId, ApprovalNodeConfig cfg,
-                                            Collection<FlowGraphNode> nodes, List<CompileDiagnostic> d) {
-        if (!StringUtils.hasText(cfg.getReturnTargetNodeId())) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.returnTargetNodeId",
-                    MISSING_RETURN_TARGET_NODE,
-                    "Approval node '" + nodeId
-                            + "' uses SPECIFIC_NODE return target but config.returnTargetNodeId is not set"));
-            return;
-        }
-        FlowGraphNode targetNode = nodes.stream()
-                .filter(n -> cfg.getReturnTargetNodeId().equals(n.getId()))
-                .findFirst()
-                .orElse(null);
-        if (targetNode == null) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.returnTargetNodeId",
-                    UNKNOWN_RETURN_TARGET_NODE,
-                    "Approval node '" + nodeId + "' references unknown returnTargetNodeId '"
-                            + cfg.getReturnTargetNodeId() + "'"));
-            return;
-        }
-        if (!FlowNodeType.APPROVAL.equals(targetNode.getType())) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.returnTargetNodeId",
-                    INVALID_RETURN_TARGET_TYPE,
-                    "Approval node '" + nodeId + "' returnTargetNodeId '"
-                            + cfg.getReturnTargetNodeId() + "' must point to an Approval node"));
         }
     }
 

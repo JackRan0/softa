@@ -5,9 +5,9 @@ import java.util.List;
 /**
  * SPI for resolving organizational data.
  * <p>
- * Applications should implement this interface to integrate with their
- * user management and organization systems. When no implementation is provided,
- * approver resolution falls back to stub behaviour.
+ * Every user id here — taken or returned — is a login account id, the id approvers act under.
+ * The default {@code FlowOrgService} reads the conventional HR models; applications implement this
+ * interface only to integrate a different organization system.
  * </p>
  */
 public interface OrganizationService {
@@ -62,5 +62,21 @@ public interface OrganizationService {
      * Get sub-department IDs of a department.
      */
     List<Long> getSubDeptIds(Long deptId);
+
+    /**
+     * Get users holding any of the roles with these codes. Role codes, unlike role ids, are the
+     * same in every tenant, so flow templates name roles by code. Empty unless overridden.
+     */
+    default List<ApproverInfo> getUsersByRoleCodes(List<String> roleCodes) {
+        return List.of();
+    }
+
+    /**
+     * Get the department's HR business partner, walking up to the nearest department that has
+     * one. Null unless overridden.
+     */
+    default ApproverInfo getDeptHrbp(Long deptId) {
+        return null;
+    }
 }
 

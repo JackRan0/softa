@@ -64,6 +64,9 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
     /** The mode of the load in progress. Bound around one load; unbound outside one. */
     private static final ScopedValue<LoadMode> MODE = ScopedValue.newInstance();
 
+    /** The rows the load in progress created, by model; bound only around a load that reports them. */
+    private static final ScopedValue<Map<String, List<String>>> CREATED = ScopedValue.newInstance();
+
     private final ModelService<Serializable> modelService;
     private final PreDataFormatParser formatParser = new PreDataFormatParser();
 
@@ -92,15 +95,26 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
      * @param fileNames file names relative to the directory
      * @param tenantId  tenant the rows are written to
      * @param mode      how rows the tenant already has are treated
+     * @return the rows the load created, by model
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void loadPreTenantData(List<String> fileNames, Long tenantId, LoadMode mode) {
+    public Map<String, List<String>> loadPreTenantData(List<String> fileNames, Long tenantId, LoadMode mode) {
         if (SystemConfig.env.isEnableMultiTenancy()) {
             Assert.notNull(tenantId,
                     "Loading tenant predefined data requires a tenant id when multi-tenancy is enabled!");
         }
-        loadInTenantScope(BaseConstant.PREDEFINED_DATA_TENANT_DIR, fileNames, tenantId, mode);
+        Map<String, List<String>> created = new LinkedHashMap<>();
+        ScopedValue.where(CREATED, created)
+                .run(() -> loadInTenantScope(BaseConstant.PREDEFINED_DATA_TENANT_DIR, fileNames, tenantId, mode));
+        return created;
+    }
+
+    /** Note a row the load created, when the load reports them (see {@link #loadPreTenantData}). */
+    private static void recordCreated(String model, Serializable rowId) {
+        if (CREATED.isBound()) {
+            CREATED.get().computeIfAbsent(model, k -> new ArrayList<>()).add(String.valueOf(rowId));
+        }
     }
 
     /**
@@ -528,6 +542,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
                     : (String) resolved.remove(ID);
             Serializable rowId = modelService.createOne(model, resolved);
             generatePreData(model, preId, rowId);
+            recordCreated(model, rowId);
             return rowId;
         } else {
             SysPreData preData = optionalPreData.get();
@@ -653,6 +668,7 @@ public class SysPreDataServiceImpl extends EntityServiceImpl<SysPreData, Long> i
         Serializable recreatedId = modelService.createOne(model, resolved);
         preData.setRowId(String.valueOf(recreatedId));
         this.updateOne(preData);
+        recordCreated(model, recreatedId);
         return recreatedId;
     }
 

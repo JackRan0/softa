@@ -25,7 +25,8 @@ import lombok.NoArgsConstructor;
 public class FlowTriggerEvent {
 
     @NotBlank(message = "type must not be blank")
-    @Schema(description = "Trigger type discriminator (EntityChange | Api | Cron | Subflow | FieldChange)")
+    @Schema(description = "Trigger type discriminator (EntityChange | Api | Cron | Subflow | FieldChange); "
+            + "Submit is refused — submitted records start their approval through record submission")
     private String type;
 
     @Schema(description = "Source model when the trigger is entity-related")

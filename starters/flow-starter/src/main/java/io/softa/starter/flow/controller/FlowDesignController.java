@@ -9,7 +9,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -33,12 +32,13 @@ import io.softa.starter.flow.entity.FlowDesign;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.engine.FlowLaunchResponse;
-import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.service.FlowDebugHistoryService;
 import io.softa.starter.flow.service.FlowDesignService;
 import io.softa.starter.flow.service.FlowLaunchService;
 import io.softa.starter.flow.service.FlowPublishService;
 import io.softa.starter.flow.service.FlowVariableCatalogService;
+
+import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
 
 /**
  * Dedicated REST surface for the graphical flow editor (react-flow frontend).
@@ -207,13 +207,5 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
                         debugHistoryService.listByFlowId(design.getId())))
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                         "FlowDesign not found: " + id));
-    }
-
-    private static String currentUserId() {
-        Long userId = ContextHolder.getContext().getUserId();
-        if (userId == null) {
-            throw new FlowAuthorizationException("Authentication is required");
-        }
-        return userId.toString();
     }
 }

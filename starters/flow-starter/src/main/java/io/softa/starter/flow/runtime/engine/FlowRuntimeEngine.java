@@ -14,6 +14,14 @@ public interface FlowRuntimeEngine {
     FlowExecutionState start(FlowStartRequest request);
 
     /**
+     * {@link #start}, as the approval of the request's record: the instance's result is written
+     * back to the record, and the record can have only one such instance in progress. Only record
+     * submission ({@code FlowLaunchService.submitRecord}) starts one; any other start of the same
+     * flow — a debug run, an API start — runs on the record without being its approval.
+     */
+    FlowExecutionState startRecordApproval(FlowStartRequest request);
+
+    /**
      * Run a stateless Validation / Compute flow transiently: the same traversal as
      * {@link #start}, but with zero flow footprint — no instance row, no trace rows,
      * no notifications. Business writes made by task nodes still join the caller's
@@ -40,8 +48,6 @@ public interface FlowRuntimeEngine {
     FlowExecutionState readCc(FlowCcReadRequest request);
 
     FlowExecutionState returnApproval(FlowReturnRequest request);
-
-    FlowExecutionState resubmit(FlowResubmitRequest request);
 
     FlowExecutionState withdraw(FlowWithdrawRequest request);
 

@@ -37,7 +37,7 @@ class InboxMessageHandlerTest {
         when(notificationService.createOne(captor.capture())).thenReturn(71L);
         SendInboxDTO message = message(1L, "Hello", "World");
         message.setSourceModel("Order");
-        message.setSourceId(9L);
+        message.setSourceId("9");
 
         Long id = handler.send(message);
 
@@ -48,7 +48,7 @@ class InboxMessageHandlerTest {
         assertEquals("World", created.getContent());
         assertEquals(NotificationType.SYSTEM, created.getNotificationType());
         assertEquals("Order", created.getSourceModel());
-        assertEquals(9L, created.getSourceId());
+        assertEquals("9", created.getSourceId());
         assertFalse(created.getIsRead());
     }
 

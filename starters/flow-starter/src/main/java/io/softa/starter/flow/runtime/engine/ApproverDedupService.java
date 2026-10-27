@@ -5,7 +5,9 @@ import java.util.List;
 import java.util.Set;
 
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
@@ -15,18 +17,20 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.PendingApproval;
 
 /**
- * Approver consolidation ("审批人去重"): when the same actor approves more than one node
- * of an instance, a later node can auto-approve on that actor's behalf per the flow's
- * {@link ApproverDedupStrategy}.
+ * Automatic approvals at node activation, before the node starts waiting:
+ * <ul>
+ *   <li><b>The submitter.</b> On a submit flow, a step whose approvers include the record's
+ *       submitter counts them as having approved — nobody is asked to approve their own
+ *       submission. Whether the step then passes is the step's own approval mode: an any-one step
+ *       passes, an all-approve step still waits for the others.</li>
+ *   <li><b>Approver consolidation</b> ("审批人去重"): an actor who already approved an earlier node
+ *       of the instance approves a later one on their behalf, per the flow's
+ *       {@link ApproverDedupStrategy}. Default (unconfigured) is {@link ApproverDedupStrategy#GLOBAL}.</li>
+ * </ul>
  *
- * <p>This is an approval <em>business rule</em> — it writes a real
- * {@link ApprovalActionType#AUTO_APPROVE} audit record — and is NOT action idempotency (which
- * dedups retried / redelivered physical requests). Applied at node activation, before the node
- * starts waiting.
- *
- * <p>Default (unconfigured) is {@link ApproverDedupStrategy#GLOBAL}, scoped to the current
- * resubmission cycle: approvals recorded before the last return/resubmit are discounted, because
- * the document may have changed since.
+ * <p>These are approval <em>business rules</em> — each writes a real
+ * {@link ApprovalActionType#AUTO_APPROVE} audit record, so the approval history shows the step and
+ * why it passed — and NOT action idempotency (which dedups retried / redelivered physical requests).
  */
 @Component
 public class ApproverDedupService {
@@ -43,73 +47,73 @@ public class ApproverDedupService {
     }
 
     /**
-     * Auto-approve approvers who already approved a qualifying prior node, then report whether the
-     * node is thereby complete (and should auto-advance instead of waiting for a human action).
+     * Auto-approve the submitter and the approvers who already approved a qualifying prior node,
+     * then report whether the node is thereby complete (and should auto-advance instead of waiting
+     * for a human action).
      */
     public boolean applyAndCheckComplete(CompiledFlowDefinition definition, CompiledFlowNode node,
                                          FlowExecutionState state, PendingApproval pending) {
-        ApproverDedupStrategy strategy = definition.getApproverDedup() == null
-                ? ApproverDedupStrategy.GLOBAL
-                : definition.getApproverDedup();
+        if (definition.getTrigger() instanceof SubmitTrigger && StringUtils.hasText(state.getInitiatorId())) {
+            autoApprove(definition, node, state, pending, state.getInitiatorId(), "Auto-approved (submitter)");
+        }
+        ApproverDedupStrategy strategy = strategyOf(definition);
         if (strategy != ApproverDedupStrategy.NONE) {
-            Set<String> priorApprovers = priorApprovers(state, node.getNodeId(), strategy);
-            for (String approver : pending.getApprovers()) {
-                if (priorApprovers.contains(approver) && !pending.getApprovedActors().contains(approver)) {
-                    pending.getApprovedActors().add(approver);
-                    auditService.appendApprovalAudit(state,
-                            auditService.baseEntry(definition, node, pending, state.getStatus(), state.getStatus()).toBuilder()
-                                    .action(ApprovalActionType.AUTO_APPROVE)
-                                    .actorId(approver)
-                                    .comment("Auto-approved (approver dedup: " + strategy + ")")
-                                    .build());
+            Set<String> priorApprovers = new HashSet<>();
+            for (ApprovalActionAuditEntry approval : countedApprovals(state, node.getNodeId(), strategy)) {
+                if (approval.getActorId() != null) {
+                    priorApprovers.add(approval.getActorId());
+                }
+            }
+            for (String approver : List.copyOf(pending.getApprovers())) {
+                if (priorApprovers.contains(approver)) {
+                    autoApprove(definition, node, state, pending, approver,
+                            "Auto-approved (approver dedup: " + strategy + ")");
                 }
             }
         }
         return lifecycleService.canCompleteApproval(pending);
     }
 
+    /** Record {@code approver}'s automatic approval of the step, once, if they are one of its approvers. */
+    private void autoApprove(CompiledFlowDefinition definition, CompiledFlowNode node, FlowExecutionState state,
+                             PendingApproval pending, String approver, String reason) {
+        if (!pending.getApprovers().contains(approver) || pending.getApprovedActors().contains(approver)) {
+            return;
+        }
+        pending.getApprovedActors().add(approver);
+        auditService.appendApprovalAudit(state,
+                auditService.baseEntry(definition, node, pending, state.getStatus(), state.getStatus()).toBuilder()
+                        .action(ApprovalActionType.AUTO_APPROVE)
+                        .actorId(approver)
+                        .comment(reason)
+                        .build());
+    }
+
+    /** The flow's approver dedup policy: {@link ApproverDedupStrategy#GLOBAL} when unconfigured. */
+    static ApproverDedupStrategy strategyOf(CompiledFlowDefinition definition) {
+        return definition.getApproverDedup() == null ? ApproverDedupStrategy.GLOBAL : definition.getApproverDedup();
+    }
+
     /**
-     * Actors who approved a qualifying prior node in this instance, per the strategy, restricted to
-     * the current resubmission cycle (entries after the last RETURN / RESUBMIT).
+     * The approvals recorded on earlier nodes of the instance that the strategy counts at
+     * {@code currentNodeId}: every one under {@code GLOBAL}, the immediately-preceding approval node's
+     * under {@code CONTIGUOUS}, none under {@code NONE}. A return ends the instance, so every approval
+     * recorded on it belongs to the current round.
      */
-    private Set<String> priorApprovers(FlowExecutionState state, String currentNodeId,
-                                       ApproverDedupStrategy strategy) {
-        List<ApprovalActionAuditEntry> history = auditReader.fullHistory(state);
-        if (history.isEmpty()) {
-            return Set.of();
+    List<ApprovalActionAuditEntry> countedApprovals(FlowExecutionState state, String currentNodeId,
+                                                    ApproverDedupStrategy strategy) {
+        if (strategy == ApproverDedupStrategy.NONE) {
+            return List.of();
         }
-        // Resubmission-cycle guard: discount everything up to and including the last return/resubmit.
-        int start = 0;
-        for (int i = 0; i < history.size(); i++) {
-            ApprovalActionType action = history.get(i).getAction();
-            if (action == ApprovalActionType.RESUBMIT || action == ApprovalActionType.RETURN) {
-                start = i + 1;
-            }
-        }
-        List<ApprovalActionAuditEntry> priorApprovals = history.subList(start, history.size()).stream()
+        List<ApprovalActionAuditEntry> priorApprovals = auditReader.fullHistory(state).stream()
                 .filter(e -> e.getAction() == ApprovalActionType.APPROVE || e.getAction() == ApprovalActionType.AUTO_APPROVE)
                 .filter(e -> e.getNodeId() != null && !e.getNodeId().equals(currentNodeId))
                 .toList();
-        if (priorApprovals.isEmpty()) {
-            return Set.of();
+        if (priorApprovals.isEmpty() || strategy == ApproverDedupStrategy.GLOBAL) {
+            return priorApprovals;
         }
-        if (strategy == ApproverDedupStrategy.GLOBAL) {
-            Set<String> actors = new HashSet<>();
-            for (ApprovalActionAuditEntry e : priorApprovals) {
-                if (e.getActorId() != null) {
-                    actors.add(e.getActorId());
-                }
-            }
-            return actors;
-        }
-        // CONTIGUOUS: actors who approved the immediately-preceding approval node.
+        // CONTIGUOUS: the immediately-preceding approval node's approvals.
         String prevNodeId = priorApprovals.getLast().getNodeId();
-        Set<String> actors = new HashSet<>();
-        for (ApprovalActionAuditEntry e : priorApprovals) {
-            if (prevNodeId.equals(e.getNodeId()) && e.getActorId() != null) {
-                actors.add(e.getActorId());
-            }
-        }
-        return actors;
+        return priorApprovals.stream().filter(e -> prevNodeId.equals(e.getNodeId())).toList();
     }
 }

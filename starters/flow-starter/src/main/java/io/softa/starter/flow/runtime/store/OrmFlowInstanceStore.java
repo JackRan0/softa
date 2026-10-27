@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.starter.flow.entity.FlowExecutionTrace;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -21,6 +22,12 @@ import io.softa.starter.flow.service.FlowInstanceService;
  * <p>Trace entries are persisted separately to {@code flow_execution_trace}
  * via {@link FlowExecutionTraceService} so that long-running flows do not
  * rewrite the entire trace JSON on every save.</p>
+ *
+ * <p>The store is the engine's own bookkeeping, so it reads and writes past the caller's data
+ * permissions. Who may act on an instance is decided by the action handlers' actor checks, who may
+ * see one by {@code FlowInstanceAccessGuard}; the caller's row scope on {@code FlowInstance} answers
+ * neither. Under it, an approver holding no grant on the model — the norm, approving is the grant —
+ * could not load the instance they were asked to approve, nor its initiator the one they submitted.</p>
  */
 @Primary
 @Component
@@ -40,13 +47,15 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
 
     @Override
     public FlowExecutionState save(FlowExecutionState state) {
-        FlowInstance existing = instanceService.findByInstanceId(state.getInstanceId()).orElse(null);
-        FlowInstance entity = FlowExecutionStateMapper.toEntity(state, existing);
-        FlowInstance saved = instanceService.saveInstance(entity);
-        state.setVersion(saved.getVersion());
-        traceService.appendNewEntries(state);
-        approvalLedger.appendNewEntries(state);
-        return state;
+        return ContextUtils.withoutPermissionChecks(() -> {
+            FlowInstance existing = instanceService.findByInstanceId(state.getInstanceId()).orElse(null);
+            FlowInstance entity = FlowExecutionStateMapper.toEntity(state, existing);
+            FlowInstance saved = instanceService.saveInstance(entity);
+            state.setVersion(saved.getVersion());
+            traceService.appendNewEntries(state);
+            approvalLedger.appendNewEntries(state);
+            return state;
+        });
     }
 
     @Override
@@ -54,32 +63,32 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
         // Trace intentionally NOT hydrated: loads must not scale with history length.
         // The state's empty trace is a delta buffer; the mapper marks the sequence
         // base as unresolved so a later flush continues numbering correctly.
-        return instanceService.findByInstanceId(instanceId)
-                .map(FlowExecutionStateMapper::toState);
+        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByInstanceId(instanceId)
+                .map(FlowExecutionStateMapper::toState));
     }
 
     @Override
     public Optional<FlowExecutionState> getWithTrace(String instanceId) {
-        return instanceService.findByInstanceId(instanceId)
+        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByInstanceId(instanceId)
                 .map(entity -> {
                     FlowExecutionState state = FlowExecutionStateMapper.toState(entity);
                     hydrateTrace(state);
                     return state;
-                });
+                }));
     }
 
     @Override
     public List<FlowExecutionState> listByFlowId(String flowId) {
-        return instanceService.findByFlowId(flowId).stream()
+        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByFlowId(flowId).stream()
                 .map(FlowExecutionStateMapper::toState)
-                .toList();
+                .toList());
     }
 
     @Override
     public List<FlowExecutionState> listByStatus(FlowExecutionStatus status) {
-        return instanceService.findByStatus(status).stream()
+        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByStatus(status).stream()
                 .map(FlowExecutionStateMapper::toState)
-                .toList();
+                .toList());
     }
 
     private void hydrateTrace(FlowExecutionState state) {

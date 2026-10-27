@@ -32,8 +32,9 @@ public class SendInboxDTO {
     @Schema(description = "Optional source metadata model name")
     private String sourceModel;
 
-    @Schema(description = "Optional source object ID")
-    private Long sourceId;
+    @Size(max = 64)
+    @Schema(description = "Optional source object ID, as text")
+    private String sourceId;
 
     @Schema(description = "Optional expiry time")
     private LocalDateTime expiredAt;

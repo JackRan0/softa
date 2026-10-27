@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.starter.flow.entity.FlowDelegation;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -19,6 +20,10 @@ import io.softa.starter.flow.service.FlowDelegationService;
  * For each approver in the pending list, checks whether an active delegation
  * rule exists and replaces the approver with the delegate. Circular delegation
  * chains (A→B→A) are detected and skipped.
+ * </p>
+ * <p>
+ * The rules are read and their usage counted past the caller's data permissions: they belong to the
+ * approvers, not to whoever's action reached the node.
  * </p>
  */
 @Slf4j
@@ -34,8 +39,12 @@ public class AutoDelegationService {
     /**
      * Apply auto-delegation to a pending approval.
      * Modifies the pending approval in place by replacing delegated approvers.
+     *
+     * @param recordUsage whether each delegation applied counts as used — false for the approval
+     *                    path preview, which delegates without recording anything
      */
-    public void applyAutoDelegation(PendingApproval pending, FlowExecutionState state, CompiledFlowNode node) {
+    public void applyAutoDelegation(PendingApproval pending, FlowExecutionState state, CompiledFlowNode node,
+                                    boolean recordUsage) {
         if (delegationService == null || pending == null || pending.getApprovers() == null || pending.getApprovers().isEmpty()) {
             return;
         }
@@ -48,7 +57,7 @@ public class AutoDelegationService {
 
         for (int i = 0; i < approvers.size(); i++) {
             String currentApprover = approvers.get(i);
-            String resolvedDelegate = resolveDelegateChain(currentApprover, flowId, nodeId, now, approvers);
+            String resolvedDelegate = resolveDelegateChain(currentApprover, flowId, nodeId, now, approvers, recordUsage);
             if (resolvedDelegate != null && !resolvedDelegate.equals(currentApprover)) {
                 log.info("Auto-delegating approval at node {} from {} to {}", nodeId, currentApprover, resolvedDelegate);
                 approvers.set(i, resolvedDelegate);
@@ -73,13 +82,15 @@ public class AutoDelegationService {
      * @return the final delegate, or null if no delegation applies
      */
     private String resolveDelegateChain(String actorId, String flowId, String nodeId,
-                                        LocalDateTime now, List<String> existingApprovers) {
+                                        LocalDateTime now, List<String> existingApprovers, boolean recordUsage) {
         Set<String> visited = new HashSet<>();
         visited.add(actorId);
         String current = actorId;
 
         while (true) {
-            Optional<FlowDelegation> delegation = delegationService.findActiveDelegation(current, flowId, nodeId, now);
+            String delegator = current;
+            Optional<FlowDelegation> delegation = ContextUtils.withoutPermissionChecks(
+                    () -> delegationService.findActiveDelegation(delegator, flowId, nodeId, now));
             if (delegation.isEmpty()) {
                 break;
             }
@@ -94,7 +105,10 @@ public class AutoDelegationService {
                 break;
             }
             visited.add(delegate);
-            delegationService.recordDelegationUsage(delegation.get().getId());
+            if (recordUsage) {
+                Long delegationId = delegation.get().getId();
+                ContextUtils.withoutPermissionChecks(() -> delegationService.recordDelegationUsage(delegationId));
+            }
             current = delegate;
         }
 

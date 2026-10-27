@@ -6,14 +6,19 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
-import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.entity.FlowDelegation;
-import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.service.FlowDelegationService;
 
+import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
+
 /**
- * REST endpoints for managing delegation rules.
+ * REST endpoints for managing delegation rules — each user's own.
+ *
+ * <p>The reads and the cancel carry {@link SkipPermissionCheck}: they are pinned to the caller (the
+ * cancel by its ownership check), and {@code FlowDelegation} is granted to no business role, so row
+ * scope could only empty the lists and turn a cancel into a silent no-op. Creating needs no waiver.
  */
 @Tag(name = "Flow Delegation")
 @RestController
@@ -35,28 +40,23 @@ public class FlowDelegationController {
 
     @GetMapping("/my")
     @Operation(summary = "My delegations", description = "Lists delegation rules created by the current user.")
+    @SkipPermissionCheck
     public ApiResponse<List<FlowDelegation>> myDelegations() {
         return ApiResponse.success(delegationService.getMyDelegations(currentUserId()));
     }
 
     @GetMapping("/to-me")
     @Operation(summary = "Delegations to me", description = "Lists active delegation rules assigned to the current user.")
+    @SkipPermissionCheck
     public ApiResponse<List<FlowDelegation>> delegationsToMe() {
         return ApiResponse.success(delegationService.getDelegationsToMe(currentUserId()));
     }
 
     @PostMapping("/{id}/cancel")
-    @Operation(summary = "Cancel delegation", description = "Deactivates a delegation rule.")
+    @Operation(summary = "Cancel delegation", description = "Deactivates one of the current user's delegation rules.")
+    @SkipPermissionCheck
     public ApiResponse<Void> cancel(@PathVariable Long id) {
-        delegationService.cancelDelegation(id);
+        delegationService.cancelDelegation(id, currentUserId());
         return ApiResponse.success(null);
-    }
-
-    private static String currentUserId() {
-        Long userId = ContextHolder.getContext().getUserId();
-        if (userId == null) {
-            throw new FlowAuthorizationException("Authentication is required");
-        }
-        return userId.toString();
     }
 }
