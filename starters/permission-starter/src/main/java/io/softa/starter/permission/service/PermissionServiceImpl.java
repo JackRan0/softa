@@ -1680,9 +1680,13 @@ public class PermissionServiceImpl implements PermissionService {
      * names one. An employee hired next month has no such slice, so every write to them was refused as out
      * of range. An entity that does have one is still judged by it: its history must not lend a range it
      * has since left.
+     *
+     * <p>Every read names its rows {@link #byIds enabled or not}, as the count above does: otherwise a
+     * disabled record with a slice today reads as having none, and is judged by a history it cannot
+     * reach either.
      */
     private boolean reachedOnAnySlice(String model, List<Serializable> ids, Filters scope) {
-        Filters byId = Filters.of(ModelConstant.ID, Operator.IN, ids);
+        Filters byId = byIds(model, ids);
         Set<String> reachedNow = texts(unscoped(() -> modelService.getIds(model, Filters.and(byId, scope))));
         Set<String> existNow = texts(unscoped(() -> modelService.getIds(model, byId)));
         List<Serializable> withoutSlice = ids.stream().filter(id -> !existNow.contains(id.toString())).toList();
@@ -1690,7 +1694,7 @@ public class PermissionServiceImpl implements PermissionService {
             return false;
         }
         FlexQuery anySlice = new FlexQuery(List.of(ModelConstant.ID),
-                Filters.and(Filters.of(ModelConstant.ID, Operator.IN, withoutSlice), scope)).acrossTimelineData();
+                Filters.and(byIds(model, withoutSlice), scope)).acrossTimelineData();
         Set<String> reachedEver = texts(unscoped(() -> modelService.searchList(model, anySlice)).stream()
                 .map(row -> row.get(ModelConstant.ID)).toList());
         return reachedEver.size() == withoutSlice.size();

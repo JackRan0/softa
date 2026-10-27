@@ -44,6 +44,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -368,6 +369,29 @@ class GrantPairScopeTest {
 
             assertThatThrownBy(() -> checkIds(AccessType.UPDATE, List.of(99L)))
                     .isInstanceOf(PermissionException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("a disabled timeline record is judged by its slices like an enabled one")
+    void aDisabledTimelineRecordIsJudgedByItsSlices() {
+        holdTheExampleRoles();
+        try (MockedStatic<ModelManager> models = timelineEmployee()) {
+            models.when(() -> ModelManager.isActiveControl("Employee")).thenReturn(true);
+            noSliceToday(false);
+            when(modelService.searchList(eq("Employee"), any(FlexQuery.class)))
+                    .thenReturn(List.of(Map.of("id", 99L)));
+
+            checkIds(AccessType.UPDATE, List.of(99L));
+
+            // Every read names the row enabled or not: an automatic "active = true" would hide a disabled
+            // record's slices, today's and any other, and judge it out of range.
+            ArgumentCaptor<Filters> read = ArgumentCaptor.forClass(Filters.class);
+            verify(modelService, atLeastOnce()).getIds(eq("Employee"), read.capture());
+            assertThat(read.getAllValues()).allSatisfy(f -> assertThat(f.toString()).contains("active"));
+            ArgumentCaptor<FlexQuery> anySlice = ArgumentCaptor.forClass(FlexQuery.class);
+            verify(modelService).searchList(eq("Employee"), anySlice.capture());
+            assertThat(anySlice.getValue().getFilters().toString()).contains("active");
         }
     }
 
