@@ -53,6 +53,8 @@ import static org.mockito.Mockito.when;
 class ConsultantBasicInfoSaveTest {
 
     private static final Long PROFILE = 7L;
+    /** The mobile the person already signs in with, so a form repeating it changes nothing. */
+    private static final String MOBILE = "+6590000000";
 
     private ConsultantServiceImpl service;
     private UserProfileService profileService;
@@ -94,6 +96,7 @@ class ConsultantBasicInfoSaveTest {
         identity.setId(11L);
         identity.setProfileId(PROFILE);
         identity.setLoginEmail("old@zingkey.com");
+        identity.setLoginMobile(MOBILE);
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.of(identity));
         when(identityService.updateOne(any(UserIdentity.class))).thenReturn(true);
         when(identityService.isIdentifierClaimable(any(), eq(PROFILE))).thenReturn(true);
@@ -129,7 +132,7 @@ class ConsultantBasicInfoSaveTest {
         when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of(stale));
 
         // "Old Name" is what the person is already called, so nothing about them changes.
-        service.save(form("Old Name", "old@zingkey.com", null));
+        service.save(form("Old Name", "old@zingkey.com", MOBILE));
 
         ArgumentCaptor<UserAccount> named = ArgumentCaptor.forClass(UserAccount.class);
         verify(accountService).updateOne(named.capture());
@@ -164,7 +167,7 @@ class ConsultantBasicInfoSaveTest {
         when(identityService.findByLoginIdentifier("jane@zingkey.com")).thenReturn(Optional.of(held));
         // The fixture's searchOne already answers with an existing ConsultantProfile for PROFILE.
 
-        ConsultantProfileDTO f = form("Jane", "jane@zingkey.com", null);
+        ConsultantProfileDTO f = form("Jane", "jane@zingkey.com", MOBILE);
         f.setProfileId(null);
 
         // Refused by the channel that collided — the email is the only identifier the form carries,
@@ -185,25 +188,30 @@ class ConsultantBasicInfoSaveTest {
         doReturn(Optional.empty()).when(service).searchOne(any(Filters.class));
         doReturn(1L).when(service).createOne(any(ConsultantProfile.class));
 
-        ConsultantProfileDTO f = form("Employee", "employee@zingkey.com", null);
+        ConsultantProfileDTO f = form("Employee", "employee@zingkey.com", MOBILE);
         f.setProfileId(null);
 
         assertThat(service.save(f)).isEqualTo(PROFILE);
     }
 
     @Test
-    void aMobileOnlyConsultantCanBeSaved() {
-        // The person who has no email at all. Requiring one made every save of their profile fail —
-        // extending their grant or disabling them included — until somebody invented an address.
-        service.save(form("Old Name", null, "+6591234567"));
-
-        verify(service).applyAuthorizations(eq(PROFILE), any());
+    void aFormWithoutAnEmailIsRefused() {
+        // Both identifiers are required. Either-or let a payload create a consultant the form itself
+        // refuses, with one fewer way to sign in and no delete to take it back.
+        for (String blank : new String[] {null, "", "   "}) {
+            assertThatThrownBy(() -> service.save(form("Old Name", blank, MOBILE)))
+                    .hasMessageContaining("Please enter a valid email address");
+        }
+        verify(service, never()).applyAuthorizations(any(), any());
     }
 
     @Test
-    void aFormWithNeitherChannelIsRefused() {
-        assertThatThrownBy(() -> service.save(form("Old Name", null, null)))
-                .hasMessageContaining("email or a mobile");
+    void aFormWithoutAMobileIsRefused() {
+        for (String blank : new String[] {null, "", "   "}) {
+            assertThatThrownBy(() -> service.save(form("Old Name", "old@zingkey.com", blank)))
+                    .hasMessageContaining("Mobile is required");
+        }
+        verify(service, never()).applyAuthorizations(any(), any());
     }
 
     @Test
@@ -211,7 +219,7 @@ class ConsultantBasicInfoSaveTest {
         // Named by id: the platform administrator opened this profile and is changing it on purpose.
         // The name is global — every company this person belongs to displays it — which is what the
         // screen says before saving, not a reason to refuse.
-        service.save(form("Ada Lovelace", "old@zingkey.com", null));
+        service.save(form("Ada Lovelace", "old@zingkey.com", MOBILE));
 
         ArgumentCaptor<UserProfile> named = ArgumentCaptor.forClass(UserProfile.class);
         verify(profileService).updateOne(named.capture());
@@ -235,14 +243,14 @@ class ConsultantBasicInfoSaveTest {
         // Login identifiers are unique across the platform — login resolves a person by one of them.
         when(identityService.isIdentifierClaimable("taken@zingkey.com", PROFILE)).thenReturn(false);
 
-        assertThatThrownBy(() -> service.save(form("Old Name", "taken@zingkey.com", null)))
+        assertThatThrownBy(() -> service.save(form("Old Name", "taken@zingkey.com", MOBILE)))
                 .hasMessageContaining("already belongs to someone else");
         verify(identityService, never()).updateOne(any(UserIdentity.class));
     }
 
     @Test
     void aSaveThatChangesNothingWritesNothing() {
-        service.save(form("Old Name", "old@zingkey.com", null));
+        service.save(form("Old Name", "old@zingkey.com", MOBILE));
 
         verify(profileService, never()).updateOne(any(UserProfile.class));
         verify(identityService, never()).updateOne(any(UserIdentity.class));
@@ -264,7 +272,7 @@ class ConsultantBasicInfoSaveTest {
         when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of(consultantSeat));
         when(accountService.searchList(any(Filters.class))).thenReturn(List.of());
 
-        service.save(form("Old Name", "new@zingkey.com", null));
+        service.save(form("Old Name", "new@zingkey.com", MOBILE));
 
         assertThat(consultantSeat.getUsername()).isEqualTo("new@zingkey.com");
         // Once, after both writes — not once for the name and again for the identifiers.
@@ -336,7 +344,7 @@ class ConsultantBasicInfoSaveTest {
         when(identityService.findByLoginIdentifier(any())).thenReturn(Optional.empty());
         when(profileService.createPersonForJoin("fresh@zingkey.com")).thenReturn(PROFILE);
 
-        ConsultantProfileDTO f = form("Ada Lovelace", "fresh@zingkey.com", null);
+        ConsultantProfileDTO f = form("Ada Lovelace", "fresh@zingkey.com", MOBILE);
         f.setProfileId(null);
         service.save(f);
 
@@ -360,7 +368,7 @@ class ConsultantBasicInfoSaveTest {
         when(profileService.createPersonForJoin("taken@zingkey.com")).thenReturn(PROFILE);
         when(identityService.isIdentifierClaimable(eq("taken@zingkey.com"), eq(PROFILE))).thenReturn(false);
 
-        ConsultantProfileDTO fresh = form("Old Name", "taken@zingkey.com", null);
+        ConsultantProfileDTO fresh = form("Old Name", "taken@zingkey.com", MOBILE);
         fresh.setProfileId(null);
         assertThatThrownBy(() -> service.save(fresh))
                 .isInstanceOf(BusinessException.class)
@@ -371,7 +379,7 @@ class ConsultantBasicInfoSaveTest {
     void anUnchangedCardWritesNothing() {
         // The paired case: a version that wrote unconditionally would satisfy every test above while
         // evicting caches and touching credentials on every save of the grant table alone.
-        service.save(form("Old Name", "old@zingkey.com", null));
+        service.save(form("Old Name", "old@zingkey.com", MOBILE));
 
         verify(profileService, never()).updateOne(any(UserProfile.class));
         verify(identityService, never()).updateOne(any(UserIdentity.class));
@@ -392,7 +400,7 @@ class ConsultantBasicInfoSaveTest {
 
     @Test
     void anEmailIsStoredLowercasedLikeEverySpellingTheLookupsUse() {
-        service.save(freshPerson(form("Old Name", "Ada@ZingKey.com", null)));
+        service.save(freshPerson(form("Old Name", "Ada@ZingKey.com", MOBILE)));
 
         ArgumentCaptor<UserIdentity> saved = ArgumentCaptor.forClass(UserIdentity.class);
         verify(identityService).updateOne(saved.capture());
@@ -417,15 +425,13 @@ class ConsultantBasicInfoSaveTest {
 
     @Test
     void aBlankFieldMeansNotSuppliedRatherThanClearMyLogin() {
-        // One cleared by accident locks the person out, and nothing on this screen would explain why.
-        // The mobile carries the save — blanking every channel is refused outright, which is a
-        // different rule, asserted on its own above.
-        service.save(freshPerson(form("  ", "", "+6591234567")));
+        // A blank name cleared by accident would blank the person in every company. A blank email or
+        // mobile no longer gets this far — both are required, asserted on their own above.
+        service.save(freshPerson(form("  ", "old@zingkey.com", "+6591234567")));
 
         verify(profileService, never()).updateOne(any(UserProfile.class));
         ArgumentCaptor<UserIdentity> saved = ArgumentCaptor.forClass(UserIdentity.class);
         verify(identityService).updateOne(saved.capture());
-        // Written because it was supplied; the blank email is left exactly as it was.
         assertThat(saved.getValue().getLoginMobile()).isEqualTo("+6591234567");
         assertThat(saved.getValue().getLoginEmail()).isEqualTo("old@zingkey.com");
     }
