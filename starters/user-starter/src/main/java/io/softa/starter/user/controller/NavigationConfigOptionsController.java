@@ -34,7 +34,10 @@ import io.softa.starter.user.dto.NavConfigOptions;
 import io.softa.starter.user.dto.NavConfigOptions.SfsRef;
 import io.softa.starter.user.dto.RoleModelConfigOption;
 import io.softa.starter.user.service.NavigationModelResolver;
+import io.softa.starter.user.service.RoleGrantCeiling;
 import io.softa.starter.user.util.JsonArrayUtils;
+
+import static io.softa.framework.base.context.ContextUtils.inSystemContext;
 
 /**
  * Wizard stage 3 endpoint: per-navigation options the FE wizard needs to
@@ -60,12 +63,9 @@ import io.softa.starter.user.util.JsonArrayUtils;
  * total SFS / model count.
  *
  * <h3>Grant ceiling</h3>
- * Current policy: only super-admin can hit this endpoint (endpoint-gate
- * check on {@code /userAccess/*} wizard endpoints). Every caller here therefore
- * sees the full option set for each nav — no per-editor filtering. If
- * non-super-admin role editing is reintroduced, restore
- * {@code GrantCeilingValidator} to trim scope / SFS / nav options per
- * editor's own grants (grant-ceiling gap).
+ * The options are the same for every caller. What a non-administrator may actually grant is served
+ * apart by {@code GET /userAccess/grantCeiling} — their own roles' grants, read the same way the save
+ * judges them ({@link RoleGrantCeiling}) — so the wizard can grey out what the save would refuse.
  */
 @Slf4j
 @Tag(name = "Admin Navigation Config Options")
@@ -76,6 +76,7 @@ public class NavigationConfigOptionsController {
 
     private final NavigationModelResolver navResolver;
     private final ModelService<?> modelService;
+    private final RoleGrantCeiling roleGrantCeiling;
 
     /**
      * Relation kinds that trigger an INDEPENDENT query of the related model —
@@ -123,7 +124,7 @@ public class NavigationConfigOptionsController {
         // SFS visible on this nav row = own (SFS.model == nav.model) ∪
         // attached (SFS.attachedTo contains nav.model). Dedup by setId so a
         // SFS that accidentally points its attachedTo at its own model shows up
-        // once. Read from the SensitiveFieldSet table (约定读; super-admin only).
+        // once. Read from the SensitiveFieldSet table, in the system context (see sfs()).
         Set<String> seen = new HashSet<>();
         List<SfsRef> sfs = new ArrayList<>();
         for (String setId : sfsOwnedBy(model)) {
@@ -134,6 +135,25 @@ public class NavigationConfigOptionsController {
         }
 
         return new NavConfigOptions(model, label, scopes, sfs);
+    }
+
+    // ─────────────────── what the caller may grant ───────────────────
+
+    /**
+     * The caller's own grants, role by role, for the wizard to grey out what a save would refuse: one role
+     * has to hold an action and reach its rows, and a field set comes with the rows of the role granting it,
+     * so the roles are not merged. An administrator is unrestricted.
+     */
+    @GetMapping("/grantCeiling")
+    @Operation(summary = "Role wizard — what the caller may grant: their own roles' grants, or unrestricted for an administrator")
+    public ApiResponse<GrantCeilingView> getGrantCeiling() {
+        List<RoleGrantCeiling.Grants> grants = roleGrantCeiling.callerGrants();
+        return ApiResponse.success(grants == null ? GrantCeilingView.UNRESTRICTED : new GrantCeilingView(false, grants));
+    }
+
+    /** The caller's roles' grants, or {@code unrestricted} when no ceiling applies. */
+    public record GrantCeilingView(boolean unrestricted, List<RoleGrantCeiling.Grants> roles) {
+        static final GrantCeilingView UNRESTRICTED = new GrantCeilingView(true, List.of());
     }
 
     // ─────────────────── per-model options (role wizard data step) ───────────────────
@@ -243,9 +263,9 @@ public class NavigationConfigOptionsController {
         return sfs().attachedByModel().getOrDefault(model, Set.of());
     }
 
-    /** Lazy cache of the {@code SensitiveFieldSet} table, indexed for the wizard.
-     *  Replaces the permission-starter {@code SensitiveFieldSetCache}; only
-     *  super-admins reach this endpoint, so the read is not scope-filtered. */
+    /** Lazy cache of the {@code SensitiveFieldSet} table, indexed for the wizard. A platform catalogue
+     *  that is the same for every caller, and the cache is shared by all of them, so it is read in the
+     *  system context: read as a role manager without a range on it, it came back empty and stayed so. */
     private volatile SfsIndex sfsIndex;
 
     private SfsIndex sfs() {
@@ -253,8 +273,8 @@ public class NavigationConfigOptionsController {
         if (idx != null) {
             return idx;
         }
-        List<SensitiveFieldSetView> rows =
-                modelService.searchList("SensitiveFieldSet", new FlexQuery(), SensitiveFieldSetView.class);
+        List<SensitiveFieldSetView> rows = inSystemContext(() ->
+                modelService.searchList("SensitiveFieldSet", new FlexQuery(), SensitiveFieldSetView.class));
         Map<String, Set<String>> owned = new HashMap<>();
         Map<String, Set<String>> attached = new HashMap<>();
         Map<String, String> names = new HashMap<>();
@@ -299,8 +319,7 @@ public class NavigationConfigOptionsController {
      * {@code DataScopeType} registry × the model's field shape — the same rule
      * {@code ScopeApplicabilityResolver} applies on the enforce side, computed
      * here from data so this wizard needs no dependency on the permission engine.
-     * {@code "ALL"} is always included. Only super-admins reach this endpoint, so
-     * the {@code DataScopeType} read is not scope-filtered.
+     * {@code "ALL"} is always included.
      */
     private List<String> applicableScopeCodes(String model) {
         Set<String> out = new LinkedHashSet<>();
@@ -324,8 +343,10 @@ public class NavigationConfigOptionsController {
         if (cached != null) {
             return cached;
         }
-        List<DataScopeTypeView> loaded =
-                modelService.searchList("DataScopeType", new FlexQuery(), DataScopeTypeView.class);
+        // The registry is the same for every caller and the cache is shared, so it is read in the system
+        // context: read as a role manager without a range on it, every model offered All alone.
+        List<DataScopeTypeView> loaded = inSystemContext(() ->
+                modelService.searchList("DataScopeType", new FlexQuery(), DataScopeTypeView.class));
         if (!loaded.isEmpty()) {
             scopeTypes = loaded;
         }
