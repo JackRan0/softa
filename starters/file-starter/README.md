@@ -160,6 +160,12 @@ The `fieldName` in ImportTemplateField (or `importFieldDTOList` in dynamic impor
 - When a lookup fails (no matching record found):
   - If `skipException = true`: the row is marked as failed with a reason message.
   - If `skipException = false`: a `ValidationException` is thrown immediately.
+- **A row may name another row of the same file through a many-to-one onto its own model** — an employee's `piEmployeeId.code`, a department's `parentId.code`. The lookup only sees stored rows and runs before any row of the file is written, so such a value used to fail as "Cannot find …" whatever the row order. Now, when it matches nothing stored but matches another row's own values for the same fields (`code`, compared trimmed), it is recorded as an in-file reference (`InFileReferences`, carried on `ImportDataDTO.inFileReferences`) instead of failing, and the file is **written in layers**: rows naming nobody in the file first, then the rows naming them, and so on. Each layer's references are filled from the ids the earlier layers went in under, so a row is inserted with its manager already set — write validators see it — rather than patched afterwards. The rules:
+  - Only a plain many-to-one onto the importing model qualifies (not to-many, not one-to-one); every other lookup is unchanged, and a file without such references is written in one go as before.
+  - Settled before anything is written, in the preview too: rows naming each other round a loop fail together (`Manager forms a loop within this file: E1 → E2 → E1.`), a row naming itself fails, and a row naming a row that failed fails with that reason (`Manager E1 is a row of this file that was not imported.`), transitively. A target that fails at the write takes its dependants down the same way at the next layer.
+  - `skipException = true` commits layer by layer, as it already committed row by row on a failed batch. `skipException = false` writes every layer in one transaction, so the file stays all or nothing.
+  - The custom handler still sees the whole file once, and `afterImportData` is called once with every layer's rows.
+  - **To the custom handler such a field reads as empty** — the write fills it in later — so a rule that reads it would mistake a department whose parent is in the file for a root. While the handler runs, `InFileReferences.targetOf(row, field)` returns the row of the file that `row` names through `field` (or `null`); a handler whose rules read a self-referencing field must ask it first.
 
 #### 1.1.1 Nested OneToOne Import (Cascade Write)
 
