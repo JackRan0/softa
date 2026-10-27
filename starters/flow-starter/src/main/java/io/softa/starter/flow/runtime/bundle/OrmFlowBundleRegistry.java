@@ -18,6 +18,7 @@ import io.softa.framework.base.context.ContextUtils;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.entity.FlowBundle;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.service.FlowBundleService;
@@ -277,6 +278,7 @@ public class OrmFlowBundleRegistry implements FlowBundleRegistry {
         String model = switch (definition.getTrigger()) {
             case EntityChangeTrigger trigger -> trigger.modelName();
             case FieldChangeTrigger trigger -> trigger.modelName();
+            case SubmitTrigger trigger -> trigger.modelName();
             case null, default -> null;
         };
         return StringUtils.hasText(model) ? model : ANY_MODEL;

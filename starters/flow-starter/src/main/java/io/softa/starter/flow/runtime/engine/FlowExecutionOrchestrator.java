@@ -5,6 +5,7 @@ import java.time.ZoneId;
 import java.util.*;
 import org.springframework.stereotype.Component;
 
+import io.softa.starter.flow.enums.EmptyApproverStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
@@ -90,7 +91,6 @@ public class FlowExecutionOrchestrator {
                                    CompiledFlowDefinition definition,
                                    CompiledFlowNode node) {
         state.getPendingApprovals().removeIf(item -> pendingApproval.getNodeId().equals(item.getNodeId()));
-        state.setReturnedApproval(null);
         addCompletedNode(state, node.getNodeId());
         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.APPROVAL_RESUMED,
                 "Approval granted for node " + node.getNodeId());
@@ -225,18 +225,25 @@ public class FlowExecutionOrchestrator {
                 case NodeOutcome.WaitApproval _ -> {
                     PendingApproval pendingApproval = pendingApprovalFactory.buildPendingApproval(definition, node, state);
                     if (pendingApproval == null) {
+                        // Nobody to approve: the node's empty-approver strategy skips it, or approves it on record.
+                        boolean autoApproved = EmptyApproverStrategy.AUTO_APPROVE.equals(
+                                pendingApprovalFactory.resolveEmptyApproverStrategy(node));
+                        if (autoApproved) {
+                            auditService.appendEmptyStepAutoApproval(state, definition, node);
+                        }
                         addCompletedNode(state, node.getNodeId());
                         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
-                                "Approval node " + node.getNodeId() + " skipped (empty approver strategy)");
+                                "Approval node " + node.getNodeId() + (autoApproved ? " auto-approved" : " skipped")
+                                        + " (no approver)");
                         enqueueNextNodes(definition, node, queue, state, ctx);
                         continue;
                     }
-                    // Approver consolidation (审批人去重): auto-approve approvers who already approved this
-                    // instance; if the node is thereby complete, advance instead of waiting.
+                    // Automatic approvals — the submitter in their own step, approver consolidation (审批人去重);
+                    // if the node is thereby complete, advance instead of waiting.
                     if (approverDedupService.applyAndCheckComplete(definition, node, state, pendingApproval)) {
                         addCompletedNode(state, node.getNodeId());
                         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.COMPLETE_NODE,
-                                "Approval node " + node.getNodeId() + " auto-approved (approver dedup)");
+                                "Approval node " + node.getNodeId() + " auto-approved");
                         enqueueNextNodes(definition, node, queue, state, ctx);
                         continue;
                     }
@@ -324,9 +331,7 @@ public class FlowExecutionOrchestrator {
                 .variables(new LinkedHashMap<>(childCtx.getVars()))
                 .completedNodeIds(new ArrayList<>())
                 .pendingApprovals(new ArrayList<>())
-                .returnedApproval(null)
                 .approvalAuditDelta(new ArrayList<>())
-                .resubmissionCount(0)
                 .joinArrivalCounts(new LinkedHashMap<>())
                 .trace(new ArrayList<>())
                 .build();
@@ -372,22 +377,31 @@ public class FlowExecutionOrchestrator {
     private boolean shouldWaitForParallelJoin(CompiledFlowDefinition definition,
                                               FlowExecutionState state,
                                               CompiledFlowNode node) {
-        boolean isParallelJoin = FlowNodeType.PARALLEL_JOIN.equals(node.getType());
-        if (!isParallelJoin) {
+        if (!isParallelJoin(node)) {
             return false;
         }
-        boolean isJoin = node.getIncomingEdgeIds().size() > 1 && node.getOutgoingEdgeIds().size() <= 1;
-        if (!isJoin) {
-            return false;
-        }
-        String counterKey = definition.getFlowId() + ":" + node.getNodeId();
-        int arrivals = state.getJoinArrivalCounts().merge(counterKey, 1, Integer::sum);
-        if (arrivals < node.getIncomingEdgeIds().size()) {
+        if (joinStillWaits(definition, state, node)) {
             return true;
         }
         auditService.addTrace(state, definition.getFlowId(), node, FlowTraceEventType.JOIN_PARALLEL,
                 "All branches joined at " + node.getNodeId());
         return false;
+    }
+
+    /** A parallel join: several branches come in, at most one goes on. */
+    static boolean isParallelJoin(CompiledFlowNode node) {
+        return FlowNodeType.PARALLEL_JOIN.equals(node.getType())
+                && node.getIncomingEdgeIds().size() > 1 && node.getOutgoingEdgeIds().size() <= 1;
+    }
+
+    /**
+     * Counts a branch's arrival at a parallel join in {@code state}: whether the join still waits for
+     * other branches. The approval path preview counts its arrivals the same way.
+     */
+    static boolean joinStillWaits(CompiledFlowDefinition definition, FlowExecutionState state, CompiledFlowNode node) {
+        String counterKey = definition.getFlowId() + ":" + node.getNodeId();
+        int arrivals = state.getJoinArrivalCounts().merge(counterKey, 1, Integer::sum);
+        return arrivals < node.getIncomingEdgeIds().size();
     }
 
     // ── Transition resolution ─────────────────────────────────────────────────

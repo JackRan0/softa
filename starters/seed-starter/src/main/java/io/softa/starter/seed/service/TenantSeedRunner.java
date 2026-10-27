@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -17,6 +18,7 @@ import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.seed.dto.*;
 import io.softa.starter.seed.entity.SeedLoadRecord;
 import io.softa.starter.seed.entity.SysPreData;
+import io.softa.starter.seed.event.SeedFileLoadedEvent;
 import io.softa.starter.seed.enums.SeedLoadStatus;
 import io.softa.starter.seed.enums.SeedLoadType;
 import io.softa.starter.seed.enums.SeedRecordStatus;
@@ -44,16 +46,19 @@ public class TenantSeedRunner {
     private final SysPreDataService preDataService;
     private final CacheService cacheService;
     private final TransactionTemplate transaction;
+    private final ApplicationEventPublisher eventPublisher;
 
     public TenantSeedRunner(SeedCatalog catalog, SeedLoadLog loadLog, TenantSeedPlanner planner,
                             SysPreDataService preDataService, CacheService cacheService,
-                            PlatformTransactionManager transactionManager) {
+                            PlatformTransactionManager transactionManager,
+                            ApplicationEventPublisher eventPublisher) {
         this.catalog = catalog;
         this.loadLog = loadLog;
         this.planner = planner;
         this.preDataService = preDataService;
         this.cacheService = cacheService;
         this.transaction = new TransactionTemplate(transactionManager);
+        this.eventPublisher = eventPublisher;
     }
 
     // ─────────────────────────── running ───────────────────────────
@@ -188,7 +193,10 @@ public class TenantSeedRunner {
         LoadMode mode = file.overwrite() ? LoadMode.OVERWRITE : LoadMode.ADDITIVE;
         try {
             transaction.executeWithoutResult(status -> {
-                preDataService.loadPreTenantData(List.of(file.file()), tenantId, mode);
+                Map<String, List<String>> created = preDataService.loadPreTenantData(List.of(file.file()), tenantId, mode);
+                if (!created.isEmpty()) {
+                    announceLoaded(tenantId, file, created);
+                }
                 loadLog.record(batchId, tenantId, tenantName, file, SeedRecordStatus.SUCCEEDED, null, start);
             });
             return null;
@@ -198,6 +206,15 @@ public class TenantSeedRunner {
             loadLog.record(batchId, tenantId, tenantName, file, SeedRecordStatus.FAILED, error, start);
             return error;
         }
+    }
+
+    /**
+     * Publish {@link SeedFileLoadedEvent} in the tenant's context with permission checks skipped,
+     * like the load itself: listeners act on the tenant's new rows, whoever started the run.
+     */
+    private void announceLoaded(Long tenantId, SeedFile file, Map<String, List<String>> created) {
+        ContextUtils.inTenantContext(tenantId,
+                () -> eventPublisher.publishEvent(new SeedFileLoadedEvent(tenantId, file.file(), created)));
     }
 
     /** Record the tenant files the tenant already has rows of, as run; the outcome counts them. */

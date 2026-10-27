@@ -30,8 +30,11 @@ public interface SysPreDataService extends EntityService<SysPreData, Long> {
      * @param fileNames file names relative to the directory, loaded in this order
      * @param tenantId  the tenant the rows are written to
      * @param mode      how rows the tenant already has are treated
+     * @return the rows the load created, by model, ids as strings — a row an earlier load had already
+     *         created (and this one updated or left alone) is not included; a bound row found deleted and
+     *         recreated is
      */
-    void loadPreTenantData(List<String> fileNames, Long tenantId, LoadMode mode);
+    Map<String, List<String>> loadPreTenantData(List<String> fileNames, Long tenantId, LoadMode mode);
 
     /**
      * Load the platform tenant's seed files from {@code resources/data-platform}. Rows land on the platform

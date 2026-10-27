@@ -4,52 +4,50 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Configuration properties for the default {@link MetadataOrganizationService}.
- * Maps metadata model names and field names to the organizational data model.
+ * Configuration properties for the default {@link FlowOrgService}: the models and fields it reads
+ * the organization from. The defaults follow the HR conventions permission-starter already reads
+ * ({@code Employee}, {@code Department}, user-starter's {@code UserRoleRel} and {@code Role}), so an
+ * application on those models configures nothing.
  */
 @Data
 @ConfigurationProperties(prefix = "softa.flow.org")
 public class OrganizationServiceProperties {
 
-    /** Metadata model name for employees / users. */
-    private String employeeModel = "EmpInfo";
-
-    /** Metadata model name for departments. */
-    private String departmentModel = "DeptInfo";
-
-    /** Field on the employee model that holds the user ID (primary key). */
-    private String userIdField = "id";
-
+    /** Employee model. */
+    private String employeeModel = "Employee";
+    /** Field on the employee model that holds the employee's login account id — the approver id. */
+    private String accountIdField = "userId";
     /** Field on the employee model that holds the display name. */
-    private String nameField = "name";
+    private String nameField = "fullName";
+    /** Field on the employee model that holds the department id. */
+    private String deptIdField = "departmentId";
+    /** Field on the employee model that holds the job position id. */
+    private String positionIdField = "jobPositionId";
+    /** Field on the employee model that holds the direct supervisor's employee id. */
+    private String supervisorIdField = "piEmployeeId";
 
-    /** Field on the employee model that holds the department ID. */
-    private String deptIdField = "deptId";
-
-    /** Field on the department model that holds the department name. */
+    /** Department model. */
+    private String departmentModel = "Department";
+    /** Field on the department model that holds its name. */
     private String deptNameField = "name";
-
-    /** Field on the employee model that holds the position ID. */
-    private String positionIdField = "positionId";
-
-    /** Field on the employee model that holds the direct manager's user ID. */
-    private String supervisorIdField = "managerId";
-
-    /** Field on the department model that holds the department leader's user ID. */
-    private String deptLeaderIdField = "leaderId";
-
-    /** Field on the department model that holds the parent department ID. */
+    /** Field on the department model that holds the department leader's employee id. */
+    private String deptLeaderIdField = "picEmpId";
+    /** Field on the department model that holds the department HRBP's employee id. */
+    private String deptHrbpIdField = "hrbpEmpId";
+    /** Field on the department model that holds the parent department id. */
     private String parentDeptIdField = "parentId";
 
-    /** Metadata model name for role assignments (user-role mapping). */
-    private String roleModel = "EmpRole";
-
-    /** Field on the role model that holds the role ID. */
+    /** User-role assignment model. */
+    private String roleModel = "UserRoleRel";
+    /** Field on the assignment model that holds the role id. */
     private String roleIdField = "roleId";
+    /** Field on the assignment model that holds the login account id. */
+    private String roleUserIdField = "userId";
+    /** Role model, for looking roles up by code. */
+    private String roleDefinitionModel = "Role";
+    /** Field on the role model that holds the role code. */
+    private String roleCodeField = "code";
 
-    /** Field on the role model that holds the user ID. */
-    private String roleUserIdField = "empId";
-
-    /** Maximum depth for recursive sub-department traversal (prevents infinite loops). */
+    /** Maximum depth of department traversal, up or down (guards against cycles). */
     private int maxDeptDepth = 10;
 }

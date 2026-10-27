@@ -76,8 +76,7 @@ public final class TestFlowRuntimeFactory {
                 new CcActionHandler(contextService, actorValidator, auditService, notificationService),
                 new BatchCcActionHandler(contextService, actorValidator, auditService),
                 new ReadCcActionHandler(contextService, auditService),
-                new ReturnApprovalActionHandler(contextService, lifecycleService, auditService, pendingApprovalFactory),
-                new ResubmitActionHandler(contextService, auditService, pendingApprovalFactory),
+                new ReturnApprovalActionHandler(contextService, auditService, notificationService),
                 new WithdrawActionHandler(contextService, auditService),
                 new UrgeActionHandler(contextService, auditService, notificationService),
                 new CommentActionHandler(contextService, auditService));

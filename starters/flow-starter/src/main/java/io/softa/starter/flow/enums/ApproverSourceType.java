@@ -20,6 +20,7 @@ public enum ApproverSourceType {
     ROLE("Role"),
     SUPERVISOR("Supervisor"),
     DEPT_LEADER("DeptLeader"),
+    DEPT_HRBP("DeptHrbp"),
     ROLE_QUERY("RoleQuery"),
     POSITION("Position"),
     DEPARTMENT("Department"),

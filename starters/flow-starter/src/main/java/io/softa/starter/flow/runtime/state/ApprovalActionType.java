@@ -21,7 +21,6 @@ public enum ApprovalActionType {
     CC("Cc"),
     READ("Read"),
     RETURN("Return"),
-    RESUBMIT("Resubmit"),
     WITHDRAW("Withdraw"),
     URGE("Urge"),
     COMMENT("Comment"),

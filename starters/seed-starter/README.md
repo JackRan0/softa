@@ -201,6 +201,12 @@ interrupted (its instance went down), and the next operation closes it as `INTER
 
 When a tenant runs any file, the cached permission snapshots of its users (`perm:{tenantId}:*`) are cleared.
 
+A file that created rows announces them with a `SeedFileLoadedEvent` (tenant, file, the new row ids by
+model) — rows bound by an earlier load do not count. It is published inside the file's transaction, in the
+tenant's context with permission checks skipped, so listeners act on the tenant's new rows whoever started
+the run, and a listener that throws fails the file like a load error would. flow-starter listens for it to
+publish the default flows a file brings (`FlowDesign` rows).
+
 After a deploy, load the platform files before running the tenants. Tenant files refer to platform rows
 (roles to permissions, leave types to countries), and a reference to a row that is not loaded yet fails the
 file.

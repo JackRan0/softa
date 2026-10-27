@@ -15,8 +15,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.type.TypeReference;
 
-import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.domain.Filters;
@@ -630,8 +630,6 @@ public class UserListViewPreferenceServiceImpl extends EntityServiceImpl<UserLis
      * would fail closed. {@link #findMine} narrows to the caller's own rows instead.
      */
     private static <R> R asSystem(Supplier<R> action) {
-        Context ctx = ContextHolder.cloneContext();
-        ctx.setSkipPermissionCheck(true);
-        return ContextHolder.callWith(ctx, action::get);
+        return ContextUtils.withoutPermissionChecks(action);
     }
 }

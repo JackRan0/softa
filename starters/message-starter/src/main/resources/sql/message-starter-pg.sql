@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS inbox_notification (
     content VARCHAR(64),
     notification_type VARCHAR(64),
     source_model VARCHAR(50),
-    source_id BIGINT,
+    source_id VARCHAR(64),
     is_read BOOLEAN,
     read_at TIMESTAMP,
     expired_at TIMESTAMP,
@@ -75,7 +75,7 @@ COMMENT ON COLUMN inbox_notification.tenant_id IS '0 = platform-level (shared ac
 COMMENT ON COLUMN inbox_notification.content IS 'Notification body content';
 COMMENT ON COLUMN inbox_notification.notification_type IS 'Source category: System, Workflow, or Manual';
 COMMENT ON COLUMN inbox_notification.source_model IS 'Source metadata model name (matches SysModel.modelName), e.g. FlowInstance (nullable)';
-COMMENT ON COLUMN inbox_notification.source_id IS 'Source object ID (nullable)';
+COMMENT ON COLUMN inbox_notification.source_id IS 'Source object ID as text, so string-keyed sources fit too — e.g. a FlowInstance''s runtime instance id (nullable)';
 COMMENT ON COLUMN inbox_notification.is_read IS 'Whether the recipient has read this notification';
 COMMENT ON COLUMN inbox_notification.read_at IS 'Timestamp when the notification was read';
 COMMENT ON COLUMN inbox_notification.expired_at IS 'Optional expiry time after which the notification is no longer shown';

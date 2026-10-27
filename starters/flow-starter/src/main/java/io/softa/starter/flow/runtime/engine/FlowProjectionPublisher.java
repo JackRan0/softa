@@ -3,6 +3,7 @@ package io.softa.starter.flow.runtime.engine;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 /**
@@ -11,6 +12,10 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
  * <p>
  * Listeners are auto-discovered by Spring DI (any bean implementing
  * {@code FlowStateChangeListener} is automatically included).
+ * <p>
+ * Listeners run past the caller's data permissions: the projections they keep — approval tasks,
+ * parallel branches, the outcome written back onto an approved record — follow from an action the
+ * engine has already authorized, and the actor rarely holds a grant on those tables.
  */
 @Component
 public class FlowProjectionPublisher {
@@ -25,9 +30,11 @@ public class FlowProjectionPublisher {
      * Notify all listeners about a state change.
      */
     public void publish(FlowExecutionState state) {
-        for (FlowStateChangeListener listener : listeners) {
-            listener.onStateChanged(state);
-        }
+        ContextUtils.withoutPermissionChecks(() -> {
+            for (FlowStateChangeListener listener : listeners) {
+                listener.onStateChanged(state);
+            }
+        });
     }
 }
 

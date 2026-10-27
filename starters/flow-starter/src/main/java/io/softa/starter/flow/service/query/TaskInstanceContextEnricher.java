@@ -7,6 +7,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.service.FlowInstanceService;
@@ -15,7 +16,8 @@ import io.softa.starter.flow.service.FlowInstanceService;
  * Batch-enriches approval task views with their owning instance's business
  * context (title / bound model / row id / execution status) — ONE `IN` query
  * per page instead of an N+1 the frontend cannot even perform itself (the
- * runtime instance read is participant-scoped).
+ * runtime instance read is participant-scoped). The instances are read past the caller's data
+ * permissions: the views were already authorized, as the caller's own tasks or by the access guard.
  */
 @Component
 public class TaskInstanceContextEnricher {
@@ -38,7 +40,8 @@ public class TaskInstanceContextEnricher {
         if (instanceIds.isEmpty()) {
             return;
         }
-        Map<String, FlowInstance> byInstanceId = instanceService.findByInstanceIds(instanceIds).stream()
+        Map<String, FlowInstance> byInstanceId = ContextUtils.withoutPermissionChecks(
+                        () -> instanceService.findByInstanceIds(instanceIds)).stream()
                 .collect(Collectors.toMap(FlowInstance::getInstanceId, Function.identity(), (a, b) -> a));
         for (FlowApprovalTaskView view : views) {
             FlowInstance instance = byInstanceId.get(view.getInstanceId());

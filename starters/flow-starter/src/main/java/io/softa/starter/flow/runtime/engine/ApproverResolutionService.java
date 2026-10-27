@@ -59,6 +59,7 @@ public class ApproverResolutionService {
             case "Role" -> resolveRoleApprovers(resolutionVariables, asString(source.get("roleCode")));
             case "Supervisor" -> resolveSupervisor(resolutionVariables, source);
             case "DeptLeader" -> resolveDeptLeader(resolutionVariables, source);
+            case "DeptHrbp" -> resolveDeptHrbp(resolutionVariables, source);
             case "RoleQuery" -> resolveRoleQuery(resolutionVariables, source);
             case "Position" -> resolvePosition(source);
             case "Department" -> resolveDepartment(resolutionVariables, source);
@@ -145,15 +146,40 @@ public class ApproverResolutionService {
         return leader == null ? null : leader.getUserIdAsString();
     }
 
+    private Object resolveDeptHrbp(Map<String, Object> variables, Map<String, Object> source) {
+        if (organizationService == null) {
+            return null;
+        }
+        Long deptId = parseLong(source.get("deptId"));
+        if (deptId == null) {
+            deptId = resolveInitiatorDeptId(variables);
+        }
+        if (deptId == null) {
+            return null;
+        }
+        ApproverInfo hrbp = organizationService.getDeptHrbp(deptId);
+        return hrbp == null ? null : hrbp.getUserIdAsString();
+    }
+
     private Object resolveRoleQuery(Map<String, Object> variables, Map<String, Object> source) {
         if (organizationService == null) {
             return null;
         }
+        // Holders of the roles named by id, by code, or both. Codes are the same in every tenant, so
+        // seeded templates name built-in roles by code; ids reach the tenant's own roles, which have none.
+        List<String> roleCodes = parseStringList(source.get("roleCodes"));
         List<Long> roleIds = parseLongList(source.get("roleIds"));
-        if (roleIds == null || roleIds.isEmpty()) {
+        if ((roleCodes == null || roleCodes.isEmpty()) && (roleIds == null || roleIds.isEmpty())) {
             return null;
         }
-        List<ApproverInfo> users = organizationService.getUsersByRoleIds(roleIds);
+        Map<Long, ApproverInfo> holders = new LinkedHashMap<>();
+        if (roleIds != null && !roleIds.isEmpty()) {
+            organizationService.getUsersByRoleIds(roleIds).forEach(user -> holders.putIfAbsent(user.getUserId(), user));
+        }
+        if (roleCodes != null && !roleCodes.isEmpty()) {
+            organizationService.getUsersByRoleCodes(roleCodes).forEach(user -> holders.putIfAbsent(user.getUserId(), user));
+        }
+        List<ApproverInfo> users = List.copyOf(holders.values());
         String deptScope = asString(source.get("deptScope"));
         if ("INITIATOR_DEPT".equals(deptScope)) {
             Long initiatorDeptId = resolveInitiatorDeptId(variables);
@@ -259,6 +285,17 @@ public class ApproverResolutionService {
         } catch (NumberFormatException e) {
             return defaultValue;
         }
+    }
+
+    private List<String> parseStringList(Object val) {
+        if (!(val instanceof Collection<?> coll)) {
+            return null;
+        }
+        return coll.stream()
+                .filter(Objects::nonNull)
+                .map(Object::toString)
+                .filter(StringUtils::hasText)
+                .toList();
     }
 
     private List<Long> parseLongList(Object val) {

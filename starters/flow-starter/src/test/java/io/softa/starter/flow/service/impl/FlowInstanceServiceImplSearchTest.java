@@ -21,8 +21,8 @@ import static org.mockito.Mockito.verify;
 
 /**
  * Tests for {@link FlowInstanceServiceImpl#searchSummaries} — the filter and
- * projection builder shared by the runtime "my instances" endpoint and the
- * cross-initiator monitor endpoint.
+ * projection builder shared by the caller's "my instances" reads (REST and
+ * {@code FlowClient}) and the cross-initiator monitor endpoint.
  */
 class FlowInstanceServiceImplSearchTest {
 
@@ -84,8 +84,8 @@ class FlowInstanceServiceImplSearchTest {
         List<String> fields = queryCaptor.getValue().getFields();
         assertEquals(16, fields.size());
         assertTrue(fields.containsAll(List.of("id", "instanceId", "bundleId", "flowId", "flowName",
-                "flowRevision", "title", "modelName", "rowId", "initiatorId", "status", "failedNodeId",
-                "nextFireAt", "resubmissionCount", "createdTime", "updatedTime")));
+                "flowRevision", "title", "modelName", "rowId", "initiatorId", "recordApproval", "status",
+                "failedNodeId", "nextFireAt", "createdTime", "updatedTime")));
         assertFalse(fields.contains("variables"));
         assertFalse(fields.contains("inputPayload"));
         assertFalse(fields.contains("pendingApprovals"));

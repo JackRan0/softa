@@ -106,6 +106,31 @@ class ApproverResolutionServiceOrgTest {
     // ── RoleQuery ───────────────────────────────────────────────────────
 
     @Test
+    void deptHrbpDefaultsToInitiatorDept() {
+        when(orgService.getUserDeptId(100L)).thenReturn(10L);
+        when(orgService.getDeptHrbp(10L)).thenReturn(new ApproverInfo(400L, "HRBP"));
+
+        CompiledFlowNode node = approvalNode(Map.of("type", "DeptHrbp"));
+
+        assertEquals(List.of("400"), service.resolveApprovers(node, varsWithInitiator("100")));
+    }
+
+    @Test
+    void roleQueryResolvesHoldersOfRolesNamedByIdAndByCode() {
+        when(orgService.getUsersByRoleIds(List.of(9L)))
+                .thenReturn(List.of(new ApproverInfo(500L, "Admin"), new ApproverInfo(600L, "Clerk")));
+        when(orgService.getUsersByRoleCodes(List.of("HR_ADMIN")))
+                .thenReturn(List.of(new ApproverInfo(500L, "Admin"), new ApproverInfo(700L, "Officer")));
+
+        CompiledFlowNode node = approvalNode(Map.of(
+                "type", "RoleQuery",
+                "roleCodes", List.of("HR_ADMIN"),
+                "roleIds", List.of(9)));
+
+        assertEquals(List.of("500", "600", "700"), service.resolveApprovers(node, varsWithInitiator("100")));
+    }
+
+    @Test
     void roleQueryResolvesAllUsersWithRole() {
         when(orgService.getUsersByRoleIds(List.of(1L, 2L)))
                 .thenReturn(List.of(

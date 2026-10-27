@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
 import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
@@ -14,14 +15,15 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.state.PendingApproval;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link ApproverDedupService}: the GLOBAL / CONTIGUOUS distinction and the
- * resubmission-cycle guard (a prior approval before the last RETURN/RESUBMIT is discounted).
+ * Unit tests for {@link ApproverDedupService}: the GLOBAL / CONTIGUOUS distinction, and the
+ * submitter's own approval on a submit flow (recorded, and counted by the step's approval mode).
  */
 class ApproverDedupServiceTest {
 
@@ -36,6 +38,12 @@ class ApproverDedupServiceTest {
 
     private static CompiledFlowDefinition def(ApproverDedupStrategy strategy) {
         return CompiledFlowDefinition.builder().flowId("f").approverDedup(strategy).build();
+    }
+
+    /** A submit flow — a record's approval — with approver dedup switched off. */
+    private static CompiledFlowDefinition submitFlow() {
+        return CompiledFlowDefinition.builder().flowId("f").approverDedup(ApproverDedupStrategy.NONE)
+                .trigger(new SubmitTrigger("LeaveRequest", null)).build();
     }
 
     private static CompiledFlowNode node(String id) {
@@ -77,16 +85,51 @@ class ApproverDedupServiceTest {
     }
 
     @Test
-    void resubmitCycleGuardDiscountsApprovalsBeforeTheResubmit() {
-        FlowExecutionState state = stateWith(
-                entry(ApprovalActionType.APPROVE, "ap1", X),
-                entry(ApprovalActionType.RESUBMIT, "ap1", X)); // document changed -> prior approval void
-        PendingApproval pending = pendingFor(X, "ap2");
+    void theSubmittersOwnStepIsApprovedOnRecord() {
+        FlowExecutionState state = stateWith();
+        state.setInitiatorId(X);
+        PendingApproval pending = pendingFor(X, "ap1");
 
-        boolean complete = service.applyAndCheckComplete(def(ApproverDedupStrategy.GLOBAL), node("ap2"), state, pending);
+        boolean complete = service.applyAndCheckComplete(submitFlow(), node("ap1"), state, pending);
 
-        assertFalse(pending.getApprovedActors().contains(X), "approval before the resubmit must be discounted");
-        assertFalse(complete, "X must approve ap2 again after a resubmit");
+        assertTrue(complete, "a step whose only approver is the submitter passes");
+        ApprovalActionAuditEntry approval = state.getApprovalAuditDelta().getLast();
+        assertEquals(ApprovalActionType.AUTO_APPROVE, approval.getAction());
+        assertEquals(X, approval.getActorId());
+        assertEquals("Auto-approved (submitter)", approval.getComment());
+    }
+
+    @Test
+    void anAnyOneStepPassesOnTheSubmittersApproval() {
+        FlowExecutionState state = stateWith();
+        state.setInitiatorId(X);
+        PendingApproval pending = pendingFor(X, "ap1");
+        pending.getApprovers().add(Y);
+
+        assertTrue(service.applyAndCheckComplete(submitFlow(), node("ap1"), state, pending));
+        assertEquals(List.of(X), pending.getApprovedActors());
+    }
+
+    @Test
+    void anAllApproveStepStillWaitsForTheOthers() {
+        FlowExecutionState state = stateWith();
+        state.setInitiatorId(X);
+        PendingApproval pending = pendingFor(X, "ap1");
+        pending.getApprovers().add(Y);
+        pending.setRequiredApprovalCount(2);
+
+        assertFalse(service.applyAndCheckComplete(submitFlow(), node("ap1"), state, pending));
+        assertEquals(List.of(X), pending.getApprovedActors(), "the submitter counts; Y still has to approve");
+    }
+
+    @Test
+    void onAFlowThatApprovesNoRecordTheInitiatorIsAskedLikeAnyApprover() {
+        FlowExecutionState state = stateWith();
+        state.setInitiatorId(X);
+        PendingApproval pending = pendingFor(X, "ap1");
+
+        assertFalse(service.applyAndCheckComplete(def(ApproverDedupStrategy.NONE), node("ap1"), state, pending));
+        assertTrue(pending.getApprovedActors().isEmpty());
     }
 
     @Test

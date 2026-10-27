@@ -11,8 +11,8 @@ import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
 /**
  * Single read path for an instance's full approval action history: the committed ledger
  * rows plus the state's unflushed delta tail. Mid-attempt readers (approver dedup, cycle
- * numbering after a same-transaction resubmit) see entries appended earlier in the same
- * attempt; request-time readers see exactly the committed rows.
+ * numbering) see entries appended earlier in the same attempt; request-time readers see
+ * exactly the committed rows.
  */
 @Component
 public class ApprovalAuditReader {

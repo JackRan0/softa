@@ -20,8 +20,8 @@ public record FlowInstanceSearchRequest(
         FlowExecutionStatus status,
 
         @Schema(description = "Filter by initiator id. Honored only by the monitor endpoint "
-                + "(POST /flow/monitor/instances/search); the runtime endpoint always overrides "
-                + "it with the authenticated caller")
+                + "(POST /flow/monitor/instances/search); POST /flow/instances/search always "
+                + "overrides it with the authenticated caller")
         String initiatorId,
 
         @Schema(description = "Filter by related model name")

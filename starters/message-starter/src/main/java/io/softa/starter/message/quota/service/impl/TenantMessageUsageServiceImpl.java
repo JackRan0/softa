@@ -10,8 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import io.softa.framework.base.context.Context;
-import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.VersionException;
 import io.softa.framework.orm.domain.Filters;
@@ -74,9 +73,7 @@ public class TenantMessageUsageServiceImpl extends EntityServiceImpl<TenantMessa
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void tryConsumeOnce(String channel, long tenantId, String month, Long limit) {
-        Context ctx = ContextHolder.cloneContext();
-        ctx.setSkipPermissionCheck(true);
-        ContextHolder.runWith(ctx, () -> {
+        ContextUtils.withoutPermissionChecks(() -> {
             boolean mail = "mail".equals(channel);
             Optional<TenantMessageUsage> existing = searchOne(new Filters()
                     .eq(TenantMessageUsage::getTenantId, tenantId)
@@ -140,9 +137,7 @@ public class TenantMessageUsageServiceImpl extends EntityServiceImpl<TenantMessa
 
     @Override
     public Optional<TenantMessageUsage> findByBucketAndMonth(long tenantId, YearMonth month) {
-        Context ctx = ContextHolder.cloneContext();
-        ctx.setSkipPermissionCheck(true);
-        return ContextHolder.callWith(ctx, () -> searchOne(new Filters()
+        return ContextUtils.withoutPermissionChecks(() -> searchOne(new Filters()
                 .eq(TenantMessageUsage::getTenantId, tenantId)
                 .eq(TenantMessageUsage::getMonth, MONTH_FMT.format(month))));
     }

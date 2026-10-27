@@ -36,14 +36,11 @@ CREATE TABLE IF NOT EXISTS flow_approval_record (
     actor_id VARCHAR(64),
     target_actor_id VARCHAR(64),
     add_sign_position VARCHAR(64),
-    target_node_id VARCHAR(100),
-    target_node_label VARCHAR(200),
     comment VARCHAR(2000),
     status_before VARCHAR(64),
     status_after VARCHAR(64),
     approved_actors VARCHAR(4000),
     rejected_actors VARCHAR(4000),
-    variable_keys VARCHAR(2000),
     event_time TIMESTAMP,
     created_time TIMESTAMP,
     created_id BIGINT,
@@ -64,14 +61,11 @@ COMMENT ON COLUMN flow_approval_record.action IS 'Action type';
 COMMENT ON COLUMN flow_approval_record.actor_id IS 'Operator actor id';
 COMMENT ON COLUMN flow_approval_record.target_actor_id IS 'Target actor id';
 COMMENT ON COLUMN flow_approval_record.add_sign_position IS 'Add-sign position when the record represents an add-sign action';
-COMMENT ON COLUMN flow_approval_record.target_node_id IS 'Target node id';
-COMMENT ON COLUMN flow_approval_record.target_node_label IS 'Target node label';
 COMMENT ON COLUMN flow_approval_record.comment IS 'Comment';
 COMMENT ON COLUMN flow_approval_record.status_before IS 'Status before action';
 COMMENT ON COLUMN flow_approval_record.status_after IS 'Status after action';
 COMMENT ON COLUMN flow_approval_record.approved_actors IS 'Actors who had already approved';
 COMMENT ON COLUMN flow_approval_record.rejected_actors IS 'Actors who had already rejected';
-COMMENT ON COLUMN flow_approval_record.variable_keys IS 'Updated variable keys';
 COMMENT ON COLUMN flow_approval_record.event_time IS 'Recorded time';
 CREATE UNIQUE INDEX IF NOT EXISTS uk_flow_approval_record_instance_id_sequence ON flow_approval_record (instance_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_flow_approval_record_tenant_id_instance_id ON flow_approval_record (tenant_id, instance_id);
@@ -412,8 +406,9 @@ CREATE TABLE IF NOT EXISTS flow_instance (
     model_name VARCHAR(100),
     row_id VARCHAR(64),
     initiator_id VARCHAR(64),
+    record_approval BOOLEAN,
+    open_record_id VARCHAR(64),
     status VARCHAR(64) NOT NULL DEFAULT '',
-    resubmission_count INT,
     error_message VARCHAR(2000),
     failed_node_id VARCHAR(100),
     input_payload TEXT,
@@ -422,7 +417,6 @@ CREATE TABLE IF NOT EXISTS flow_instance (
     next_fire_at TIMESTAMP,
     completed_node_ids TEXT,
     pending_approvals TEXT,
-    returned_approval TEXT,
     join_arrival_counts TEXT,
     return_data TEXT,
     created_time TIMESTAMP,
@@ -442,8 +436,9 @@ COMMENT ON COLUMN flow_instance.title IS 'Instance title';
 COMMENT ON COLUMN flow_instance.model_name IS 'Related model name';
 COMMENT ON COLUMN flow_instance.row_id IS 'Related row data ID';
 COMMENT ON COLUMN flow_instance.initiator_id IS 'Flow initiator id';
+COMMENT ON COLUMN flow_instance.record_approval IS 'Whether the instance is its record''s approval: started by submitting the record, so its result is written back to it';
+COMMENT ON COLUMN flow_instance.open_record_id IS 'The record''s id while this record approval is unfinished, empty otherwise. Unique with the model in a tenant: a record has at most one approval in progress';
 COMMENT ON COLUMN flow_instance.status IS 'Execution status';
-COMMENT ON COLUMN flow_instance.resubmission_count IS 'Resubmission count after return';
 COMMENT ON COLUMN flow_instance.error_message IS 'Error message when execution fails';
 COMMENT ON COLUMN flow_instance.failed_node_id IS 'Node where execution failed (set when status = Failed)';
 COMMENT ON COLUMN flow_instance.input_payload IS 'Immutable trigger payload (JSON)';
@@ -452,7 +447,6 @@ COMMENT ON COLUMN flow_instance.wait_tokens IS 'Active timer/async waits (JSON a
 COMMENT ON COLUMN flow_instance.next_fire_at IS 'Earliest due time across timer waits (denormalized from waitTokens for the sweep index)';
 COMMENT ON COLUMN flow_instance.completed_node_ids IS 'Completed node ids (JSON array)';
 COMMENT ON COLUMN flow_instance.pending_approvals IS 'Pending approvals (JSON array)';
-COMMENT ON COLUMN flow_instance.returned_approval IS 'Returned approval context (JSON)';
 COMMENT ON COLUMN flow_instance.join_arrival_counts IS 'Parallel join arrival counts (JSON map)';
 COMMENT ON COLUMN flow_instance.return_data IS 'Return data from ReturnValue nodes (JSON)';
 CREATE UNIQUE INDEX IF NOT EXISTS uk_instance_id ON flow_instance (instance_id);
@@ -460,6 +454,7 @@ CREATE INDEX IF NOT EXISTS idx_tenant_flow_status ON flow_instance (tenant_id, f
 CREATE INDEX IF NOT EXISTS idx_tenant_status_fire ON flow_instance (tenant_id, status, next_fire_at);
 CREATE INDEX IF NOT EXISTS idx_tenant_initiator_status ON flow_instance (tenant_id, initiator_id, status);
 CREATE INDEX IF NOT EXISTS idx_tenant_model_row ON flow_instance (tenant_id, model_name, row_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_flow_instance_open_record ON flow_instance (tenant_id, model_name, open_record_id);
 
 -- FlowParallelBranch
 /* Create table for model: Flow Parallel Branch */

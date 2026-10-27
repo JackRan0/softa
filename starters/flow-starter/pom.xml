@@ -40,6 +40,13 @@
             <artifactId>message-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Optional: seed-starter, whose tenant seed files carry default flows to publish -->
+        <dependency>
+            <groupId>io.softa</groupId>
+            <artifactId>seed-starter</artifactId>
+            <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
     </dependencies>
 </project>
 

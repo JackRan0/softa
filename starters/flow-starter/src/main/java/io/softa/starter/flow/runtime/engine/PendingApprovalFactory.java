@@ -41,59 +41,54 @@ public class PendingApprovalFactory {
         this.auditReader = auditReader;
     }
 
-    public PendingApproval copyPendingApproval(PendingApproval pendingApproval) {
-        return PendingApproval.builder()
-                .flowId(pendingApproval.getFlowId())
-                .flowRevision(pendingApproval.getFlowRevision())
-                .nodeId(pendingApproval.getNodeId())
-                .nodeLabel(pendingApproval.getNodeLabel())
-                .cycleNumber(pendingApproval.getCycleNumber())
-                .approvers(pendingApproval.getApprovers() == null ? List.of() : List.copyOf(pendingApproval.getApprovers()))
-                .dynamicApprovers(pendingApproval.getDynamicApprovers())
-                .approvalMode(pendingApproval.getApprovalMode())
-                .requiredApprovalCount(pendingApproval.getRequiredApprovalCount())
-                .totalApproverCount(pendingApproval.getTotalApproverCount())
-                .approvedActors(pendingApproval.getApprovedActors() == null ? new ArrayList<>() : new ArrayList<>(pendingApproval.getApprovedActors()))
-                .rejectMode(pendingApproval.getRejectMode())
-                .requiredRejectCount(pendingApproval.getRequiredRejectCount())
-                .rejectedActors(pendingApproval.getRejectedActors() == null ? new ArrayList<>() : new ArrayList<>(pendingApproval.getRejectedActors()))
-                .blockedActorId(pendingApproval.getBlockedActorId())
-                .prerequisiteActorId(pendingApproval.getPrerequisiteActorId())
-                .dueTime(pendingApproval.getDueTime())
-                .remindCount(pendingApproval.getRemindCount())
-                .lastRemindTime(pendingApproval.getLastRemindTime())
-                .build();
-    }
-
-    public PendingApproval resetPendingApprovalProgress(PendingApproval pendingApproval) {
-        PendingApproval copy = copyPendingApproval(pendingApproval);
-        copy.setApprovedActors(new ArrayList<>());
-        copy.setRejectedActors(new ArrayList<>());
-        copy.setBlockedActorId(null);
-        copy.setPrerequisiteActorId(null);
-        return copy;
-    }
-
     /**
-     * Build a pending approval for the given node.
+     * Build a pending approval for the given node. A submitted record's submitter stays among the
+     * step's approvers: {@link ApproverDedupService} counts them as having approved.
      *
-     * @return the pending approval, or {@code null} if the empty-approver strategy
-     *         dictates that this node should be skipped / auto-approved.
+     * @return the pending approval, or {@code null} when the node resolves to nobody and its
+     *         empty-approver strategy skips or auto-approves it — the caller tells which with
+     *         {@link #resolveEmptyApproverStrategy}
+     * @throws FlowRuntimeException when the node resolves to nobody and its strategy is ERROR
      */
     public PendingApproval buildPendingApproval(CompiledFlowDefinition definition,
                                                 CompiledFlowNode node,
                                                 FlowExecutionState state) {
-        Map<String, Object> resolutionVariables = buildApproverResolutionVariables(state == null ? null : state.getVariables(),
-                state == null ? null : state.getInitiatorId());
-        List<String> approvers = approverResolutionService.resolveApprovers(node, resolutionVariables);
+        PendingApproval pendingApproval = resolvePendingApproval(definition, node, state, true);
+        if (pendingApproval == null && EmptyApproverStrategy.ERROR.equals(resolveEmptyApproverStrategy(node))) {
+            throw new FlowRuntimeException(emptyApproverMessage(node));
+        }
+        return pendingApproval;
+    }
+
+    /**
+     * The pending approval {@link #buildPendingApproval} would build, for the approval path preview:
+     * the same approvers, delegated the same way, with nothing recorded — a delegation's use is
+     * counted only when a step really goes to its delegate.
+     *
+     * @return the pending approval, or {@code null} when the node resolves to nobody, whatever its
+     *         empty-approver strategy
+     */
+    PendingApproval previewPendingApproval(CompiledFlowDefinition definition,
+                                           CompiledFlowNode node,
+                                           FlowExecutionState state) {
+        return resolvePendingApproval(definition, node, state, false);
+    }
+
+    /** Why a node that resolves to nobody fails under its {@code ERROR} empty-approver strategy. */
+    static String emptyApproverMessage(CompiledFlowNode node) {
+        return "Approval node '" + node.getNodeId() + "' resolved an empty approver list (strategy=ERROR)";
+    }
+
+    private PendingApproval resolvePendingApproval(CompiledFlowDefinition definition,
+                                                   CompiledFlowNode node,
+                                                   FlowExecutionState state,
+                                                   boolean recordDelegationUsage) {
+        List<String> approvers = approverResolutionService.resolveApprovers(node,
+                buildApproverResolutionVariables(state == null ? null : state.getVariables(),
+                        state == null ? null : state.getInitiatorId()));
 
         if (approvers.isEmpty()) {
-            EmptyApproverStrategy strategy = resolveEmptyApproverStrategy(node);
-            return switch (strategy) {
-                case SKIP, AUTO_APPROVE -> null;  // caller treats null as "skip this node"
-                case ERROR -> throw new FlowRuntimeException(
-                        "Approval node '" + node.getNodeId() + "' resolved an empty approver list (strategy=ERROR)");
-            };
+            return null;
         }
         PendingApproval pendingApproval = PendingApproval.builder()
                 .flowId(definition.getFlowId())
@@ -116,7 +111,7 @@ public class PendingApprovalFactory {
 
         // Apply auto-delegation rules if available
         if (autoDelegationService != null) {
-            autoDelegationService.applyAutoDelegation(pendingApproval, state, node);
+            autoDelegationService.applyAutoDelegation(pendingApproval, state, node, recordDelegationUsage);
         }
 
         return pendingApproval;
@@ -140,11 +135,6 @@ public class PendingApprovalFactory {
                         .filter(Objects::nonNull)
                         .max(Integer::compareTo)
                         .orElse(0));
-            }
-            if (state.getReturnedApproval() != null && state.getReturnedApproval().getPendingApproval() != null
-                    && Objects.equals(nodeId, state.getReturnedApproval().getPendingApproval().getNodeId())
-                    && state.getReturnedApproval().getPendingApproval().getCycleNumber() != null) {
-                maxCycle = Math.max(maxCycle, state.getReturnedApproval().getPendingApproval().getCycleNumber());
             }
             maxCycle = Math.max(maxCycle, auditReader.fullHistory(state).stream()
                     .filter(entry -> Objects.equals(nodeId, entry.getNodeId()))

@@ -55,8 +55,9 @@ public class InboxNotification extends AuditableModel {
     @Field(description = "Source metadata model name (matches SysModel.modelName), e.g. FlowInstance (nullable)", length = 50)
     private String sourceModel;
 
-    @Field(label = "Source ID", description = "Source object ID (nullable)")
-    private Long sourceId;
+    @Field(label = "Source ID", description = "Source object ID as text, so string-keyed sources fit too — e.g. a "
+            + "FlowInstance's runtime instance id (nullable)")
+    private String sourceId;
 
     @Field(description = "Whether the recipient has read this notification")
     private Boolean isRead;

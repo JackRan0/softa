@@ -37,7 +37,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     private final BatchCcActionHandler batchCcHandler;
     private final ReadCcActionHandler readCcHandler;
     private final ReturnApprovalActionHandler returnApprovalHandler;
-    private final ResubmitActionHandler resubmitHandler;
     private final WithdrawActionHandler withdrawHandler;
     private final UrgeActionHandler urgeHandler;
     private final CommentActionHandler commentHandler;
@@ -56,7 +55,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                              BatchCcActionHandler batchCcHandler,
                              ReadCcActionHandler readCcHandler,
                              ReturnApprovalActionHandler returnApprovalHandler,
-                             ResubmitActionHandler resubmitHandler,
                              WithdrawActionHandler withdrawHandler,
                              UrgeActionHandler urgeHandler,
                              CommentActionHandler commentHandler) {
@@ -74,7 +72,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         this.batchCcHandler = batchCcHandler;
         this.readCcHandler = readCcHandler;
         this.returnApprovalHandler = returnApprovalHandler;
-        this.resubmitHandler = resubmitHandler;
         this.withdrawHandler = withdrawHandler;
         this.urgeHandler = urgeHandler;
         this.commentHandler = commentHandler;
@@ -82,8 +79,17 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
 
     @Override
     public FlowExecutionState start(FlowStartRequest request) {
+        return startInstance(request, false);
+    }
+
+    @Override
+    public FlowExecutionState startRecordApproval(FlowStartRequest request) {
+        return startInstance(request, true);
+    }
+
+    private FlowExecutionState startInstance(FlowStartRequest request, boolean recordApproval) {
         CompiledFlowDefinition definition = resolveRequestedDefinition(request);
-        FlowExecutionState state = buildInitialState(definition, request);
+        FlowExecutionState state = buildInitialState(definition, request, recordApproval);
 
         try {
             orchestrator.executeRoot(definition, state);
@@ -107,7 +113,7 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
             throw new FlowActionValidationException("evaluate() only runs stateless Validation/Compute flows; "
                     + "use start() for Process flows: " + definition.getFlowName());
         }
-        FlowExecutionState state = buildInitialState(definition, request);
+        FlowExecutionState state = buildInitialState(definition, request, false);
         // Zero flow footprint: nothing is persisted on success or failure. A failure propagates
         // so the caller's transaction rolls back any business writes made by task nodes.
         orchestrator.evaluateRoot(definition, state);
@@ -129,8 +135,17 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                 "bundleId or flowId is required to start execution");
     }
 
-    private FlowExecutionState buildInitialState(CompiledFlowDefinition definition, FlowStartRequest request) {
-        String instanceId = UUID.randomUUID().toString();
+    private FlowExecutionState buildInitialState(CompiledFlowDefinition definition, FlowStartRequest request,
+                                                 boolean recordApproval) {
+        return initialState(definition, request, recordApproval, UUID.randomUUID().toString());
+    }
+
+    /**
+     * The state an instance of {@code definition} starts from. The approval path preview walks from it
+     * with no instance id: nothing is started, and the state is never saved.
+     */
+    static FlowExecutionState initialState(CompiledFlowDefinition definition, FlowStartRequest request,
+                                           boolean recordApproval, String instanceId) {
         Map<String, Object> vars = new LinkedHashMap<>(
                 request.getVariables() == null ? Map.of() : request.getVariables());
         vars.put("_instanceId", instanceId);
@@ -148,14 +163,13 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                 .modelName(request.getModelName())
                 .rowId(request.getRowId())
                 .initiatorId(request.getInitiatorId())
+                .recordApproval(recordApproval)
                 .status(FlowExecutionStatus.RUNNING)
                 .inputPayload(Map.of())
                 .variables(vars)
                 .completedNodeIds(new ArrayList<>())
                 .pendingApprovals(new ArrayList<>())
-                .returnedApproval(null)
                 .approvalAuditDelta(new ArrayList<>())
-                .resubmissionCount(0)
                 .joinArrivalCounts(new LinkedHashMap<>())
                 .trace(new ArrayList<>())
                 .build();
@@ -213,11 +227,6 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     @Override
     public FlowExecutionState returnApproval(FlowReturnRequest request) {
         return returnApprovalHandler.handle(request);
-    }
-
-    @Override
-    public FlowExecutionState resubmit(FlowResubmitRequest request) {
-        return resubmitHandler.handle(request);
     }
 
     @Override

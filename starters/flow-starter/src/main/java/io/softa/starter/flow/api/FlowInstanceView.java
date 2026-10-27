@@ -15,6 +15,5 @@ public record FlowInstanceView(
         String flowName,
         String title,
         FlowExecutionStatus status,
-        Integer resubmissionCount,
         LocalDateTime submittedAt) {
 }

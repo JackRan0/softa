@@ -1,70 +1,124 @@
 package io.softa.starter.flow.service.support;
 
+import java.io.Serializable;
 import java.util.List;
-import java.util.Set;
+import java.util.Optional;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import io.softa.framework.base.context.Context;
-import io.softa.framework.base.context.ContextHolder;
-import io.softa.framework.base.enums.SystemRole;
+import io.softa.framework.base.context.ContextUtils;
+import io.softa.framework.base.exception.PermissionException;
+import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.utils.IdUtils;
+import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.PendingApproval;
-import io.softa.starter.flow.runtime.state.ReturnedApprovalContext;
 import io.softa.starter.flow.service.FlowInstanceService;
 
 /**
- * Authorization guard for instance-scoped approval queries.
- * <p>
- * The {@code /instance/{instanceId}} read endpoints return the full cross-actor
- * approval task list / history for an instance, so they must be restricted to
- * users involved in that instance. A caller is authorized when they are the
- * instance initiator or already appear as a participant in the returned rows;
- * everyone else is denied with {@link FlowAuthorizationException} (HTTP 403)
- * rather than the previous unscoped read open to any authenticated user.
- * <p>
- * Monitor-admin bypass: a caller holding the system admin role may view any
- * instance — the cross-initiator monitoring console pairs with
- * {@code POST /flow/monitor/instances/search}. The role codes are read from the
- * framework-layer {@link Context#getRoleCodes()} (bridged onto the Context by the
- * permission-starter interceptor) exactly like the {@code @RequireRole} aspect
- * does, and the check fails closed when the consuming application populated no
- * role provider.
+ * Who may see a flow instance, a record's approval history, and the record an instance approves.
+ *
+ * <p>Two grants need no configuration: the initiator sees what they submitted, and the people an
+ * instance gives a task to — its approvers, pending or done, CC recipients, and the targets of a
+ * transfer, a delegation or an added signature — see the instances behind their tasks. Everyone else
+ * goes through the standard role and data-scope configuration: they see an instance when their own
+ * permissions let them read its {@code FlowInstance} row (the monitoring console's administrators
+ * hold that through their roles) or, for a record's approval, read the record.
+ *
+ * <p>Reading the approved record past one's own row permissions is narrower: only the initiator and
+ * the task holders have it ({@link #requireRecordGrantee}). Anyone else reads the record, if their
+ * permissions allow, through the model's own API.
+ *
+ * <p>Every refusal is a {@link FlowAuthorizationException} (HTTP 403).
  */
 @Component
 public class FlowInstanceAccessGuard {
+
+    private static final String FLOW_INSTANCE_MODEL = FlowInstance.class.getSimpleName();
 
     private final FlowInstanceService instanceService;
 
     private final ApprovalAuditReader auditReader;
 
-    public FlowInstanceAccessGuard(FlowInstanceService instanceService, ApprovalAuditReader auditReader) {
+    private final ModelService<Serializable> modelService;
+
+    @SuppressWarnings("unchecked")
+    public FlowInstanceAccessGuard(FlowInstanceService instanceService, ApprovalAuditReader auditReader,
+                                   ModelService<?> modelService) {
         this.instanceService = instanceService;
         this.auditReader = auditReader;
+        this.modelService = (ModelService<Serializable>) modelService;
     }
 
     /**
-     * Authorizes a caller to view an instance's cross-actor approval data.
+     * Authorizes a caller to view a business record's approval history: they took part in one of
+     * its approvals — submitted it, wait to approve it, acted on it or were its target — or they can
+     * read the record with their own permissions, as anyone who sees a record also sees its history.
+     *
+     * @param modelName   the record's model
+     * @param rowId       the record
+     * @param history     the record's approval history, already loaded
+     * @param requesterId the authenticated caller's user id
+     * @throws FlowAuthorizationException if neither holds
+     */
+    public void requireRecordViewer(String modelName, String rowId, FlowRecordApprovalsView history,
+                                    String requesterId) {
+        requireAuthenticated(requesterId, "view the approvals of " + modelName + " " + rowId);
+        if (participatesIn(history, requesterId) || canReadRecord(modelName, rowId)) {
+            return;
+        }
+        throw new FlowAuthorizationException("User may not view the approvals of " + modelName + " " + rowId);
+    }
+
+    /**
+     * Authorizes a caller to preview the approval a business record's submission would start: they
+     * can read the record with their own permissions. Taking part in the record's earlier approvals
+     * is not enough — the preview is about its next one.
+     *
+     * @param modelName   the record's model
+     * @param rowId       the record
+     * @param requesterId the authenticated caller's user id
+     * @throws FlowAuthorizationException if they cannot read the record
+     */
+    public void requireRecordReader(String modelName, String rowId, String requesterId) {
+        requireAuthenticated(requesterId, "preview the approval of " + modelName + " " + rowId);
+        if (canReadRecord(modelName, rowId)) {
+            return;
+        }
+        throw new FlowAuthorizationException("User may not preview the approval of " + modelName + " " + rowId);
+    }
+
+    /**
+     * Authorizes a caller to view an instance's cross-actor approval data — its task list or its
+     * approval records.
      *
      * @param instanceId          the runtime instance id being queried
      * @param requesterId         the authenticated caller's user id
      * @param participantInResult whether the caller already appears as an actor in the loaded rows
-     * @throws FlowAuthorizationException if the caller is neither a participant nor the initiator
+     * @throws FlowAuthorizationException if the caller is neither a participant, nor the initiator,
+     *                                    nor permitted by their roles
      */
     public void requireInstanceViewer(String instanceId, String requesterId, boolean participantInResult) {
-        if (!StringUtils.hasText(requesterId)) {
-            throw new FlowAuthorizationException("Authentication is required to view instance " + instanceId);
-        }
-        if (isMonitorAdmin() || participantInResult || isInitiator(instanceId, requesterId)) {
+        requireAuthenticated(requesterId, "view instance " + instanceId);
+        if (participantInResult) {
             return;
         }
-        throw new FlowAuthorizationException(
-                "User is not a participant of flow instance " + instanceId);
+        Optional<FlowInstance> instance = ContextUtils.withoutPermissionChecks(
+                () -> instanceService.findByInstanceId(instanceId));
+        if (instance.isPresent() && (requesterId.equals(instance.get().getInitiatorId())
+                || permittedByRoles(instanceId, instance.get().getRecordApproval(),
+                        instance.get().getModelName(), instance.get().getRowId()))) {
+            return;
+        }
+        throw new FlowAuthorizationException("User may not view flow instance " + instanceId);
     }
 
     /**
@@ -72,71 +126,106 @@ public class FlowInstanceAccessGuard {
      */
     public void requireInstanceViewer(FlowExecutionState state, String requesterId) {
         String instanceId = state == null ? null : state.getInstanceId();
-        if (!StringUtils.hasText(requesterId)) {
-            throw new FlowAuthorizationException("Authentication is required to view instance " + instanceId);
-        }
-        if (isMonitorAdmin()) {
+        requireAuthenticated(requesterId, "view instance " + instanceId);
+        if (state != null && (isTaskHolder(state, requesterId)
+                || permittedByRoles(instanceId, state.getRecordApproval(), state.getModelName(), state.getRowId()))) {
             return;
         }
-        if (state != null
-                && (requesterId.equals(state.getInitiatorId())
-                || isParticipant(state, requesterId)
-                || hasInitiatorFallback(state, requesterId))) {
-            return;
-        }
-        throw new FlowAuthorizationException(
-                "User is not a participant of flow instance " + instanceId);
+        throw new FlowAuthorizationException("User may not view flow instance " + instanceId);
     }
 
     /**
-     * Whether the current caller holds the system admin role — the monitor-console
-     * bypass. Mirrors the {@code @RequireRole} aspect's read of the framework-layer
-     * Context; an absent context, permission info, or role set denies (fail-closed).
+     * Authorizes a caller to read the record an instance approves past their own row permissions:
+     * the initiator and the people the instance gives a task to.
      */
-    private static boolean isMonitorAdmin() {
-        Context context = ContextHolder.getContext();
-        Set<String> roleCodes = context == null ? null : context.getRoleCodes();
-        return roleCodes != null && roleCodes.contains(SystemRole.SYSTEM_ROLE_ADMIN.getCode());
+    public void requireRecordGrantee(FlowExecutionState state, String requesterId) {
+        String instanceId = state == null ? null : state.getInstanceId();
+        requireAuthenticated(requesterId, "read the record of instance " + instanceId);
+        if (state != null && isTaskHolder(state, requesterId)) {
+            return;
+        }
+        throw new FlowAuthorizationException("Only the initiator and the people flow instance " + instanceId
+                + " gives a task to may read its record through it");
     }
 
-    private boolean hasInitiatorFallback(FlowExecutionState state, String requesterId) {
-        return StringUtils.hasText(state.getInstanceId()) && isInitiator(state.getInstanceId(), requesterId);
+    private static void requireAuthenticated(String requesterId, String action) {
+        if (!StringUtils.hasText(requesterId)) {
+            throw new FlowAuthorizationException("Authentication is required to " + action);
+        }
     }
 
-    private boolean isInitiator(String instanceId, String requesterId) {
-        return instanceService.findByInstanceId(instanceId)
-                .map(FlowInstance::getInitiatorId)
-                .map(requesterId::equals)
-                .orElse(false);
-    }
-
-    private boolean isParticipant(FlowExecutionState state, String requesterId) {
-        return pendingApprovalParticipant(state.getPendingApprovals(), requesterId)
-                || returnedApprovalParticipant(state.getReturnedApproval(), requesterId)
+    /** The default grants: the initiator, and whoever the instance gives or gave a task to. */
+    private boolean isTaskHolder(FlowExecutionState state, String requesterId) {
+        return requesterId.equals(state.getInitiatorId())
+                || pendingApprovalParticipant(state.getPendingApprovals(), requesterId)
                 || auditHistoryParticipant(auditReader.fullHistory(state), requesterId);
+    }
+
+    /**
+     * The standard permissions: the caller's roles let them read the instance's row, or — for a
+     * record's approval — the record itself.
+     */
+    private boolean permittedByRoles(String instanceId, Boolean recordApproval, String modelName, String rowId) {
+        return canReadInstance(instanceId)
+                || (Boolean.TRUE.equals(recordApproval) && canReadRecord(modelName, rowId));
+    }
+
+    private boolean canReadInstance(String instanceId) {
+        if (!StringUtils.hasText(instanceId)) {
+            return false;
+        }
+        try {
+            return modelService.count(FLOW_INSTANCE_MODEL, new Filters().eq(FlowInstance::getInstanceId, instanceId)) > 0;
+        } catch (PermissionException e) {
+            return false;
+        }
+    }
+
+    /** Whether the caller can read the record under their own row scope. */
+    private boolean canReadRecord(String modelName, String rowId) {
+        if (!StringUtils.hasText(modelName) || !StringUtils.hasText(rowId) || !ModelManager.existModel(modelName)) {
+            return false;
+        }
+        try {
+            return modelService.getById(modelName, IdUtils.formatId(modelName, rowId), List.of(ModelConstant.ID))
+                    .isPresent();
+        } catch (PermissionException e) {
+            // No access to the model at all.
+            return false;
+        }
+    }
+
+    private static boolean participatesIn(FlowRecordApprovalsView history, String requesterId) {
+        if (history == null || history.getInstances() == null) {
+            return false;
+        }
+        for (FlowRecordApprovalsView.Instance instance : history.getInstances()) {
+            if (isActor(instance.getInitiator(), requesterId)
+                    || (instance.getPending() != null && instance.getPending().stream()
+                            .anyMatch(step -> step.getApprovers() != null
+                                    && step.getApprovers().stream().anyMatch(a -> isActor(a, requesterId))))
+                    || (instance.getActions() != null && instance.getActions().stream()
+                            .anyMatch(a -> isActor(a.getActor(), requesterId) || isActor(a.getTarget(), requesterId)))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isActor(FlowRecordApprovalsView.Actor actor, String requesterId) {
+        return actor != null && requesterId.equals(actor.getId());
     }
 
     private static boolean pendingApprovalParticipant(List<PendingApproval> approvals, String requesterId) {
         if (approvals == null) {
             return false;
         }
-        return approvals.stream().anyMatch(approval -> pendingApprovalParticipant(approval, requesterId));
-    }
-
-    private static boolean pendingApprovalParticipant(PendingApproval approval, String requesterId) {
-        return approval != null
+        return approvals.stream().anyMatch(approval -> approval != null
                 && (contains(approval.getApprovers(), requesterId)
                 || contains(approval.getApprovedActors(), requesterId)
                 || contains(approval.getRejectedActors(), requesterId)
                 || requesterId.equals(approval.getBlockedActorId())
-                || requesterId.equals(approval.getPrerequisiteActorId()));
-    }
-
-    private static boolean returnedApprovalParticipant(ReturnedApprovalContext returnedApproval, String requesterId) {
-        return returnedApproval != null
-                && (requesterId.equals(returnedApproval.getActorId())
-                || requesterId.equals(returnedApproval.getTargetActorId())
-                || pendingApprovalParticipant(returnedApproval.getPendingApproval(), requesterId));
+                || requesterId.equals(approval.getPrerequisiteActorId())));
     }
 
     private static boolean auditHistoryParticipant(List<ApprovalActionAuditEntry> history, String requesterId) {

@@ -29,6 +29,8 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 @Index(indexName = "idx_tenant_status_fire", fields = {"tenantId", "status", "nextFireAt"})
 @Index(indexName = "idx_tenant_initiator_status", fields = {"tenantId", "initiatorId", "status"})
 @Index(indexName = "idx_tenant_model_row", fields = {"tenantId", "modelName", "rowId"})
+@Index(indexName = "uk_flow_instance_open_record", fields = {"tenantId", "modelName", "openRecordId"}, unique = true,
+       message = "This record is already in approval.")
 @EqualsAndHashCode(callSuper = true)
 public class FlowInstance extends AuditableModel {
 
@@ -72,11 +74,16 @@ public class FlowInstance extends AuditableModel {
     @Field(label = "Initiator ID", description = "Flow initiator id")
     private String initiatorId;
 
+    @Field(description = "Whether the instance is its record's approval: started by submitting the record, so its "
+            + "result is written back to it")
+    private Boolean recordApproval;
+
+    @Field(label = "Open Record ID", description = "The record's id while this record approval is unfinished, empty "
+            + "otherwise. Unique with the model in a tenant: a record has at most one approval in progress")
+    private String openRecordId;
+
     @Field(required = true, description = "Execution status")
     private FlowExecutionStatus status;
-
-    @Field(description = "Resubmission count after return")
-    private Integer resubmissionCount;
 
     @Field(length = 2000, description = "Error message when execution fails")
     private String errorMessage;
@@ -101,9 +108,6 @@ public class FlowInstance extends AuditableModel {
 
     @Field(fieldType = FieldType.TEXT, description = "Pending approvals (JSON array)")
     private String pendingApprovals;
-
-    @Field(fieldType = FieldType.TEXT, description = "Returned approval context (JSON)")
-    private String returnedApproval;
 
     @Field(fieldType = FieldType.TEXT, description = "Parallel join arrival counts (JSON map)")
     private String joinArrivalCounts;

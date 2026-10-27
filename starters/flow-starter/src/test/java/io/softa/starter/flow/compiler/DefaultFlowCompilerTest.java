@@ -197,10 +197,8 @@ class DefaultFlowCompilerTest {
                                         .id("approval")
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
-                                        .config(Map.of(
-                                                "returnEnabled", true,
-                                                "returnTarget", "Initiator"
-                                        ))
+                                        // A return always goes to the initiator: nothing else to configure.
+                                        .config(Map.of("returnEnabled", true))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -217,41 +215,6 @@ class DefaultFlowCompilerTest {
         ApprovalNodeConfig cfg = (ApprovalNodeConfig) approvalNode.getParsedConfig();
         assertNotNull(cfg);
         assertTrue(cfg.getReturnEnabled());
-        assertEquals(ApprovalReturnTarget.INITIATOR, cfg.getReturnTarget());
-    }
-
-    @Test
-    void shouldCompileApprovalNodePreviousApprovalReturnPolicy() {
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Return To Previous Approval")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("firstApproval")
-                                        .type(FlowNodeType.APPROVAL)
-                                        .label("firstApproval")
-                                        .config(Map.of(
-                                                "returnEnabled", true,
-                                                "returnTarget", "PreviousApproval"
-                                        ))
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "firstApproval"),
-                                edge("e2", "firstApproval", "end")
-                        ))
-                        .build())
-                .build();
-
-        CompiledFlowDefinition compiled = compiler.compile(definition);
-
-        ApprovalNodeConfig cfg = (ApprovalNodeConfig) compiled.getNodeIndex().get("firstApproval").getParsedConfig();
-        assertNotNull(cfg);
-        assertEquals(ApprovalReturnTarget.PREVIOUS_APPROVAL, cfg.getReturnTarget());
     }
 
     @Test
@@ -475,35 +438,6 @@ class DefaultFlowCompilerTest {
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
         assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "DEADLOCK_THRESHOLD".equals(d.code())));
-    }
-
-    @Test
-    void shouldRejectApprovalReturnEnabledWithoutTarget() {
-        // returnEnabled=true but returnTarget not set — should fail with MISSING_RETURN_TARGET
-        DesignFlowDefinition definition = DesignFlowDefinition.builder()
-                .name("Invalid Return Policy")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
-                .graph(FlowGraphDocument.builder()
-                        .nodes(List.of(
-                                node("start", FlowNodeType.START),
-                                FlowGraphNode.builder()
-                                        .id("approval")
-                                        .type(FlowNodeType.APPROVAL)
-                                        .label("approval")
-                                        .config(Map.of("returnEnabled", true)) // no returnTarget
-                                        .build(),
-                                node("end", FlowNodeType.END)
-                        ))
-                        .edges(List.of(
-                                edge("e1", "start", "approval"),
-                                edge("e2", "approval", "end")
-                        ))
-                        .build())
-                .build();
-
-        FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> "MISSING_RETURN_TARGET".equals(d.code())));
     }
 
     @Test

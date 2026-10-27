@@ -17,12 +17,12 @@ import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
  * <ul>
  *   <li>{@code formPermissions} is the canonical field-level permission source,
  *       compiled into the bundle at design time; runtime clients may still read
- *       them via {@code GET /flow/runtime/instances/{instanceId}/nodes/{nodeId}/formPermissions}.</li>
+ *       them via {@code GET /flow/instances/{instanceId}/nodes/{nodeId}/formPermissions}.</li>
  *   <li>{@code config.timeout.timeoutStrategy} ({@link ApprovalTimeoutStrategy}:
  *       REMIND, AUTO_APPROVE, AUTO_REJECT, ESCALATE) replaces the former loose
  *       timeout fields on {@code FlowGraphNode}.</li>
- *   <li>Return policy now supports {@code SPECIFIC_NODE} target via
- *       {@code returnTargetNodeId}.</li>
+ *   <li>A return always goes to the initiator and ends the instance; there is no
+ *       return target to configure.</li>
  * </ul>
  */
 @Data
@@ -74,24 +74,10 @@ public class ApprovalNodeConfig {
     // ── Return policy ──────────────────────────────────────────────────────
 
     /**
-     * Whether the approver is allowed to return (send back) this approval step.
-     * Replaces the former {@code ApprovalReturnPolicy.enabled} field on {@code FlowGraphNode}.
+     * Whether the approver may return the approval to the initiator, which ends the instance as
+     * {@code RETURNED}; the initiator then edits and submits again, starting a new instance.
      */
     private Boolean returnEnabled;
-
-    /**
-     * Return target when the approver clicks "Return".
-     * {@link ApprovalReturnTarget#INITIATOR}, {@link ApprovalReturnTarget#PREVIOUS_APPROVAL},
-     * or {@link ApprovalReturnTarget#SPECIFIC_NODE}.
-     * When {@code SPECIFIC_NODE}, {@code returnTargetNodeId} must be set.
-     */
-    private ApprovalReturnTarget returnTarget;
-
-    /**
-     * Target node id for the {@link ApprovalReturnTarget#SPECIFIC_NODE} return target.
-     * Must reference an existing Approval node in the same flow.
-     */
-    private String returnTargetNodeId;
 
     // ── Form field permissions ─────────────────────────────────────────────
 
@@ -101,7 +87,7 @@ public class ApprovalNodeConfig {
      * On approve only EDITABLE / REQUIRED fields are written back to the business row: a field not
      * listed here is not writable, and a node without this map writes nothing.
      * Compiled into the bundle at design time; {@code FormPermissionService} and
-     * {@code GET /flow/runtime/instances/{instanceId}/nodes/{nodeId}/formPermissions}
+     * {@code GET /flow/instances/{instanceId}/nodes/{nodeId}/formPermissions}
      * expose the same map at runtime for read-only clients.
      */
     private Map<String, FormFieldPermission> formPermissions;

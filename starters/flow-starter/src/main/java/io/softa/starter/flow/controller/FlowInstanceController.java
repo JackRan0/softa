@@ -6,70 +6,75 @@ import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.*;
 
-import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.enums.ResponseCode;
+import io.softa.framework.orm.annotation.DataMask;
+import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.web.response.ApiResponse;
+import io.softa.starter.flow.dto.FlowApprovalPreview;
 import io.softa.starter.flow.dto.FlowInstanceOverlay;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
+import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.dto.FlowTraceEntryView;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.FormFieldPermission;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.FormPermissionService;
-import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
-import io.softa.starter.flow.runtime.trigger.FlowAutomationService;
-import io.softa.starter.flow.runtime.trigger.FlowTriggerEvent;
-import io.softa.starter.flow.runtime.trigger.FlowTriggerResult;
 import io.softa.starter.flow.service.FlowExecutionTraceService;
 import io.softa.starter.flow.service.FlowInstanceService;
+import io.softa.starter.flow.service.FlowLaunchService;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 
+import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
+
 /**
- * Runtime endpoints for the in-memory flow engine: instance launch, approval
- * actions, and trigger evaluation. Engine-internal callbacks are handled
- * in-process by consumers; published-revision reads live on {@code FlowBundleController}.
+ * Runtime flow instances: launch, the caller's own instance search, per-instance reads (state,
+ * canvas overlay, trace, node form permissions), a record's approvals and the preview of its next
+ * one, and the approval actions. Every endpoint acts as
+ * the authenticated user. Trigger evaluation lives on {@link FlowAutomationController},
+ * published-revision reads on {@code FlowBundleController}; engine-internal callbacks are handled
+ * in-process by consumers.
  */
-@Tag(name = "Flow Runtime")
+@Tag(name = "Flow Instances")
 @Validated
 @RestController
-@RequestMapping("/flow/runtime")
-public class FlowRuntimeController {
+@RequestMapping("/flow/instances")
+public class FlowInstanceController {
 
     private final FlowRuntimeEngine runtimeEngine;
-    private final FlowAutomationService flowAutomationService;
     private final FormPermissionService formPermissionService;
     private final FlowInstanceService instanceService;
     private final FlowExecutionTraceService traceService;
     private final FlowInstanceAccessGuard accessGuard;
+    private final FlowLaunchService launchService;
 
-    public FlowRuntimeController(FlowRuntimeEngine runtimeEngine,
-                                 FlowAutomationService flowAutomationService,
-                                 FormPermissionService formPermissionService,
-                                 FlowInstanceService instanceService,
-                                 FlowExecutionTraceService traceService,
-                                 FlowInstanceAccessGuard accessGuard) {
+    public FlowInstanceController(FlowRuntimeEngine runtimeEngine,
+                                  FormPermissionService formPermissionService,
+                                  FlowInstanceService instanceService,
+                                  FlowExecutionTraceService traceService,
+                                  FlowInstanceAccessGuard accessGuard,
+                                  FlowLaunchService launchService) {
         this.runtimeEngine = runtimeEngine;
-        this.flowAutomationService = flowAutomationService;
         this.formPermissionService = formPermissionService;
         this.instanceService = instanceService;
         this.traceService = traceService;
         this.accessGuard = accessGuard;
+        this.launchService = launchService;
     }
 
-    @PostMapping("/instances/start")
+    @PostMapping("/start")
     @Operation(summary = "Start flow instance", description = "Starts a runtime flow execution from a registered bundle.")
     public ApiResponse<FlowExecutionState> start(@Valid @RequestBody FlowStartRequest request) {
         request.setInitiatorId(currentUserId());
         return ApiResponse.success(runtimeEngine.start(request));
     }
 
-    @GetMapping("/instances/{instanceId}")
+    @GetMapping("/{instanceId}")
     @Operation(summary = "Get flow instance",
             description = "Gets the current runtime state of a flow instance. The trace is excluded "
                     + "by default (poll it incrementally via the trace endpoint); pass includeTrace=true "
@@ -87,7 +92,7 @@ public class FlowRuntimeController {
                         "Flow instance not found: " + instanceId));
     }
 
-    @GetMapping("/instances/{instanceId}/overlay")
+    @GetMapping("/{instanceId}/overlay")
     @Operation(summary = "Get execution overlay",
             description = "Per-node run state derived server-side for painting the canvas: completed / "
                     + "waiting / failed per node id, with timestamps and pending-approval details.")
@@ -102,7 +107,7 @@ public class FlowRuntimeController {
                         "Flow instance not found: " + instanceId));
     }
 
-    @GetMapping("/instances/{instanceId}/trace")
+    @GetMapping("/{instanceId}/trace")
     @Operation(summary = "Get execution trace (incremental)",
             description = "Trace rows ordered by sequence. Pass sinceSequence to fetch only rows the "
                     + "client has not seen yet — the polling loop for a running instance.")
@@ -111,7 +116,9 @@ public class FlowRuntimeController {
         return runtimeEngine.getInstance(instanceId)
                 .map(state -> {
                     accessGuard.requireInstanceViewer(state, currentUserId());
-                    List<FlowTraceEntryView> entries = traceService.findByInstanceIdSince(instanceId, sinceSequence).stream()
+                    // Allowed to see the instance, so its trace — read past the row scope the guard just ruled on.
+                    List<FlowTraceEntryView> entries = ContextUtils.withoutPermissionChecks(
+                                    () -> traceService.findByInstanceIdSince(instanceId, sinceSequence)).stream()
                             .map(row -> new FlowTraceEntryView(row.getSequence(), row.getNodeId(), row.getFlowNodeType(),
                                     row.getEventType(), row.getEventTime(), row.getMessage()))
                             .toList();
@@ -121,108 +128,152 @@ public class FlowRuntimeController {
                         "Flow instance not found: " + instanceId));
     }
 
-    @PostMapping("/instances/search")
+    @GetMapping("/by-record")
+    @Operation(summary = "Get a record's approval history",
+            description = "The approval instances of a business record, newest first: status, initiator, "
+                    + "the steps still waiting with the approvers yet to act, and the approval actions, "
+                    + "every user named. For the record page's approval panel and the inbox task detail. "
+                    + "Allowed to whoever took part in the record's approvals or can read the record.")
+    public ApiResponse<FlowRecordApprovalsView> getRecordApprovals(@RequestParam String modelName,
+                                                                  @RequestParam String rowId) {
+        String requesterId = currentUserId();
+        return ApiResponse.success(instanceService.recordApprovals(modelName, rowId,
+                history -> accessGuard.requireRecordViewer(modelName, rowId, history, requesterId)));
+    }
+
+    @GetMapping("/preview")
+    @Operation(summary = "Preview a record's approval",
+            description = "What submitting the business record would do now, without submitting it: the Submit flow "
+                    + "it would get and the approval steps it would go through, every step assumed approved — each "
+                    + "with the approvers who would be asked, or why it passes on its own (the submitter is its "
+                    + "approver, an approver already approved an earlier step, nobody resolves to it). A refusal "
+                    + "by the record's own checks, an approval already in progress, no applicable flow or several "
+                    + "are reported, not raised; a route that depends on data only known once the approval runs is "
+                    + "reported as undecided, never guessed. Nothing is started or written. Allowed to whoever can "
+                    + "read the record with their own permissions.")
+    public ApiResponse<FlowApprovalPreview> previewRecordApproval(@RequestParam String modelName,
+                                                                 @RequestParam String rowId) {
+        return ApiResponse.success(launchService.previewRecord(modelName, rowId, currentUserId()));
+    }
+
+    @GetMapping("/{instanceId}/record")
+    @Operation(summary = "Get the record an instance approves",
+            description = "The business record the instance runs on, for its initiator and the people it gives "
+                    + "a task to: read past their own row permissions. While steps wait, the fields those steps "
+                    + "list in their field permissions (Readonly, Editable or Required); a step listing none "
+                    + "shows every field. Relations and options come as references, and masked fields are masked "
+                    + "as on every model read.")
+    @DataMask
+    public ApiResponse<Map<String, Object>> getInstanceRecord(@PathVariable String instanceId) {
+        return runtimeEngine.getInstance(instanceId)
+                .map(state -> {
+                    accessGuard.requireRecordGrantee(state, currentUserId());
+                    return instanceService.recordOf(state)
+                            .map(ApiResponse::success)
+                            .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                                    "The record of flow instance " + instanceId + " does not exist"));
+                })
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
+    }
+
+    @PostMapping("/search")
     @Operation(summary = "Search my flow instances",
             description = "Paged summaries of the caller's own instances — the initiator filter is always "
                     + "the authenticated user (any requested initiatorId is overridden). Heavy JSON state "
                     + "columns and the trace are excluded; fetch a single instance or its overlay for detail. "
                     + "Cross-initiator monitoring lives on POST /flow/monitor/instances/search.")
+    // Pinned to the caller, so row scope could only empty it: FlowInstance is granted to no business role.
+    @SkipPermissionCheck
     public ApiResponse<Page<FlowInstance>> searchInstances(@RequestBody FlowInstanceSearchRequest request) {
         return ApiResponse.success(instanceService.searchSummaries(request, currentUserId()));
     }
 
-    @PostMapping("/instances/approve")
+    @PostMapping("/approve")
     @Operation(summary = "Approve pending node", description = "Approves a pending approval node and resumes execution.")
     public ApiResponse<FlowExecutionState> approve(@Valid @RequestBody FlowApproveRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.approve(request));
     }
 
-    @PostMapping("/instances/reject")
+    @PostMapping("/reject")
     @Operation(summary = "Reject pending node", description = "Rejects a pending approval node and marks the flow as rejected.")
     public ApiResponse<FlowExecutionState> reject(@Valid @RequestBody FlowRejectRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.reject(request));
     }
 
-    @PostMapping("/instances/transfer")
+    @PostMapping("/transfer")
     @Operation(summary = "Transfer pending approval task", description = "Transfers a pending approval task from the current actor to another actor on the same node and cycle.")
     public ApiResponse<FlowExecutionState> transfer(@Valid @RequestBody FlowTransferRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.transfer(request));
     }
 
-    @PostMapping("/instances/delegate")
+    @PostMapping("/delegate")
     @Operation(summary = "Delegate pending approval task", description = "Delegates a pending approval task from the current actor to another actor on the same node and cycle.")
     public ApiResponse<FlowExecutionState> delegate(@Valid @RequestBody FlowDelegateRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.delegate(request));
     }
 
-    @PostMapping("/instances/add-sign-before")
+    @PostMapping("/add-sign-before")
     @Operation(summary = "Add prerequisite signer before current approver", description = "Adds a prerequisite signer before the current approver on the same approval node and cycle.")
     public ApiResponse<FlowExecutionState> addSignBefore(@Valid @RequestBody FlowAddSignBeforeRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.addSignBefore(request));
     }
 
-    @PostMapping("/instances/add-sign-after")
+    @PostMapping("/add-sign-after")
     @Operation(summary = "Add follow-up signer after current approver", description = "Adds a follow-up signer after the current approver on the same approval node and cycle.")
     public ApiResponse<FlowExecutionState> addSignAfter(@Valid @RequestBody FlowAddSignAfterRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.addSignAfter(request));
     }
 
-    @PostMapping("/instances/cc")
+    @PostMapping("/cc")
     @Operation(summary = "CC an approval recipient", description = "Sends a CC notification to another actor on the same approval node and cycle without changing approval ownership.")
     public ApiResponse<FlowExecutionState> cc(@Valid @RequestBody FlowCcRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.cc(request));
     }
 
-    @PostMapping("/instances/cc/read")
+    @PostMapping("/cc/read")
     @Operation(summary = "Acknowledge a CC as read", description = "Allows the CC recipient to confirm the CC task as read without affecting approval ownership or flow progression.")
     public ApiResponse<FlowExecutionState> readCc(@Valid @RequestBody FlowCcReadRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.readCc(request));
     }
 
-    @PostMapping("/instances/return")
-    @Operation(summary = "Return pending approval", description = "Returns a pending approval to its configured target. Initiator returns move the instance to Returned, while PreviousApproval returns reopen the prior approval node.")
+    @PostMapping("/return")
+    @Operation(summary = "Return pending approval", description = "Returns a pending approval to the initiator, which ends the instance as Returned. The initiator edits and submits again, which starts a new instance.")
     public ApiResponse<FlowExecutionState> returnApproval(@Valid @RequestBody FlowReturnRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.returnApproval(request));
     }
 
-    @PostMapping("/instances/resubmit")
-    @Operation(summary = "Resubmit returned approval", description = "Allows the initiator to resubmit a returned approval instance on the same published revision and recreate the pending approval.")
-    public ApiResponse<FlowExecutionState> resubmit(@Valid @RequestBody FlowResubmitRequest request) {
-        request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.resubmit(request));
-    }
-
-    @PostMapping("/instances/withdraw")
+    @PostMapping("/withdraw")
     @Operation(summary = "Withdraw approval flow", description = "Allows the flow initiator to withdraw an approval flow before approval completes when enabled by policy.")
     public ApiResponse<FlowExecutionState> withdraw(@Valid @RequestBody FlowWithdrawRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.withdraw(request));
     }
 
-    @PostMapping("/instances/urge")
+    @PostMapping("/urge")
     @Operation(summary = "Urge pending approvers", description = "Sends an urge notification to all pending approvers of the flow instance.")
     public ApiResponse<FlowExecutionState> urge(@Valid @RequestBody FlowUrgeRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.urge(request));
     }
 
-    @PostMapping("/instances/comment")
+    @PostMapping("/comment")
     @Operation(summary = "Add comment to flow instance", description = "Adds a comment to a flow instance without changing its status. Recorded in approval audit history.")
     public ApiResponse<FlowExecutionState> addComment(@Valid @RequestBody FlowCommentRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.addComment(request));
     }
 
-    @GetMapping("/instances/{instanceId}/nodes/{nodeId}/formPermissions")
+    @GetMapping("/{instanceId}/nodes/{nodeId}/formPermissions")
     @Operation(summary = "Get form permissions", description = "Returns field-level form permissions configured for a specific approval node.")
     public ApiResponse<Map<String, FormFieldPermission>> getFormPermissions(
             @PathVariable String instanceId, @PathVariable String nodeId) {
@@ -233,39 +284,5 @@ public class FlowRuntimeController {
                 })
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                         "Flow instance not found: " + instanceId));
-    }
-
-    @PostMapping("/trigger")
-    @Operation(summary = "Fire trigger event", description = "Fires a trigger event that may start one or more flows whose trigger contract matches.")
-    public ApiResponse<List<FlowTriggerResult>> fireTrigger(@Valid @RequestBody FlowTriggerEvent event) {
-        event.setActorId(currentUserId());
-        return ApiResponse.success(flowAutomationService.fire(event));
-    }
-
-    @PostMapping("/onchange")
-    @Operation(summary = "Evaluate field onchange flows",
-            description = "Executes all FieldOnchange-purpose flows matching the source model, "
-                    + "merges fieldChanges into currentData, and returns the computed variables diff.")
-    public ApiResponse<Map<String, Object>> onchange(@Valid @RequestBody FlowOnchangeRequest request) {
-        request.setActorId(currentUserId());
-        return ApiResponse.success(flowAutomationService.evaluateOnchange(request));
-    }
-
-    @PostMapping("/validate")
-    @Operation(summary = "Evaluate validation flows",
-            description = "Transiently runs all Validation-scenario flows bound to the source model "
-                    + "against the candidate row data and returns each flow's declared outputs keyed "
-                    + "by flow ID. No instance is persisted.")
-    public ApiResponse<Map<String, Map<String, Object>>> validate(@Valid @RequestBody FlowValidationRequest request) {
-        request.setActorId(currentUserId());
-        return ApiResponse.success(flowAutomationService.evaluateValidation(request));
-    }
-
-    private static String currentUserId() {
-        Long userId = ContextHolder.getContext().getUserId();
-        if (userId == null) {
-            throw new FlowAuthorizationException("Authentication is required");
-        }
-        return userId.toString();
     }
 }

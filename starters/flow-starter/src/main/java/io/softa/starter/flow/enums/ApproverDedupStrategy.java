@@ -22,9 +22,9 @@ public enum ApproverDedupStrategy {
     CONTIGUOUS("Contiguous"),
 
     /**
-     * Auto-approve when the actor approved any earlier node of the same instance, restricted to the
-     * current resubmission cycle (approvals recorded before the last return/resubmit are discounted,
-     * because the document may have changed since). This is the default when unconfigured.
+     * Auto-approve when the actor approved any earlier node of the same instance. A return ends the
+     * instance, so a record edited after one is approved afresh by a new instance. This is the
+     * default when unconfigured.
      */
     GLOBAL("Global");
 

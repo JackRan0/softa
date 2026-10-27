@@ -18,9 +18,8 @@ import io.softa.starter.flow.enums.FlowNodeType;
  * {@code FlowNodeType.getType()} string.
  * <p>
  * Approval return policy (formerly a separate {@code returnPolicy} field) is now
- * expressed entirely within the {@code config} map using the fields
- * {@code returnEnabled}, {@code returnTarget}, and {@code returnTargetNodeId},
- * matching the compiled {@code ApprovalNodeConfig} structure directly.
+ * expressed within the {@code config} map as {@code returnEnabled} — a return always
+ * goes to the initiator — matching the compiled {@code ApprovalNodeConfig} structure directly.
  */
 @Data
 @Builder

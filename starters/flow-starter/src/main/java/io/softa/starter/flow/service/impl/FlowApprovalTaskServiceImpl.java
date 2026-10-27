@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -147,9 +148,13 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         return views;
     }
 
+    /**
+     * Every task of an instance, read past the caller's data permissions: for the projection sync, the
+     * engine's own bookkeeping; for {@link #getTasksByInstanceId}, rows the access guard rules on next.
+     */
     private List<FlowApprovalTask> getTaskEntitiesByInstanceId(String instanceId) {
         Filters filters = new Filters().eq(FlowApprovalTask::getInstanceId, instanceId);
-        return this.searchList(filters).stream()
+        return ContextUtils.withoutPermissionChecks(() -> this.searchList(filters)).stream()
                 .sorted(ApprovalTaskQuerySupport.pendingTaskComparator())
                 .toList();
     }

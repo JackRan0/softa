@@ -3,6 +3,7 @@ package io.softa.starter.file.service.impl;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.*;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fesod.sheet.FesodSheet;
@@ -23,8 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-import io.softa.framework.base.context.Context;
-import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.PermissionException;
@@ -510,10 +510,8 @@ public class ImportServiceImpl implements ImportService {
         return pastRowScope(() -> importTemplateFieldService.searchList(new FlexQuery(filters, orders)));
     }
 
-    private static <T> T pastRowScope(ScopedValue.CallableOp<T, RuntimeException> read) {
-        Context ctx = ContextHolder.cloneContext();
-        ctx.setSkipPermissionCheck(true);
-        return ContextHolder.callWith(ctx, read);
+    private static <T> T pastRowScope(Supplier<T> read) {
+        return ContextUtils.withoutPermissionChecks(read);
     }
 
     /**

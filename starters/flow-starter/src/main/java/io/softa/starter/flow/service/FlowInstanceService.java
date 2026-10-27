@@ -3,12 +3,16 @@ package io.softa.starter.flow.service;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Page;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
+import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowInstance;
+import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
 /**
@@ -100,7 +104,8 @@ public interface FlowInstanceService {
     Page<FlowInstance> searchInstances(FlexQuery query, Page<FlowInstance> page);
 
     /**
-     * Paged summary search shared by the runtime "my instances" endpoint and the
+     * Paged summary search shared by the caller's "my instances" reads
+     * ({@code POST /flow/instances/search} and {@code FlowClient.myInstances}) and the
      * cross-initiator monitor endpoint. Builds the summary projection (heavy JSON
      * state columns excluded) and the filter set from the request, newest first.
      *
@@ -122,4 +127,31 @@ public interface FlowInstanceService {
      * @return list of candidate stuck instances
      */
     List<FlowInstance> findStuckInstances(LocalDateTime threshold, int limit);
+
+    /**
+     * A business record's approval history, for its approval panel: the record's approval instances
+     * (one per submission), newest first, each with its status, initiator, the steps still waiting
+     * and the approvers yet to act, and its approval actions (CC reads left out), every user named.
+     * Read past the caller's permissions; {@code authorize} decides who may see it, and the users are
+     * named only once it has passed.
+     *
+     * @param modelName the record's model
+     * @param rowId     the record
+     * @param authorize checks the history, its users still unnamed, and throws to refuse it
+     * @return the history; no instances when the record was never submitted
+     */
+    FlowRecordApprovalsView recordApprovals(String modelName, String rowId,
+                                            Consumer<FlowRecordApprovalsView> authorize);
+
+    /**
+     * The business record an instance runs on, as its approvers see it: read past the caller's own
+     * row and field checks — the caller checks who may — and limited to the fields the instance's
+     * approval steps list as Readonly, Editable or Required. While steps are waiting, those are the
+     * waiting steps' fields; once none is, those of every approval step. A step that lists no fields
+     * shows them all; a field any of those steps marks Hidden is left out.
+     *
+     * @param state the instance
+     * @return the record, or empty when the instance names none or it no longer exists
+     */
+    Optional<Map<String, Object>> recordOf(FlowExecutionState state);
 }

@@ -30,9 +30,12 @@ public interface FlowDelegationService {
     int expireDelegations(LocalDateTime now);
 
     /**
-     * Cancel (deactivate) a delegation by ID.
+     * Cancel (deactivate) one of the requester's delegations.
+     *
+     * @throws io.softa.starter.flow.runtime.exception.FlowAuthorizationException when the requester
+     *         has no delegation of that id — another user's and a missing one are not told apart
      */
-    void cancelDelegation(Long delegationId);
+    void cancelDelegation(Long delegationId, String requesterId);
 
     /**
      * List delegations created by a delegator.

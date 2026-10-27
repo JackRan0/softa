@@ -19,6 +19,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
  * @see CronTrigger
  * @see SubflowTrigger
  * @see FieldChangeTrigger
+ * @see SubmitTrigger
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
 @JsonSubTypes({
@@ -27,8 +28,9 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
         @Type(value = CronTrigger.class,         name = "Cron"),
         @Type(value = SubflowTrigger.class,      name = "Subflow"),
         @Type(value = FieldChangeTrigger.class,  name = "FieldChange"),
+        @Type(value = SubmitTrigger.class,       name = "Submit"),
 })
 public sealed interface TriggerSource
         permits EntityChangeTrigger, ApiTrigger, CronTrigger,
-                SubflowTrigger, FieldChangeTrigger {
+                SubflowTrigger, FieldChangeTrigger, SubmitTrigger {
 }

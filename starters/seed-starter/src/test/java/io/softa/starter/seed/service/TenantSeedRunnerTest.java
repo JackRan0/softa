@@ -2,6 +2,7 @@ package io.softa.starter.seed.service;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -9,15 +10,18 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.seed.dto.FileState;
 import io.softa.starter.seed.entity.SeedLoadRecord;
 import io.softa.starter.seed.entity.SysPreData;
+import io.softa.starter.seed.event.SeedFileLoadedEvent;
 import io.softa.starter.seed.enums.SeedLoadStatus;
 import io.softa.starter.seed.enums.SeedLoadType;
 import io.softa.starter.seed.enums.SeedRecordStatus;
@@ -34,6 +38,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -60,6 +65,7 @@ class TenantSeedRunnerTest {
     private TenantSeedPlanner planner;
     private SysPreDataService preDataService;
     private CacheService cacheService;
+    private ApplicationEventPublisher eventPublisher;
     private TenantSeedRunner runner;
     private final Map<String, FileState> states = new HashMap<>();
 
@@ -85,8 +91,9 @@ class TenantSeedRunnerTest {
         when(planner.tenantName(TENANT)).thenReturn("Acme");
         preDataService = mock(SysPreDataService.class);
         cacheService = mock(CacheService.class);
+        eventPublisher = mock(ApplicationEventPublisher.class);
         runner = new TenantSeedRunner(catalog, loadLog, planner, preDataService, cacheService,
-                mock(PlatformTransactionManager.class));
+                mock(PlatformTransactionManager.class), eventPublisher);
     }
 
     @Test
@@ -104,6 +111,31 @@ class TenantSeedRunnerTest {
                 eq(SeedRecordStatus.SUCCEEDED), any(), any());
         // New roles change what the tenant's users may do.
         verify(cacheService).clearByPrefix("perm:7:");
+    }
+
+    @Test
+    void aFileAnnouncesTheRowsItCreatedInTheTenantsContext() {
+        states.put("Role.Tenant.json", FileState.LOADED);
+        states.put("LeaveType.json", FileState.LOADED);
+        // The load reports the rows it created — not the ones an earlier load had bound.
+        when(preDataService.loadPreTenantData(List.of("SysSequence.json"), TENANT, LoadMode.ADDITIVE))
+                .thenReturn(Map.of("SysSequence", List.of("102")));
+        List<Long> tenantsSeenByListener = new ArrayList<>();
+        doAnswer(call -> tenantsSeenByListener.add(ContextHolder.getContext().getTenantId()))
+                .when(eventPublisher).publishEvent(any(Object.class));
+
+        runner.runTenant(42L, TENANT);
+
+        verify(eventPublisher).publishEvent(
+                new SeedFileLoadedEvent(TENANT, "SysSequence.json", Map.of("SysSequence", List.of("102"))));
+        assertEquals(List.of(TENANT), tenantsSeenByListener);
+    }
+
+    @Test
+    void aFileThatCreatedNothingAnnouncesNothing() {
+        runner.runTenant(42L, TENANT);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 
     @Test
