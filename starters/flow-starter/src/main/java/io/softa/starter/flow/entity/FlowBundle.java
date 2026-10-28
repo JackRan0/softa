@@ -28,6 +28,7 @@ import io.softa.starter.flow.enums.FlowScenario;
     copyable = false
 )
 @Index(indexName = "uk_tenant_flow_revision", fields = {"tenantId", "flowId", "revision"}, unique = true)
+@Index(fields = {"active", "cronExpression"})
 @EqualsAndHashCode(callSuper = true)
 public class FlowBundle extends AuditableModel {
 
@@ -58,6 +59,10 @@ public class FlowBundle extends AuditableModel {
 
     @Field(description = "Whether to roll back on failure")
     private Boolean rollbackOnFail;
+
+    @Field(description = "Schedule of a Cron-triggered revision, copied from its trigger so that the cron "
+            + "scheduler lists the scheduled flows without reading their compiled JSON; empty for other triggers")
+    private String cronExpression;
 
     @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = FlowDesign.class, label = "Flow", description = "The flow this revision belongs to")
     private String flowId;

@@ -11,6 +11,7 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.trigger.ChangeEvent;
+import io.softa.starter.flow.design.trigger.CronTrigger;
 import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
 import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
 import io.softa.starter.flow.message.ChangeLogTriggerMapper;
@@ -123,6 +124,27 @@ class DefaultFlowTriggerRegistryTest {
     void modelFilterStillApplies() {
         DefaultFlowTriggerRegistry registry = registryFor(entityFlow("f", "Order", List.of(ChangeEvent.CREATE)));
         assertTrue(registry.findMatchingFlows(entityEvent("Customer", "CREATE")).isEmpty());
+    }
+
+    /**
+     * A Cron flow is started by its own schedule only: the Cron event every cron tick used to become no longer
+     * matches it, nor does any other event.
+     */
+    @Test
+    void cronTriggerIsNeverMatchedByAnEvent() {
+        CompiledFlowDefinition cronFlow = CompiledFlowDefinition.builder()
+                .flowId("report")
+                .trigger(new CronTrigger("0 0 9 ? * MON-FRI"))
+                .build();
+        DefaultFlowTriggerRegistry registry = registryFor(cronFlow);
+        FlowTriggerEvent cronTick = FlowTriggerEvent.builder()
+                .type("Cron")
+                .sourceModel("cron:6")
+                .parameters(Map.of("_cronName", "flow_timer_sweep"))
+                .build();
+
+        assertTrue(registry.findMatchingFlows(cronTick).isEmpty());
+        assertTrue(registry.findMatchingFlows(entityEvent("Order", "CREATE")).isEmpty());
     }
 
     @Test

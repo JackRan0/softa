@@ -26,6 +26,12 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
             LambdaUtils.getAttributeName(FlowBundle::getFlowId),
             LambdaUtils.getAttributeName(FlowBundle::getCompiledJson));
 
+    /** What a revision's cron job is made of. */
+    private static final List<String> CRON_JOB_FIELDS = List.of(
+            LambdaUtils.getAttributeName(FlowBundle::getId),
+            LambdaUtils.getAttributeName(FlowBundle::getTenantId),
+            LambdaUtils.getAttributeName(FlowBundle::getCronExpression));
+
     @Override
     public Optional<FlowBundle> findById(Long id) {
         return super.getById(id);
@@ -91,6 +97,15 @@ public class FlowBundleServiceImpl extends EntityServiceImpl<FlowBundle, Long>
     public List<FlowBundle> getAllActiveFlow() {
         FlexQuery query = new FlexQuery(new Filters().eq(FlowBundle::getActive, true));
         query.select(DEFINITION_FIELDS);
+        return this.searchList(query);
+    }
+
+    @Override
+    public List<FlowBundle> listActiveCronBundles() {
+        Filters filters = new Filters()
+                .eq(FlowBundle::getActive, true)
+                .isSet(FlowBundle::getCronExpression);
+        FlexQuery query = new FlexQuery(filters).select(CRON_JOB_FIELDS);
         return this.searchList(query);
     }
 

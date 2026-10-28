@@ -1,9 +1,10 @@
 # Cron Starter
 
 ## Overview
-This starter provides a distributed cron scheduler. It loads `SysCron` records from the database, elects a single
-leader via Redis, and publishes cron triggers to MQ (Pulsar) as `CronTaskMessage`. Your application consumes those
-messages and executes the real business logic.
+This starter provides a distributed cron scheduler. It loads `SysCron` records from the database — and the jobs of
+every `CronJobProvider`, for schedules that live with another module's data (see [Provided Jobs](#provided-jobs)) —
+elects a single leader via Redis, and publishes cron triggers to MQ (Pulsar) as `CronTaskMessage`. Your application
+consumes those messages and executes the real business logic.
 
 The scheduling side and the execution side are intentionally decoupled:
 - `cron-starter` decides when to trigger and what context to send.
@@ -67,11 +68,11 @@ Key fields:
 - `active`: active flag.
 
 ### SysCronLog
-Execution log for jobs. The Flow starter writes logs when it consumes cron tasks.
+Execution log for jobs. Nothing in the platform writes it yet.
 
 ### CronTaskMessage
 Fields published to MQ:
-- `cronId`, `cronName`
+- `cronId` (empty for a [provided job](#provided-jobs)), `cronName`
 - `triggerTime`, `lastExecTime`
 - `context` (request context snapshot used by the consumer)
 
@@ -90,10 +91,33 @@ Implementation notes:
 - A Redis error during an election round makes the leader step down rather than risk two schedulers; until its lease
   expires (60s at most) no node schedules, and every node keeps competing for the lease.
 - The scheduler uses `ZoneId.systemDefault()`.
+- Each run computes the next execution after the one it just ran, not after "now": a run that wakes a little before its
+  time — its delay is cut to whole milliseconds, and the wall clock may drift from the executor's — would otherwise get
+  that same execution again and fire twice.
 - A cron with `limitExecution=false` is scheduled repeatedly.
 - A cron with `limitExecution=true` is scheduled with an in-memory counter only. `remainingCount` is not persisted by the scheduler.
 - On startup, the current implementation registers jobs where `active` is NOT `true` (`null` / `false`). If your expectation is
   "active means enabled", align data or adjust the condition in code.
+
+## Provided Jobs
+A module whose schedules live with its own data implements `CronJobProvider` (a Spring bean) instead of writing
+`SysCron` rows, so that each schedule has a single source and nothing copies it. flow-starter's `CronFlowJobProvider`,
+for instance, schedules each Cron-triggered flow from its published revision.
+
+A `CronJob` is a value — `name`, the `cronName` of its messages; `cronExpression`, as on a row; and its tenant:
+- `CronJob.ofTenant(name, cronExpression, tenantId)`: one message per execution, in that tenant's context, sent only
+  while the tenant is active;
+- `CronJob.perTenant(name, cronExpression)`: one message per active tenant, as a `PerTenant` row;
+- `CronJob.of(name, cronExpression)`: one message with no tenant, for a deployment without tenants.
+
+The leader reads every provider when it starts scheduling and again every 30 seconds (`PROVIDED_JOBS_REFRESH_SECONDS`).
+A job a provider adds is scheduled, one it no longer returns is cancelled — a run of it that is already firing does not
+schedule another — and one it keeps returning keeps its next run; a job whose expression or tenant changed is another
+job. A provider that throws leaves the schedule as it is until the next read, and a job whose expression cannot be
+parsed is logged and skipped. A provided job's messages carry no `cronId`; consumers recognize them by `cronName`, as
+they do the rows' messages.
+
+`SysCron` rows, unlike provided jobs, are read only when a node takes over the schedule.
 
 ## Tenant Modes
 ### Non-multi-tenant mode

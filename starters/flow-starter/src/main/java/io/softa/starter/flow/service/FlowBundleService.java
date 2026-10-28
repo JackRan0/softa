@@ -32,6 +32,13 @@ public interface FlowBundleService {
      */
     List<FlowBundle> getAllActiveFlow();
 
+    /**
+     * The active revisions with a Cron trigger, carrying only their id, tenant and
+     * {@link FlowBundle#getCronExpression() schedule}. Read in the caller's context: the cron
+     * scheduler reads them across tenants.
+     */
+    List<FlowBundle> listActiveCronBundles();
+
     int getNextRevision(String flowId);
 
     void markAsActive(String flowId, Integer revision);

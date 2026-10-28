@@ -6,6 +6,7 @@ import tools.jackson.core.type.TypeReference;
 import io.softa.framework.base.exception.JSONException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.flow.design.DesignFlowDefinition;
+import io.softa.starter.flow.design.trigger.CronTrigger;
 import io.softa.starter.flow.entity.FlowBundle;
 
 /**
@@ -46,6 +47,7 @@ public final class FlowBundleMapper {
         entity.setScenario(definition.getScenario());
         entity.setSync(definition.getSync());
         entity.setRollbackOnFail(definition.getRollbackOnFail());
+        entity.setCronExpression(definition.getTrigger() instanceof CronTrigger trigger ? trigger.cronExpression() : null);
         entity.setCompiledJson(JsonUtils.objectToString(definition));
         entity.setDesignJson(designDefinition);
         entity.setFlowId(flowId);

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS flow_bundle
     scenario           VARCHAR(50)           COMMENT 'Execution scenario',
     sync               TINYINT(1)   DEFAULT 0 COMMENT 'Whether the flow executes synchronously',
     rollback_on_fail   TINYINT(1)   DEFAULT 1 COMMENT 'Whether to roll back on failure',
+    cron_expression    VARCHAR(64)           COMMENT 'Schedule of a Cron-triggered revision (copied from its trigger)',
     flow_id            VARCHAR(24)           COMMENT 'FK to flow_design.id',
     compiled_json      LONGTEXT              COMMENT 'Compiled flow definition (JSON)',
     design_json        LONGTEXT              COMMENT 'Design flow definition at publish time (JSON)',
@@ -68,7 +69,8 @@ CREATE TABLE IF NOT EXISTS flow_bundle
     updated_id         BIGINT                COMMENT 'Updated by user ID',
     updated_by         VARCHAR(100)          COMMENT 'Updated by username',
     UNIQUE INDEX uk_tenant_flow_revision (tenant_id, flow_id, revision),
-    INDEX idx_tenant_flow (tenant_id, flow_id)
+    INDEX idx_tenant_flow (tenant_id, flow_id),
+    INDEX idx_flow_bundle_active_cron_expression (active, cron_expression)
 ) COMMENT = 'Compiled and published flow revision bundle';
 
 -- ------------------------------------------------------------

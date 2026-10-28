@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS flow_bundle (
     scenario VARCHAR(64),
     sync BOOLEAN,
     rollback_on_fail BOOLEAN,
+    cron_expression VARCHAR(64),
     flow_id VARCHAR(24),
     compiled_json TEXT,
     design_json TEXT,
@@ -181,6 +182,7 @@ COMMENT ON COLUMN flow_bundle.revision IS 'Published revision number';
 COMMENT ON COLUMN flow_bundle.scenario IS 'Execution scenario';
 COMMENT ON COLUMN flow_bundle.sync IS 'Whether the flow executes synchronously';
 COMMENT ON COLUMN flow_bundle.rollback_on_fail IS 'Whether to roll back on failure';
+COMMENT ON COLUMN flow_bundle.cron_expression IS 'Schedule of a Cron-triggered revision, copied from its trigger so that the cron scheduler lists the scheduled flows without reading their compiled JSON; empty for other triggers';
 COMMENT ON COLUMN flow_bundle.flow_id IS 'The flow this revision belongs to';
 COMMENT ON COLUMN flow_bundle.compiled_json IS 'Compiled flow definition (JSON)';
 COMMENT ON COLUMN flow_bundle.design_json IS 'Design flow definition at publish time (auto-converted by ORM)';
@@ -190,6 +192,7 @@ COMMENT ON COLUMN flow_bundle.change_description IS 'Change description for this
 COMMENT ON COLUMN flow_bundle.active IS 'Whether this is the currently effective revision (one per design)';
 COMMENT ON COLUMN flow_bundle.debug IS 'Debug-run bundle: compiled from an unpublished draft, never active, hidden from revision lists, purged by the maintenance job';
 CREATE UNIQUE INDEX IF NOT EXISTS uk_tenant_flow_revision ON flow_bundle (tenant_id, flow_id, revision);
+CREATE INDEX IF NOT EXISTS idx_flow_bundle_active_cron_expression ON flow_bundle (active, cron_expression);
 
 -- FlowCcConfig
 /* Create table for model: Flow CC Config */
