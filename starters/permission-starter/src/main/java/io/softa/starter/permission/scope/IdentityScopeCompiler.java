@@ -1,7 +1,6 @@
 package io.softa.starter.permission.scope;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -11,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import io.softa.framework.base.constant.EnvConstant;
 import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.startup.StartupSnapshot;
 import io.softa.starter.permission.spi.ScopeRule;
 import io.softa.starter.permission.spi.ScopeType;
 
@@ -48,19 +48,39 @@ import io.softa.starter.permission.spi.ScopeType;
  * Hierarchical types needing a runtime DB lookup (DEPT_SUBTREE / MANAGED_DEPARTMENTS)
  * and the generic CUSTOM evaluator keep their own {@code ScopeContributor}s.
  *
- * <p>Rows are lazy-loaded + cached (only a non-empty load), so a read before the
- * seed lands is retried. A fresh {@link Filters} is built per call (never a cached
- * instance) so the downstream OR-merge can't mutate the cache.
+ * <p>A {@link StartupSnapshot}: the rows are read once at startup, once the seed
+ * files the build owns have loaded. A fresh {@link Filters} is built per call (never
+ * a cached instance) so the downstream OR-merge can't mutate the snapshot.
  */
 @Slf4j
 @Component
-public class IdentityScopeCompiler {
+public class IdentityScopeCompiler implements StartupSnapshot {
 
     private final DataScopeTypeReader reader;
     private volatile Map<String, Spec> specs;
 
     public IdentityScopeCompiler(DataScopeTypeReader reader) {
         this.reader = reader;
+    }
+
+    @Override
+    public Set<String> sourceModels() {
+        return Set.of(DataScopeTypeReader.MODEL);
+    }
+
+    /** Read the identity specs: the DataScopeType rows carrying a {@code filter} template. */
+    @Override
+    public void build() {
+        Map<String, Spec> loaded = new HashMap<>();
+        for (Map<String, Object> m : reader.read()) {
+            Object filter = m.get("filter");
+            if (filter == null) {
+                continue;   // not an identity type (code contributor / ALL / CUSTOM)
+            }
+            loaded.put(str(m.get("id")), new Spec(
+                    str(m.get("identityModel")), filter, m.get("identityFilter")));
+        }
+        specs = Map.copyOf(loaded);
     }
 
     /** True if {@code type} is a data-driven identity scope (its DataScopeType row
@@ -109,32 +129,13 @@ public class IdentityScopeCompiler {
         return f;
     }
 
-    /** Lazy-load identity specs (only DataScopeType rows carrying a {@code filter}
-     *  template). Caches only a non-empty load so a read before the seed lands is retried. */
     private Map<String, Spec> specs() {
-        Map<String, Spec> cached = specs;
-        if (cached != null) {
-            return cached;
+        Map<String, Spec> built = specs;
+        if (built == null) {
+            throw new IllegalStateException("IdentityScopeCompiler is read before it is built: it is built at "
+                    + "startup, once the seed files the build owns have loaded, and nothing may ask it before.");
         }
-        List<Map<String, Object>> raw = reader.read();
-        if (raw.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, Spec> loaded = new HashMap<>();
-        for (Map<String, Object> m : raw) {
-            Object filter = m.get("filter");
-            if (filter == null) {
-                continue;   // not an identity type (code contributor / ALL / CUSTOM)
-            }
-            loaded.put(str(m.get("id")), new Spec(
-                    str(m.get("identityModel")), filter, m.get("identityFilter")));
-        }
-        if (loaded.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, Spec> immutable = Map.copyOf(loaded);
-        specs = immutable;
-        return immutable;
+        return built;
     }
 
     private static String str(Object v) {

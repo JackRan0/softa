@@ -308,9 +308,9 @@ auto-applies, catalog included.
 
 The whole boot DDL window (catalog reconcile → strict read → diff → DDL → row
 writes) is serialized across instances by a database session lock
-(`BootDdlLock`: MySQL `GET_LOCK` / PostgreSQL advisory lock on a dedicated
-connection, 60s wait budget; a timeout fails the boot rather than queueing
-instances behind a wedged sibling).
+(softa-orm's `DbSessionLock`, key `boot-ddl`: MySQL `GET_LOCK` / PostgreSQL
+advisory lock on a dedicated connection, 60s wait budget; a timeout fails the
+boot rather than queueing instances behind a wedged sibling).
 
 ### Physical convergence
 

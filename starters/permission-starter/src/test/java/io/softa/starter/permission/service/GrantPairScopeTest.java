@@ -263,7 +263,7 @@ class GrantPairScopeTest {
                         "permission.employee.bulkEdit", List.of("POST /Employee/updateList"), null),
                 new io.softa.starter.permission.spi.PermissionEndpointSource.PermissionEndpointDef(
                         VIEW, List.of("POST /Employee/searchList"), null)));
-        org.springframework.test.util.ReflectionTestUtils.invokeMethod(real, "init");
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(real, "build");
         PermissionSnapshotProvider provider = mock(PermissionSnapshotProvider.class);
         when(provider.get(anyLong(), anyLong())).thenAnswer(inv -> pi);
         ScopeApplicabilityResolver applicability = mock(ScopeApplicabilityResolver.class);

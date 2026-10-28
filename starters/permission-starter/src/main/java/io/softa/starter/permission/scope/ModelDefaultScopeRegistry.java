@@ -3,21 +3,21 @@ package io.softa.starter.permission.scope;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.orm.startup.StartupSnapshot;
 import io.softa.starter.permission.entity.ModelDefaultScope;
 import io.softa.starter.permission.spi.ScopeType;
 
 /**
  * Which models declare a default row scope, and what it is.
  *
- * <p>One lazily-built map over {@link ModelDefaultScope}. Lazy rather than eager because the rows
- * arrive with the seed, which on a fresh database lands after this bean is wired; and only a
- * non-empty result is cached, so a read taken before the seed is retried rather than pinned to
- * empty — the same reasoning {@code ScopeApplicabilityResolver} uses for its own registry.
+ * <p>A {@link StartupSnapshot}: one map over {@link ModelDefaultScope}, built at startup once the seed files the
+ * build owns have loaded. The rows change only at startup, so the map never needs reloading.
  *
  * <p>A row naming no known {@link ScopeType} is dropped with a warning rather than failing the
  * request. The boot validator reports those, which is where a typo should surface; a request is the
@@ -26,7 +26,7 @@ import io.softa.starter.permission.spi.ScopeType;
  */
 @Slf4j
 @Component
-public class ModelDefaultScopeRegistry {
+public class ModelDefaultScopeRegistry implements StartupSnapshot {
 
     private final ModelDefaultScopeReader reader;
 
@@ -36,21 +36,14 @@ public class ModelDefaultScopeRegistry {
         this.reader = reader;
     }
 
-    /** The scope {@code modelName} falls back to, or {@code null} when it declares none. */
-    public ScopeType scopeFor(String modelName) {
-        return modelName == null ? null : all().get(modelName);
+    @Override
+    public Set<String> sourceModels() {
+        return Set.of(ModelDefaultScopeReader.MODEL);
     }
 
-    /** Every declaration, for the boot report. */
-    public Map<String, ScopeType> all() {
-        Map<String, ScopeType> cached = byModel;
-        if (cached != null) {
-            return cached;
-        }
+    @Override
+    public void build() {
         List<Map<String, Object>> rows = reader.read();
-        if (rows.isEmpty()) {
-            return Map.of();
-        }
         Map<String, ScopeType> loaded = HashMap.newHashMap(rows.size());
         for (Map<String, Object> row : rows) {
             String model = str(row.get("id"));
@@ -59,20 +52,22 @@ public class ModelDefaultScopeRegistry {
                 loaded.put(model, type);
             }
         }
-        Map<String, ScopeType> immutable = Map.copyOf(loaded);
-        byModel = immutable;
-        return immutable;
+        byModel = Map.copyOf(loaded);
     }
 
-    /**
-     * Drop the cached map so the next read re-loads it.
-     *
-     * <p>These rows are edited rarely and deliberately — adding one is a decision about a model's
-     * shape, not a runtime knob — so there is no TTL. Whoever changes the table calls this (or
-     * restarts) to make the change take effect.
-     */
-    public void evict() {
-        byModel = null;
+    /** The scope {@code modelName} falls back to, or {@code null} when it declares none. */
+    public ScopeType scopeFor(String modelName) {
+        return modelName == null ? null : all().get(modelName);
+    }
+
+    /** Every declaration, for the boot report. */
+    public Map<String, ScopeType> all() {
+        Map<String, ScopeType> built = byModel;
+        if (built == null) {
+            throw new IllegalStateException("ModelDefaultScopeRegistry is read before it is built: it is built at "
+                    + "startup, once the seed files the build owns have loaded, and nothing may ask it before.");
+        }
+        return built;
     }
 
     private ScopeType parse(String code, String model) {

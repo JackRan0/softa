@@ -42,7 +42,7 @@ class NavigationModelResolverImplTest {
     private void primeWith(List<Navigation> rows) {
         when(modelService.searchList(eq("Navigation"), any(FlexQuery.class), eq(Navigation.class)))
                 .thenReturn(rows);
-        resolver.init();
+        resolver.build();
     }
 
     @Test

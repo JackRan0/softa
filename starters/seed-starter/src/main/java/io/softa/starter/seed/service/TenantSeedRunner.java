@@ -87,7 +87,7 @@ public class TenantSeedRunner {
             throw new BusinessException("Nothing was run: this environment has not been initialized. Load the "
                     + "platform files once from the Seed Data page first — that first load records the tenant files "
                     + "tenants already have as run, so a run does not load them again over what the tenants changed."
-                    + " Then restart, and run.");
+                    + " Then run.");
         }
         loadLog.requireIdle();
         List<Long> provisioned = planner.provisionedTenantIds();

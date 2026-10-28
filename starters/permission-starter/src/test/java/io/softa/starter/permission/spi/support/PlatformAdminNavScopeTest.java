@@ -4,8 +4,11 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.permission.spi.PermissionInfo;
 
@@ -44,8 +47,8 @@ class PlatformAdminNavScopeTest {
                 .thenReturn(java.util.Arrays.stream(navIds).map(PlatformAdminNavScopeTest::nav).toList());
         when(modelService.searchList(eq("Permission"), any(FlexQuery.class), any(Class.class)))
                 .thenReturn(List.of());
-        return new DefaultPermissionSnapshotProvider(null, modelService, null, () -> null,
-                PLATFORM, SHARED);
+        return built(new DefaultPermissionSnapshotProvider(null, modelService, null, () -> null,
+                PLATFORM, SHARED));
     }
 
     private static DefaultPermissionSnapshotProvider.UserRoleRelView rel() {
@@ -88,8 +91,8 @@ class PlatformAdminNavScopeTest {
                 .thenReturn(navs);
         when(modelService.searchList(eq("Permission"), any(FlexQuery.class), any(Class.class)))
                 .thenReturn(List.of());
-        return new DefaultPermissionSnapshotProvider(null, modelService, null, () -> null,
-                PLATFORM, SHARED);
+        return built(new DefaultPermissionSnapshotProvider(null, modelService, null, () -> null,
+                PLATFORM, SHARED));
     }
 
     @Test
@@ -164,9 +167,18 @@ class PlatformAdminNavScopeTest {
         when(modelService.searchList(eq("Permission"), any(FlexQuery.class), any(Class.class)))
                 .thenReturn(List.of());
 
-        PermissionInfo info = new DefaultPermissionSnapshotProvider(null, modelService, null,
-                () -> null, PLATFORM, List.of()).doLoadFromDb(7L, 42L);
+        PermissionInfo info = built(new DefaultPermissionSnapshotProvider(null, modelService, null,
+                () -> null, PLATFORM, List.of())).doLoadFromDb(7L, 42L);
 
         assertThat(info.getNavigations()).isEmpty();
+    }
+
+    /** As startup leaves it: the navigation ancestry built from the rows stubbed above, the model being present. */
+    private static DefaultPermissionSnapshotProvider built(DefaultPermissionSnapshotProvider provider) {
+        try (MockedStatic<ModelManager> models = Mockito.mockStatic(ModelManager.class)) {
+            models.when(() -> ModelManager.existModel("Navigation")).thenReturn(true);
+            provider.build();
+        }
+        return provider;
     }
 }

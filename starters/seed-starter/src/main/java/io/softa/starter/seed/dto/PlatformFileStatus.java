@@ -19,7 +19,12 @@ public record PlatformFileStatus(
                 + "rows (data-platform/)")
         SeedLevel level,
 
-        @Schema(description = "Where the file stands; NOT_LOADED, CHANGED and FAILED load on the next platform load")
+        @Schema(description = "The build owns the file (manifest `auto`): it loads at startup, before the "
+                + "application takes traffic, and never from this page")
+        boolean auto,
+
+        @Schema(description = "Where the file stands; NOT_LOADED, CHANGED and FAILED load on the next platform load, "
+                + "or at the next start for a file the build owns")
         FileState state,
 
         @Schema(description = "SHA-256 of the file in the running build, CRLF read as LF")

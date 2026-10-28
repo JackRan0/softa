@@ -27,7 +27,7 @@ public class SeedCatalog {
     private final SeedManifest manifest;
     private final String appVersion;
     private final LocalDateTime buildTime;
-    /** When this instance started — after this, a platform load is not yet in its in-memory indexes. */
+    /** When this instance started, shown beside the latest platform load. */
     private final LocalDateTime startedAt = LocalDateTime.now();
     /** Classpath location → SHA-256. The classpath does not change while the application runs. */
     private final Map<String, String> checksums = new ConcurrentHashMap<>();

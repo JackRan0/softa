@@ -55,7 +55,9 @@ class NavigationConfigOptionsControllerTest {
         roleGrantCeiling = mock(RoleGrantCeiling.class);
         controller = new NavigationConfigOptionsController(navResolver, modelService, roleGrantCeiling);
         // The DataScopeType + SensitiveFieldSet reads default to empty (Mockito) →
-        // only "ALL" scope and no SFS rows unless a test stubs the registry reads.
+        // only "ALL" scope and no SFS rows unless a test stubs the registry reads
+        // and builds again, as startup does once the seed files have loaded.
+        controller.build();
     }
 
     private static MetaField field(String name, FieldType type, String relatedModel) {
@@ -231,6 +233,7 @@ class NavigationConfigOptionsControllerTest {
                 eq(NavigationConfigOptionsController.SensitiveFieldSetView.class))).thenReturn(List.of(
                 sfsView("emp-comp", "Employee", "Compensation", arrayOf("Employee")),
                 sfsView("emp-bank", "Employee", null, null)));
+        controller.build();
 
         try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
             mm.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
@@ -264,6 +267,7 @@ class NavigationConfigOptionsControllerTest {
                 dstFilter("LEGAL_ENTITY", arrayOf("legalEntityId", "=", "USER_COMP_ID"), null, null)));
         when(modelService.searchList(eq("SensitiveFieldSet"), any(FlexQuery.class),
                 eq(NavigationConfigOptionsController.SensitiveFieldSetView.class))).thenReturn(List.of());
+        controller.build();
 
         try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
             mm.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
@@ -304,7 +308,8 @@ class NavigationConfigOptionsControllerTest {
     @Test
     void theCataloguesAreReadInTheSystemContextWhoeverAsks() {
         // A role manager has no range on DataScopeType or SensitiveFieldSet: read as them, every model
-        // offered All alone, and the shared cache kept it that way for everyone after.
+        // offered All alone, and the shared snapshot kept it that way for everyone after. Whatever context
+        // the snapshot is built in — a caller's here — the reads are the system's.
         when(navResolver.resolvePrimaryModel("hr.employee")).thenReturn("Employee");
         List<Boolean> skipped = new java.util.ArrayList<>();
         when(modelService.searchList(eq("DataScopeType"), any(FlexQuery.class), eq(NavigationConfigOptionsController.DataScopeTypeView.class)))
@@ -318,12 +323,16 @@ class NavigationConfigOptionsControllerTest {
                     return List.of();
                 });
 
+        io.softa.framework.base.context.Context caller = new io.softa.framework.base.context.Context();
+        io.softa.framework.base.context.ContextHolder.runWith(caller, controller::build);
+
         try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
             mm.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
             mm.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of());
-            io.softa.framework.base.context.Context caller = new io.softa.framework.base.context.Context();
-            io.softa.framework.base.context.ContextHolder.callWith(caller,
-                    () -> controller.getModelOptions(List.of("hr.employee")).getData());
+            RoleModelConfigOption opt = io.softa.framework.base.context.ContextHolder.callWith(caller,
+                    () -> controller.getModelOptions(List.of("hr.employee")).getData().get(0));
+            // What the system read reaches every caller.
+            assertThat(opt.applicableScopes()).contains("SELF");
         }
 
         assertThat(skipped).isNotEmpty().containsOnly(true);

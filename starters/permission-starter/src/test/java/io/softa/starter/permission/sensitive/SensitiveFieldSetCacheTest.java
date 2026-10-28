@@ -27,21 +27,31 @@ class SensitiveFieldSetCacheTest {
 
     private void primeWith(List<SensitiveFieldSetDef> rows) {
         cache = new SensitiveFieldSetCache(() -> rows);
-        cache.reload();
+        cache.build();
     }
 
     @Test
-    void reload_loadFailure_throws() {
+    void build_loadFailure_throws() {
         SensitiveFieldSetCache failing = new SensitiveFieldSetCache(() -> {
             throw new RuntimeException("db down");
         });
-        assertThatThrownBy(failing::reload)
+        assertThatThrownBy(failing::build)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("SensitiveFieldSetCache load failed");
     }
 
     @Test
-    void reload_skipsRowsWithNullIdOrModel() {
+    void readBeforeBuild_throwsRatherThanMaskingNothing() {
+        SensitiveFieldSetCache unbuilt = new SensitiveFieldSetCache(List::of);
+
+        // An empty answer would read as "nothing is sensitive" — fail-open.
+        assertThatThrownBy(() -> unbuilt.hasSensitiveFieldsOn("Employee"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("read before it is built");
+    }
+
+    @Test
+    void build_skipsRowsWithNullIdOrModel() {
         SensitiveFieldSetDef bad1 = new SensitiveFieldSetDef(null, "Employee", Set.of(), null, null);
         SensitiveFieldSetDef bad2 = new SensitiveFieldSetDef("noModel", null, Set.of(), null, null);
         primeWith(List.of(bad1, bad2, sfs("comp", "Employee", "Compensation", List.of("salary"), null)));

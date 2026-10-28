@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.info.BuildProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.beans.factory.ObjectProvider;
@@ -68,11 +69,10 @@ public class PermissionStarterAutoConfiguration {
             @Lazy SensitiveFieldSetCache sfsCache,
             @Lazy ModelService<?> modelService,
             @Lazy ScopeApplicabilityResolver applicability,
-            // ObjectProvider passed as a Supplier, resolved lazily: calling getIfAvailable() HERE
-            // would build EndpointIndex during this bean's construction — before AppStartup loads
-            // ModelManager — leaving the index empty. Deferring the resolve to first use keeps the
-            // index's construction after the catalog is ready. The index is genuinely optional; a
-            // deployment without it answers "granted" for the file endpoints.
+            // ObjectProvider passed as a Supplier, resolved lazily at first use rather than while this
+            // bean is built. The index itself is a startup snapshot, built once the catalog is ready
+            // and the seed files the build owns have loaded. It is genuinely optional; a deployment
+            // without it answers "granted" for the file endpoints.
             ObjectProvider<EndpointIndex> endpointIndex,
             // Same lazy treatment, same reason: the rewriter reads ModelManager, which AppStartup
             // loads after this bean is built.
@@ -102,11 +102,12 @@ public class PermissionStarterAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(PermissionSnapshotProvider.class)
-    public PermissionSnapshotProvider permissionSnapshotProvider(
+    public DefaultPermissionSnapshotProvider permissionSnapshotProvider(
             CacheService cacheService,
             @Lazy ModelService<?> modelService,
             @Lazy SensitiveFieldSetCache sensitiveFieldSetCache,
             ObjectProvider<ScopeRuleCompiler> scopeRuleCompiler,
+            ObjectProvider<BuildProperties> buildProperties,
             @Value("${permission.platform-nav-prefixes:}") String platformNavPrefixes,
             @Value("${permission.shared-nav-prefixes:}") String sharedNavPrefixes) {
         // Default: build the per-user snapshot from the standard RBAC config models
@@ -119,9 +120,23 @@ public class PermissionStarterAutoConfiguration {
         // ScopeRuleCompiler is final, so the proxy cannot be built. getIfAvailable defers resolution to
         // first use without one, and lets a pure-enforce context that registers no compiler start
         // instead of failing at wiring.
+        //
+        // Declared as the concrete type so the startup snapshots find it by type: it is one, for its
+        // navigation ancestry.
         return new DefaultPermissionSnapshotProvider(cacheService, modelService, sensitiveFieldSetCache,
                 scopeRuleCompiler::getIfAvailable, splitCsv(platformNavPrefixes),
-                splitCsv(sharedNavPrefixes));
+                splitCsv(sharedNavPrefixes), buildStamp(buildProperties.getIfAvailable()));
+    }
+
+    /**
+     * The running build's version and build time, or null without build-info — what a cached snapshot is
+     * stamped with, so another build reads it as a miss.
+     */
+    static String buildStamp(BuildProperties build) {
+        if (build == null || build.getTime() == null) {
+            return null;
+        }
+        return build.getVersion() + "@" + build.getTime();
     }
 
     /** Split a comma-separated config value into a trimmed, non-empty list. */

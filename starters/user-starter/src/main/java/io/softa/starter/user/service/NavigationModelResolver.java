@@ -11,7 +11,7 @@ import io.softa.starter.user.enums.NavigationType;
  *
  * Implementation reads {@code Navigation.model} field directly (no convention
  * derivation, no override JSON). Maintained as in-memory snapshot built at
- * startup; navigation rows are seed-only, redeploy to refresh.
+ * startup; navigation rows change only at startup.
  */
 public interface NavigationModelResolver {
 

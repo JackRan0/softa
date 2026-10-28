@@ -53,10 +53,15 @@ How a change to a file reaches data that is already loaded depends on its level:
 - `overwrite: true` (tenant files only) makes a tenant file behave like a
   platform file: it runs again, whole, whenever it changes. Use it only for rows
   nobody in a tenant edits, such as the built-in roles.
-- `bootstrap: true` (platform files only) marks the files holding the Seed Data
-  page's own menu and permissions. They load on their own once the application
-  has started in an environment where they never loaded, so the platform admin
-  can reach the page. Mark no other file.
+- `auto: true` (platform files only) marks the files the build owns: they load
+  at startup, wherever new or changed, before the application takes traffic and
+  before the in-memory permission and navigation snapshots are built from them,
+  and never from the Seed Data page. Every file writing a model those snapshots
+  read (`Navigation`, `Permission`, `SensitiveFieldSet`, `DataScopeType`,
+  `ModelDefaultScope`) must carry it — startup refuses a manifest that leaves
+  one to the page — and mark only files whose rows nobody changes on a page.
+  Keep such a change compatible with the release it replaces: during a rolling
+  deploy the old instance serves briefly over the new rows.
 
 ---
 

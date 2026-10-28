@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.startup.StartupSnapshot;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.permission.entity.DataScopeType;
 import io.softa.starter.permission.spi.ScopeType;
@@ -43,21 +44,35 @@ import static io.softa.starter.permission.scope.ScopeFilterTemplates.fieldRefs;
  *       (e.g. DEPT_SUBTREE on a model with no {@code departmentId}).</li>
  * </ul>
  *
- * <p>Rows are loaded once (lazily, on first use) and cached — {@code DataScopeType}
- * is seed data that only changes on redeploy. A read before the seed lands
- * (fresh DB) returns empty and is retried on the next call rather than cached.
+ * <p>A {@link StartupSnapshot}: the rows are read once at startup, once the seed files the
+ * build owns have loaded — {@code DataScopeType} rows change only at startup.
  * {@link ScopeType#ALL} is always included.
  */
 @Component
-public class ScopeApplicabilityResolver {
+public class ScopeApplicabilityResolver implements StartupSnapshot {
 
     private final DataScopeTypeReader reader;
 
-    /** Lazy cache of projected rules; {@code null} until a non-empty load. */
+    /** The projected rules; {@code null} until built. */
     private volatile List<Rule> rules;
 
     public ScopeApplicabilityResolver(DataScopeTypeReader reader) {
         this.reader = reader;
+    }
+
+    @Override
+    public Set<String> sourceModels() {
+        return Set.of(DataScopeTypeReader.MODEL);
+    }
+
+    @Override
+    public void build() {
+        List<Map<String, Object>> raw = reader.read();
+        List<Rule> loaded = new ArrayList<>(raw.size());
+        for (Map<String, Object> m : raw) {
+            loaded.add(Rule.of(m));
+        }
+        rules = List.copyOf(loaded);
     }
 
     /**
@@ -86,24 +101,13 @@ public class ScopeApplicabilityResolver {
         return out;
     }
 
-    /** Lazy-load the registry. Caches only a non-empty result so a read before
-     *  the seed lands (fresh DB) is retried rather than pinned to empty. */
     private List<Rule> rules() {
-        List<Rule> cached = rules;
-        if (cached != null) {
-            return cached;
+        List<Rule> built = rules;
+        if (built == null) {
+            throw new IllegalStateException("ScopeApplicabilityResolver is read before it is built: it is built at "
+                    + "startup, once the seed files the build owns have loaded, and nothing may ask it before.");
         }
-        List<Map<String, Object>> raw = reader.read();
-        if (raw.isEmpty()) {
-            return List.of();
-        }
-        List<Rule> loaded = new ArrayList<>(raw.size());
-        for (Map<String, Object> m : raw) {
-            loaded.add(Rule.of(m));
-        }
-        List<Rule> immutable = List.copyOf(loaded);
-        rules = immutable;
-        return immutable;
+        return built;
     }
 
     private static ScopeType parse(String code) {

@@ -430,7 +430,7 @@ reconciles the five boot-read catalog tables from their own annotations
 fresh database bootstraps its catalog with no baseline DDL, and a
 catalog-column addition (the old V34/V37 chicken-and-egg) converges without a
 migration. The whole boot DDL window is serialized across instances by a
-database session lock (`BootDdlLock`, 60s wait budget). Hand-written SQL is
+database session lock (`DbSessionLock`, key `boot-ddl`, 60s wait budget). Hand-written SQL is
 therefore reserved for: **data-carrying transitions** (a catalog column whose
 addition needs a backfill `UPDATE` for out-of-scope rows — the auto-ADD only
 supplies the column default), destructive cleanup **outside the scope's

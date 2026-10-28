@@ -3,34 +3,39 @@ package io.softa.starter.user.service.impl;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Component;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.startup.StartupSnapshot;
 import io.softa.starter.user.entity.Navigation;
 import io.softa.starter.user.service.NavigationModelResolver;
 
 /**
- * In-memory snapshot of the navigation table. Built once at startup from the
- * deploy-time {@code navigation.json} seed; no runtime reload — the table is
- * system-level data that only changes via redeployment, so application restart
- * IS the reload trigger.
+ * In-memory snapshot of the navigation table — a {@link StartupSnapshot}, built once at startup after the seed
+ * files the build owns have loaded. Navigation rows change only at startup, so it never needs reloading.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class NavigationModelResolverImpl implements NavigationModelResolver {
+public class NavigationModelResolverImpl implements NavigationModelResolver, StartupSnapshot {
 
     private final ModelService<?> modelService;
 
-    private volatile Map<String, Navigation> snapshot = Map.of();
+    /** Navigation id → row; null until built. */
+    private volatile Map<String, Navigation> snapshot;
 
-    @PostConstruct
-    void init() {
+    @Override
+    public Set<String> sourceModels() {
+        return Set.of("Navigation");
+    }
+
+    @Override
+    public void build() {
         Map<String, Navigation> fresh = new HashMap<>();
         for (Navigation nav : modelService.searchList("Navigation", new FlexQuery(), Navigation.class)) {
             fresh.put(nav.getId(), nav);
@@ -39,19 +44,28 @@ public class NavigationModelResolverImpl implements NavigationModelResolver {
         log.info("NavigationModelResolver loaded {} navigations", fresh.size());
     }
 
+    private Map<String, Navigation> built() {
+        Map<String, Navigation> built = snapshot;
+        if (built == null) {
+            throw new IllegalStateException("NavigationModelResolver is read before it is built: it is built at "
+                    + "startup, once the seed files the build owns have loaded, and nothing may ask it before.");
+        }
+        return built;
+    }
+
     @Override
     public String resolvePrimaryModel(String navigationId) {
-        return NavigationModelResolver.modelOf(snapshot.get(navigationId));
+        return NavigationModelResolver.modelOf(built().get(navigationId));
     }
 
     @Override
     public Navigation findNavigation(String navigationId) {
-        return snapshot.get(navigationId);
+        return built().get(navigationId);
     }
 
     @Override
     public Collection<Navigation> allNavigations() {
-        // snapshot is built via Map.copyOf in init() — already immutable.
-        return snapshot.values();
+        // The snapshot is built via Map.copyOf — already immutable.
+        return built().values();
     }
 }

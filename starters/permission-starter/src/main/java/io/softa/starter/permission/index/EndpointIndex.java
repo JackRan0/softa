@@ -11,21 +11,21 @@ import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.startup.StartupSnapshot;
 import io.softa.starter.permission.spi.PermissionEndpointSource;
 import io.softa.starter.permission.spi.PermissionEndpointSource.PermissionEndpointDef;
 
 /**
  * System-wide reverse index of HTTP endpoint → set of permission ids.
  *
- * <p>Built once at startup by scanning the entire permission table; both
- * {@code exactIndex} and {@code patternEntries} are effectively immutable
- * after {@link #init()} and freely shared between request threads.
+ * <p>A {@link StartupSnapshot}: built once at startup by scanning the entire permission table, after the seed
+ * files the build owns have loaded, and published as one immutable {@link Index} shared freely between request
+ * threads.
  *
  * <h3>Per-row endpoint resolution</h3>
  * For each permission row:
@@ -39,7 +39,7 @@ import io.softa.starter.permission.spi.PermissionEndpointSource.PermissionEndpoi
  * <p>All tenants share a single index in memory; the URI → permissionId
  * mapping is a system fact (tenant-independent), only "does this user
  * have any of the matched permissions" varies per user. Permission rows
- * are seed-only — redeploy to refresh; no runtime reload listener.
+ * change only at startup, so the index never needs reloading.
  *
  * <h3>Request hot path</h3>
  * {@code PermissionInterceptor} calls {@link #lookup(String, String)} →
@@ -70,7 +70,7 @@ import io.softa.starter.permission.spi.PermissionEndpointSource.PermissionEndpoi
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class EndpointIndex {
+public class EndpointIndex implements StartupSnapshot {
 
     /** Standard CRUD action → framework endpoint(s). Each entry is "VERB suffix":
      *  the verb is required so detail/create/copy can register their GET-only
@@ -183,29 +183,35 @@ public class EndpointIndex {
     @Value("${server.servlet.context-path:}")
     String contextPath = "";
 
-    /** Endpoint → set of permission ids that grant this endpoint. Multiple
-     *  permissions can list the same endpoint in {@code permission.endpoints}
-     *  (e.g. both {@code employee.view} and {@code department.view} include
-     *  {@code /Department/searchList} so an Employee-only role still loads
-     *  the department-tree side panel). The interceptor allows the call if
-     *  the caller's permission set intersects this set.
+    /**
+     * The index, built once at startup by {@link #build()}; null before, when there is nothing safe to answer.
      *
-     *  <p>Built once at startup in {@link #init()}; both fields are
-     *  effectively immutable after that and used freely from concurrent
-     *  request threads. No reload — seed-only data; redeploy to update. */
-    private Map<String, Set<String>> exactIndex = Map.of();
-    private List<PatternEntry> patternEntries = List.of();
+     * @param exact        endpoint → the permission ids that grant it. Multiple permissions can list the same
+     *                     endpoint in {@code permission.endpoints} (e.g. both {@code employee.view} and
+     *                     {@code department.view} include {@code /Department/searchList} so an Employee-only
+     *                     role still loads the department-tree side panel). The interceptor allows the call if
+     *                     the caller's permission set intersects this set.
+     * @param patterns     the endpoints holding a {@code {variable}}, matched after an exact miss
+     * @param actions      {@code "<Model> <action>"} → the permission ids declaring that standard action on that
+     *                     model. For the actions whose endpoints are shared across models and so cannot be told
+     *                     apart by URL.
+     * @param modelActions {@code "<Model> <action>"} → the permission ids reaching any standard endpoint of a
+     *                     per-model action on that model, whether derived or hand-listed. See
+     *                     {@link #modelActionPermissions}.
+     */
+    private record Index(Map<String, Set<String>> exact, List<PatternEntry> patterns,
+                         Map<String, Set<String>> actions, Map<String, Set<String>> modelActions) {
+    }
 
-    /** {@code "<Model> <action>"} → the permission ids declaring that standard action on that model. For
-     *  the actions whose endpoints are shared across models and so cannot be told apart by URL. */
-    private Map<String, Set<String>> actionIndex = Map.of();
+    private volatile Index index;
 
-    /** {@code "<Model> <action>"} → the permission ids reaching any standard endpoint of a per-model
-     *  action on that model, whether derived or hand-listed. See {@link #modelActionPermissions}. */
-    private Map<String, Set<String>> modelActionIndex = Map.of();
+    @Override
+    public Set<String> sourceModels() {
+        return Set.of("Permission", "Navigation");
+    }
 
-    @PostConstruct
-    void init() {
+    @Override
+    public void build() {
         Map<String, Set<String>> exact = new HashMap<>();
         List<PatternEntry> patterns = new ArrayList<>();
         Map<String, Set<String>> actions = new HashMap<>();
@@ -228,23 +234,27 @@ public class EndpointIndex {
                 }
             }
         }
-        // Freeze: wrap each inner Set as unmodifiable + the outer Map too.
-        Map<String, Set<String>> frozenExact = new HashMap<>(exact.size());
-        for (var entry : exact.entrySet()) {
-            frozenExact.put(entry.getKey(), Set.copyOf(entry.getValue()));
-        }
-        this.exactIndex = Collections.unmodifiableMap(frozenExact);
-        this.patternEntries = List.copyOf(patterns);
-        Map<String, Set<String>> frozenActions = new HashMap<>(actions.size());
-        actions.forEach((key, ids) -> frozenActions.put(key, Set.copyOf(ids)));
-        this.actionIndex = Collections.unmodifiableMap(frozenActions);
-        Map<String, Set<String>> frozenModelActions = new HashMap<>(modelActions.size());
-        modelActions.forEach((key, ids) -> frozenModelActions.put(key, Set.copyOf(ids)));
-        this.modelActionIndex = Collections.unmodifiableMap(frozenModelActions);
+        // Freeze each inner Set, then publish the whole index at once: a reader sees the previous index or this
+        // one, never half of each.
+        this.index = new Index(freeze(exact), List.copyOf(patterns), freeze(actions), freeze(modelActions));
         log.info("EndpointIndex built: {} exact + {} pattern entries",
                 exact.size(), patterns.size());
     }
 
+    private static Map<String, Set<String>> freeze(Map<String, Set<String>> map) {
+        Map<String, Set<String>> frozen = new HashMap<>(map.size());
+        map.forEach((key, ids) -> frozen.put(key, Set.copyOf(ids)));
+        return Collections.unmodifiableMap(frozen);
+    }
+
+    private Index built() {
+        Index built = index;
+        if (built == null) {
+            throw new IllegalStateException("EndpointIndex is read before it is built: it is built at startup, "
+                    + "once the seed files the build owns have loaded, and nothing may ask it before.");
+        }
+        return built;
+    }
 
     /**
      * @param uri    in-app request path (servletPath, e.g. {@code "/Employee/searchPage"})
@@ -254,15 +264,16 @@ public class EndpointIndex {
      *         user.permissions.intersect(result).isNotEmpty()} to allow.
      */
     public Set<String> lookup(String uri, String method) {
+        Index built = built();
         String key = method + " " + uri;
-        Set<String> hit = exactIndex.get(key);
+        Set<String> hit = built.exact().get(key);
         if (hit != null) return hit;
         // Patterns are checked after exact misses. Multiple patterns can
         // match the same URI (e.g. /Foo/{id}/preview registered under two
         // permissions) — collect every match so the interceptor can grant
         // access via any one of them.
         Set<String> matched = null;
-        for (PatternEntry p : patternEntries) {
+        for (PatternEntry p : built.patterns()) {
             if (p.matches(key)) {
                 if (matched == null) matched = new HashSet<>();
                 matched.add(p.permissionId);
@@ -281,7 +292,7 @@ public class EndpointIndex {
      * @return the permission ids, empty when none declares it
      */
     public Set<String> actionPermissions(String model, String action) {
-        return actionIndex.getOrDefault(model + " " + action, Set.of());
+        return built().actions().getOrDefault(model + " " + action, Set.of());
     }
 
     /**
@@ -300,7 +311,7 @@ public class EndpointIndex {
      * @return the permission ids, empty when none reaches any of them
      */
     public Set<String> modelActionPermissions(String model, String action) {
-        return modelActionIndex.getOrDefault(model + " " + action, Set.of());
+        return built().modelActions().getOrDefault(model + " " + action, Set.of());
     }
 
     /** Record {@code endpoint} under each per-model standard action its {@code VERB /Model/suffix} is in. */

@@ -16,7 +16,6 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -115,9 +114,10 @@ public class UiContextBuilder {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private io.softa.framework.orm.service.EntitlementService entitlementService;
 
-    /** leafNavId → root→leaf ancestor chain (inclusive). Built once from the same
-     *  seed-only Navigation snapshot {@link NavigationModelResolver} exposes. */
-    private volatile Map<String, List<String>> ancestorChains = Map.of();
+    /** leafNavId → root→leaf ancestor chain (inclusive), derived on first use from the Navigation
+     *  snapshot {@link NavigationModelResolver} exposes. That snapshot is built at startup and never
+     *  changes after, so neither does this; asked before startup, the snapshot refuses. */
+    private volatile Map<String, List<String>> ancestorChains;
 
     /**
      * Build the current user's UI context from user-starter's own RBAC entities.
@@ -318,24 +318,14 @@ public class UiContextBuilder {
      * prefixes. No plan narrowing: a platform module is not something a tenant buys, and there is no
      * subscription on the platform's own tenant to read.
      *
-     * <p>The navigations are read from the table, as the engine's own build reads them, and not from the
-     * startup snapshot the other branches use. Navigation loaded after this instance started has to reach
-     * the platform administrator at once: seed-starter loads the files holding the Seed Data page's own
-     * menu in the background after an environment's first start, and that page is how everything else
-     * gets loaded. Read from the snapshot, the menu appeared when the engine's cached snapshot answered and
-     * not when this fallback did, until a restart.
+     * <p>The navigations come from the startup snapshot, like the other branches: the seed files holding
+     * them load at startup, before the snapshot is built, so the snapshot holds every navigation there is —
+     * the Seed Data page's own menu included.
      */
     private UiContext platformAdminGrants(UiContext out) {
-        List<Navigation> allNavs = modelService.searchList("Navigation",
-                new FlexQuery(List.of("id", "parentId"), new Filters()), Navigation.class);
-        Map<String, String> parentIds = new HashMap<>();
         Set<String> navigations = new HashSet<>();
-        for (Navigation n : allNavs) {
-            if (n == null || n.getId() == null) {
-                continue;
-            }
-            parentIds.put(n.getId(), n.getParentId());
-            if (isPlatformAdminNav(n.getId())) {
+        for (Navigation n : navigationModelResolver.allNavigations()) {
+            if (n != null && n.getId() != null && isPlatformAdminNav(n.getId())) {
                 navigations.add(n.getId());
             }
         }
@@ -353,25 +343,9 @@ public class UiContextBuilder {
         // admits the group's pages and not the `navigation.users` module row above them, and the
         // sidebar asks about that row too — without this the FE had to keep its own copy of the
         // prefix list to reconstruct what the server left out, a third place for one rule to drift.
-        // Walked over the rows just read, which the startup ancestor index may not know.
-        out.setNavigations(withAncestors(navigations, parentIds));
+        out.setNavigations(expandAncestors(navigations));
         out.setPermissions(permissions);
         out.setModelSensitiveFieldSetsMap(Map.of());
-        return out;
-    }
-
-    /** These navigations and every ancestor of each, up the parent ids given — cycle guard and depth cap 32,
-     *  as {@link #initAncestorIndex} builds them. */
-    private static Set<String> withAncestors(Set<String> navIds, Map<String, String> parentIds) {
-        Set<String> out = new LinkedHashSet<>(navIds);
-        for (String navId : navIds) {
-            String cursor = parentIds.get(navId);
-            int guard = 0;
-            // A parent already in the set has its own ancestors in it, or will once its own turn comes.
-            while (cursor != null && guard++ < 32 && out.add(cursor)) {
-                cursor = parentIds.get(cursor);
-            }
-        }
         return out;
     }
 
@@ -619,6 +593,10 @@ public class UiContextBuilder {
         if (leafNavIds.isEmpty()) return Collections.emptySet();
         Set<String> out = new LinkedHashSet<>(leafNavIds);
         Map<String, List<String>> chains = ancestorChains;
+        if (chains == null) {
+            initAncestorIndex();
+            chains = ancestorChains;
+        }
         for (String leaf : leafNavIds) {
             List<String> chain = chains.get(leaf);
             if (chain == null) continue;
@@ -629,10 +607,9 @@ public class UiContextBuilder {
         return out;
     }
 
-    /** Build the leaf→ancestor-chain index once (nav tree is seed-only). Mirrors the
+    /** Build the leaf→ancestor-chain index from the navigation snapshot. Mirrors the
      *  former {@code PermissionInfoEnricher.initAncestorIndex}: root→leaf order,
      *  cycle guard + depth cap 32. */
-    @PostConstruct
     void initAncestorIndex() {
         Collection<Navigation> all = navigationModelResolver.allNavigations();
         if (all == null || all.isEmpty()) {

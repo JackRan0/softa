@@ -27,8 +27,18 @@ class EndpointIndexTest {
         PermissionEndpointSource source = () -> permissions;
         EndpointIndex idx = new EndpointIndex(source);
         idx.contextPath = contextPath;
-        idx.init();
+        idx.build();
         return idx;
+    }
+
+    @Test
+    void lookupBeforeBuild_throwsRatherThanRefusingEverything() {
+        EndpointIndex unbuilt = new EndpointIndex(List::of);
+
+        // An empty index would answer "not registered" for every endpoint, and widen row scopes.
+        assertThatThrownBy(() -> unbuilt.lookup("/Employee/searchList", "POST"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("read before it is built");
     }
 
     // ─── validateExplicitEndpoint invariants (fail-loud at startup) ───

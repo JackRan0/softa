@@ -45,7 +45,7 @@ class EndpointIndexStandardDerivationTest {
     private EndpointIndex build(List<PermissionEndpointDef> permissions) {
         PermissionEndpointSource source = () -> permissions;
         EndpointIndex idx = new EndpointIndex(source);
-        idx.init();
+        idx.build();
         return idx;
     }
 
