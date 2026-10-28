@@ -218,7 +218,7 @@ acts on an existing instance.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/flow/automation/trigger` | Fire a trigger event and start matching flows. `Submit`, `Api` and `Subflow` events are refused: those flows start by record submission, by id, or from a parent flow |
+| `POST` | `/flow/automation/trigger` | Fire a trigger event and start matching flows. `Submit`, `Cron`, `Api` and `Subflow` events are refused: those flows start by record submission, on their own schedule, by id, or from a parent flow |
 | `POST` | `/flow/automation/onchange` | Run `COMPUTE` flows transiently and return variable diffs |
 | `POST` | `/flow/automation/validate` | Run `VALIDATION` flows transiently against candidate row data; returns each flow's declared outputs keyed by `flowId` |
 

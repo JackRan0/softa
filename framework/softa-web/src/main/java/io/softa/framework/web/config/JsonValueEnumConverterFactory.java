@@ -17,7 +17,7 @@ import io.softa.framework.base.utils.JsonUtils;
  * instead, a spelling that no response, option item or request body ever shows for an enum with {@code @JsonValue}.
  * <p>
  * When this conversion fails, Spring MVC's {@code TypeConverterDelegate} still looks the text up as a constant name,
- * so {@code ?scenario=PROCESS} keeps binding. That is Spring's fallback, not part of the API.
+ * so {@code ?scenario=APPROVAL} keeps binding. That is Spring's fallback, not part of the API.
  */
 @SuppressWarnings({"rawtypes", "unchecked"})
 final class JsonValueEnumConverterFactory implements ConverterFactory<String, Enum> {
