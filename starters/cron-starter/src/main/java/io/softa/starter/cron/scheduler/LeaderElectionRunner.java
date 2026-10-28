@@ -4,6 +4,7 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
@@ -39,27 +40,34 @@ public class LeaderElectionRunner implements CommandLineRunner {
     @Autowired
     private CronScheduler cronScheduler;
 
-    private boolean isLeader = false;
+    /** Switched by the election task and by quitElection(), which run on different threads */
+    private final AtomicBoolean isLeader = new AtomicBoolean(false);
 
     /**
      * Try to acquire the Leader lock, renew once every half of the lease duration.
      */
     @Override
     public void run(String @NonNull ... args) {
-        Runnable leaderElectionTask = () -> {
-            try {
-                if (tryAcquireLeaderLease()) {
-                    setLeader(true);
-                } else if (isLeader) {
-                    renewLeaderLease();
-                }
-            } catch (Exception e) {
-                log.error("Cron job scheduler Leader election failed, an exception occurred:", e);
-                terminateLeadership();
-            }
-        };
         // Try to acquire the lock or renew once during each lease period
-        leaderRenewalExecutor.scheduleAtFixedRate(leaderElectionTask, 0, LEADER_RENEW_INTERVAL, TimeUnit.SECONDS);
+        leaderRenewalExecutor.scheduleAtFixedRate(this::runElectionRound, 0, LEADER_RENEW_INTERVAL, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Run one election round: acquire the lease, or renew it while this node is the leader.
+     * A failure steps this node down rather than escaping: scheduleAtFixedRate silently suppresses every later round once one throws,
+     * which would leave a leader scheduling without renewing its lease, and any node out of the election for good.
+     */
+    void runElectionRound() {
+        try {
+            if (tryAcquireLeaderLease()) {
+                setLeader(true);
+            } else if (isLeader.get()) {
+                renewLeaderLease();
+            }
+        } catch (Exception e) {
+            log.error("Cron job scheduler Leader election failed, an exception occurred:", e);
+            terminateLeadership();
+        }
     }
 
     /**
@@ -68,8 +76,7 @@ public class LeaderElectionRunner implements CommandLineRunner {
      * @param isLeader Leader status
      */
     public void setLeader(boolean isLeader) {
-        if (this.isLeader != isLeader) {
-            this.isLeader = isLeader;
+        if (this.isLeader.compareAndSet(!isLeader, isLeader)) {
             onLeaderChange(isLeader);
         }
     }
@@ -89,8 +96,8 @@ public class LeaderElectionRunner implements CommandLineRunner {
                 throw new SystemException("Scheduler startup failed: {0}", e.getMessage(), e);
             }
         } else {
-            // Stop the scheduler and cancel all scheduling tasks when no longer the leader
-            cronScheduler.shutdown();
+            // Cancel all scheduling tasks when no longer the leader, keeping the scheduler for when this node wins the leadership back
+            cronScheduler.stop();
         }
     }
 
@@ -120,12 +127,17 @@ public class LeaderElectionRunner implements CommandLineRunner {
     }
 
     /**
-     * Terminate the `Leader` lease
+     * Terminate the `Leader` lease.
+     * Steps down even when the lease cannot be released, e.g. while Redis is unreachable: the lease then expires on its own.
      */
     private void terminateLeadership() {
-        String currentLeaderUUID = redisTemplate.opsForValue().get(LEADER_KEY);
-        if (LEADER_UUID.equals(currentLeaderUUID)) {
-            redisTemplate.delete(LEADER_KEY);
+        try {
+            String currentLeaderUUID = redisTemplate.opsForValue().get(LEADER_KEY);
+            if (LEADER_UUID.equals(currentLeaderUUID)) {
+                redisTemplate.delete(LEADER_KEY);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to release the cron job scheduler Leader lease, it expires within {}s: {}", LEADER_EXPIRE_SECONDS, e.getMessage());
         }
         setLeader(false);
     }

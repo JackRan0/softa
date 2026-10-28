@@ -85,6 +85,10 @@ Fields published to MQ:
 Implementation notes:
 - Only one scheduler runs across the cluster at a time.
 - Lease duration is 60s, renewal interval is 30s.
+- Losing the lease cancels the node's scheduled jobs but keeps its scheduler, so a node that wins the lease back loads the
+  `SysCron` records again and schedules them anew.
+- A Redis error during an election round makes the leader step down rather than risk two schedulers; until its lease
+  expires (60s at most) no node schedules, and every node keeps competing for the lease.
 - The scheduler uses `ZoneId.systemDefault()`.
 - A cron with `limitExecution=false` is scheduled repeatedly.
 - A cron with `limitExecution=true` is scheduled with an in-memory counter only. `remainingCount` is not persisted by the scheduler.

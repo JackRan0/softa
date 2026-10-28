@@ -53,21 +53,31 @@ public class CronScheduler {
     private final Map<Long, ScheduledFuture<?>> scheduledTasksMap = new ConcurrentHashMap<>();
 
     /**
-     * Start all active cron jobs.
+     * Bumped by every stop(). Each run carries the generation its job was registered in,
+     * so a run that was already firing when stop() cancelled its job does not schedule the next one.
+     * Only read or written while holding this scheduler's lock.
+     */
+    private long generation;
+
+    /**
+     * Start all active cron jobs, replacing whatever is already registered, so calling it again never schedules a job twice.
      * A job that cannot be registered — an unparsable cron expression, most often — is logged and skipped, so the remaining jobs still get scheduled.
      */
     @SwitchUser(SystemUser.CRON_USER)
     public void start() {
         List<SysCron> sysCronList = jdbcService.selectMetaEntityList(SysCron.class, null);
-        for (SysCron sysCron : sysCronList) {
-            if (Boolean.FALSE.equals(sysCron.getActive())) {
-                continue;
-            }
-            // start() runs once per leader election, so an exception escaping this loop would leave every remaining job unscheduled and cost this node its leadership.
-            try {
-                registerCron(sysCron);
-            } catch (Exception e) {
-                log.error("Failed to register cron job {}({}), skipped: {}", sysCron.getName(), sysCron.getCronExpression(), e.getMessage(), e);
+        synchronized (this) {
+            stop();
+            for (SysCron sysCron : sysCronList) {
+                if (Boolean.FALSE.equals(sysCron.getActive())) {
+                    continue;
+                }
+                // start() runs once per leader election, so an exception escaping this loop would leave every remaining job unscheduled and cost this node its leadership.
+                try {
+                    registerCron(sysCron);
+                } catch (Exception e) {
+                    log.error("Failed to register cron job {}({}), skipped: {}", sysCron.getName(), sysCron.getCronExpression(), e.getMessage(), e);
+                }
             }
         }
     }
@@ -78,16 +88,16 @@ public class CronScheduler {
      *
      * @param sysCron Cron job object
      */
-    public void registerCron(SysCron sysCron) {
+    public synchronized void registerCron(SysCron sysCron) {
         Cron cron = CronUtils.getCron(sysCron.getName(), sysCron.getCronExpression());
         ExecutionTime executionTime = ExecutionTime.forCron(cron);
         if (!Boolean.TRUE.equals(sysCron.getLimitExecution())) {
             // Cron with unlimited execution times
-            scheduleRepeatedTask(sysCron, executionTime);
+            scheduleRepeatedTask(sysCron, executionTime, generation);
         } else if (sysCron.getRemainingCount() > 0) {
             // Cron with limited execution times, and there are remaining execution times.
             AtomicInteger remainingCount = new AtomicInteger(sysCron.getRemainingCount());
-            scheduleLimitedTask(sysCron, executionTime, remainingCount);
+            scheduleLimitedTask(sysCron, executionTime, remainingCount, generation);
         }
     }
 
@@ -97,14 +107,15 @@ public class CronScheduler {
      *
      * @param sysCron Cron job object
      * @param executionTime Execution time manager of the cron expression
+     * @param generation Generation the job was registered in
      */
-    private void scheduleRepeatedTask(SysCron sysCron, ExecutionTime executionTime) {
+    private void scheduleRepeatedTask(SysCron sysCron, ExecutionTime executionTime, long generation) {
         Runnable task = () -> {
             sendToMessageQueue(sysCron);
             // Reschedule
-            scheduleRepeatedTask(sysCron, executionTime);
+            scheduleRepeatedTask(sysCron, executionTime, generation);
         };
-        scheduleTask(sysCron, executionTime, task);
+        scheduleTask(sysCron, executionTime, generation, task);
     }
 
     /**
@@ -114,8 +125,9 @@ public class CronScheduler {
      * @param sysCron Cron job object
      * @param executionTime Execution time manager of the cron expression
      * @param remainingCount Remaining execution times
+     * @param generation Generation the job was registered in
      */
-    private void scheduleLimitedTask(SysCron sysCron, ExecutionTime executionTime, AtomicInteger remainingCount) {
+    private void scheduleLimitedTask(SysCron sysCron, ExecutionTime executionTime, AtomicInteger remainingCount, long generation) {
         Runnable task = () -> {
             // Check the remaining execution times
             if (remainingCount.get() <= 0) {
@@ -124,9 +136,9 @@ public class CronScheduler {
             sendToMessageQueue(sysCron);
             remainingCount.decrementAndGet();
             // Reschedule
-            scheduleLimitedTask(sysCron, executionTime, remainingCount);
+            scheduleLimitedTask(sysCron, executionTime, remainingCount, generation);
         };
-        scheduleTask(sysCron, executionTime, task);
+        scheduleTask(sysCron, executionTime, generation, task);
     }
 
     /**
@@ -136,9 +148,14 @@ public class CronScheduler {
      *
      * @param sysCron Cron job object
      * @param executionTime Execution time manager of the cron expression
+     * @param generation Generation the job was registered in
      * @param task Scheduled task
      */
-    private void scheduleTask(SysCron sysCron, ExecutionTime executionTime, Runnable task) {
+    private synchronized void scheduleTask(SysCron sysCron, ExecutionTime executionTime, long generation, Runnable task) {
+        // The job was stopped while this run was firing, so the run must not schedule the next one
+        if (generation != this.generation) {
+            return;
+        }
         ZonedDateTime now = LocalDateTime.now().atZone(ZoneId.systemDefault());
         ZonedDateTime nextExecutionTime = executionTime.nextExecution(now).orElse(null);
         if (nextExecutionTime == null) {
@@ -220,14 +237,24 @@ public class CronScheduler {
     }
 
     /**
-     * Cancel all scheduling tasks and shutdown the scheduler.
+     * Cancel all scheduling tasks but keep the scheduler, so that a later start() can schedule them again.
+     * Called when this node loses the leadership, which it may win back.
      */
-    @PreDestroy
-    public void shutdown() {
+    public synchronized void stop() {
+        generation++;
         // Cancel all tasks
         for (Long cronId : scheduledTasksMap.keySet()) {
             cancelTask(cronId);
         }
+    }
+
+    /**
+     * Cancel all scheduling tasks and shutdown the scheduler.
+     * Only for application shutdown: a scheduler shut down here rejects every later task, so losing the leadership calls stop() instead.
+     */
+    @PreDestroy
+    public synchronized void shutdown() {
+        stop();
         // Shutdown the scheduler
         schedulerPool.getScheduler().shutdown();
     }
