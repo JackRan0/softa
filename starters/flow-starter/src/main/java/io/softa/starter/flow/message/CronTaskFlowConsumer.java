@@ -13,19 +13,20 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.cron.message.dto.CronTaskMessage;
 import io.softa.starter.flow.runtime.trigger.FlowAutomationService;
-import io.softa.starter.flow.runtime.trigger.FlowTriggerEvent;
 
 /**
- * Consumes Cron task messages from Pulsar and triggers matching flows.
- * <p>
- * Maps the cron event to a {@link FlowTriggerEvent} with type {@code CRON}
- * and passes cron metadata as parameters for trigger matching.
- * </p>
+ * Starts the Cron-triggered flows on their schedule: consumes the messages of the jobs
+ * {@link CronFlowJobProvider} puts on the cron schedule and starts the revision each one names, in the
+ * tenant the message carries. Every other cron message — maintenance jobs, other modules' jobs — is
+ * ignored.
  */
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "mq.topics.cron-task.topic")
 public class CronTaskFlowConsumer {
+
+    /** Flow variable holding the time the schedule fired. */
+    static final String PARAM_TRIGGER_TIME = "triggerTime";
 
     @Autowired
     private FlowAutomationService automationService;
@@ -37,29 +38,18 @@ public class CronTaskFlowConsumer {
             deadLetterPolicy = "flowDeadLetterPolicy"
     )
     public void onMessage(CronTaskMessage cronTaskMessage) {
-        Context ctx = cronTaskMessage.getContext();
+        Long bundleId = CronFlowJobProvider.bundleIdOf(cronTaskMessage);
+        if (bundleId == null) {
+            return;
+        }
         Runnable task = () -> {
             Map<String, Object> parameters = new LinkedHashMap<>();
-            parameters.put("_cronId", cronTaskMessage.getCronId());
-            parameters.put("_cronName", cronTaskMessage.getCronName());
-            parameters.put("lastExecTime", cronTaskMessage.getLastExecTime());
-            parameters.put("triggerTime", cronTaskMessage.getTriggerTime());
-
-            String sourceModel = cronTaskMessage.getCronId() != null
-                    ? "cron:" + cronTaskMessage.getCronId()
-                    : null;
-
-            FlowTriggerEvent event = FlowTriggerEvent.builder()
-                    .type("Cron")
-                    .sourceModel(sourceModel)
-                    .parameters(parameters)
-                    .build();
-
-            automationService.fire(event);
-            log.debug("Processed cron trigger event: cronId={}, cronName={}",
-                    cronTaskMessage.getCronId(), cronTaskMessage.getCronName());
+            parameters.put(PARAM_TRIGGER_TIME, cronTaskMessage.getTriggerTime());
+            automationService.fireCron(bundleId, parameters);
+            log.debug("Processed cron trigger of flow bundle {}", bundleId);
         };
 
+        Context ctx = cronTaskMessage.getContext();
         if (ctx != null) {
             ContextHolder.runWith(ctx, task);
         } else {
@@ -67,4 +57,3 @@ public class CronTaskFlowConsumer {
         }
     }
 }
-

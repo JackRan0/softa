@@ -515,7 +515,9 @@ Supported trigger sources (`TriggerSource` sealed sub-types):
 
 - `EntityChange`
 - `Api`
-- `Cron`
+- `Cron` (PROCESS scenario only) — the flow's own Quartz schedule; started only by it (see
+  [Cron-triggered flows](#cron-triggered-flows)): other cron jobs' ticks never start it, and
+  `POST /flow/automation/trigger` refuses it
 - `Subflow`
 - `FieldChange` (COMPUTE scenario only)
 - `Submit` (PROCESS scenario only) — names the model whose records the flow approves and, optionally, a
@@ -529,13 +531,39 @@ Pulsar-connected components are conditionally registered:
 | `mq.topics.flow-event.topic` | `FlowEventProducer`, `FlowEventConsumer` | Async trigger fire and consume |
 | `mq.topics.flow-async-task.topic` | `FlowAsyncTaskProducer`, `FlowAsyncTaskConsumer` | Async task dispatch and callback resume |
 | `mq.topics.change-log.topic` | `ChangeLogFlowConsumer` | Entity change driven flow triggers |
-| `mq.topics.cron-task.topic` | `CronTaskFlowConsumer` | Cron-driven flow triggers |
+| `mq.topics.cron-task.topic` | `CronFlowJobProvider`, `CronTaskFlowConsumer` | Cron-triggered flows on the cron schedule, and their start |
 | `mq.topics.flow-timer.topic` | `FlowTimerConsumer` | Timer wake-up consume side |
 
 Important timer note:
 
 - The module includes the timer resume consumer.
 - A scheduler or producer that publishes `FlowTimerMessage` still has to be provided by the host application or another integration module.
+
+### Cron-triggered flows
+
+A Cron-triggered flow owns its schedule: the trigger's `cronExpression`, in the Quartz format cron-starter runs
+(`second minute hour day-of-month month day-of-week [year]`, e.g. `0 0 9 ? * MON-FRI` for 09:00 on weekdays, in
+the scheduler's time zone). Publishing parses it the way the scheduler does: a blank expression fails with
+`CRON_MISSING_EXPRESSION`, one the scheduler cannot run with `CRON_INVALID_EXPRESSION`, and a Validation or Compute
+flow cannot run on a schedule (`CRON_WRONG_SCENARIO`).
+
+- **Scheduling.** `CronFlowJobProvider` is a cron-starter `CronJobProvider`: the scheduling leader reads every
+  tenant's active Cron-triggered revisions (`FlowBundle.cronExpression`, copied from the trigger at publish) when it
+  starts scheduling and again every 30 seconds, and runs one job per revision, named `flow:<bundleId>`. Publishing,
+  activating another revision (rollback or roll-forward) and switching to another trigger therefore move or remove the
+  schedule within 30 seconds, whichever instance did it — an execution due in between is skipped, never run twice;
+  no `SysCron` row is written. Nothing is scheduled while `mq.topics.cron-task.topic` is not configured.
+- **Tenants.** A tenant's flow runs in that tenant's context, and only while the tenant is active; a platform-shared
+  flow (`tenantId = 0`) runs once in every active tenant, each run in that tenant's context. Without multi-tenancy
+  (`system.enable-multi-tenancy=false`), every flow runs once, with no tenant.
+- **Starting.** `CronTaskFlowConsumer` starts the revision a `flow:<bundleId>` message names
+  (`FlowAutomationService.fireCron`), and only while it is still its flow's active revision: the job of a replaced
+  revision firing before the leader's next read starts nothing. Every other cron message — the maintenance crons,
+  other modules' jobs, a `SysCron` row whatever its name — is ignored, and no trigger event matches a Cron flow. The
+  flow starts with no initiator and the time the schedule fired as variable `triggerTime`, and the fire is logged in
+  `FlowEvent` like any other.
+- **Every execution starts an instance**, even while the previous one is still running or waiting: there is no record
+  to deduplicate on.
 
 ## Persistence Model
 

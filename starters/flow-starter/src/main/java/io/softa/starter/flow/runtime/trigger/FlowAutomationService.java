@@ -42,6 +42,9 @@ public class FlowAutomationService {
     /** Trigger type of {@code SubmitTrigger}: started per record, never fired as an event. */
     public static final String SUBMIT_TRIGGER_TYPE = "Submit";
 
+    /** Trigger type of {@code CronTrigger}: started on its own schedule, never fired as an event. */
+    public static final String CRON_TRIGGER_TYPE = "Cron";
+
     private final DefaultFlowTriggerRegistry triggerRegistry;
     private final FlowRuntimeEngine runtimeEngine;
 
@@ -98,14 +101,39 @@ public class FlowAutomationService {
      * <p>
      * Refuses the {@code Submit} type: a submit-triggered flow is chosen for one record and
      * started by {@code FlowLaunchService.submitRecord}, which runs the business checks and the
-     * record's callbacks — firing it from here would start the approval without either.
+     * record's callbacks — firing it from here would start the approval without either. Refuses
+     * the {@code Cron} type too: a Cron-triggered flow starts on its own schedule, through
+     * {@link #fireCron}.
      */
     public List<FlowTriggerResult> fire(FlowTriggerEvent event) {
         if (SUBMIT_TRIGGER_TYPE.equals(event.getType())) {
             throw new FlowActionValidationException(
                     "Submit triggers start only through record submission, not as a trigger event");
         }
-        return dispatch(event, null, definition -> startFlow(definition, event), "fire");
+        if (CRON_TRIGGER_TYPE.equals(event.getType())) {
+            throw new FlowActionValidationException(
+                    "Cron triggers start only on their own schedule, not as a trigger event");
+        }
+        return dispatch(event, triggerRegistry.findMatchingFlows(event), null,
+                definition -> startFlow(definition, event), "fire");
+    }
+
+    /**
+     * Start the Cron-triggered flow revision a schedule fired for, in the current tenant — the one its
+     * cron job runs in — and record the fire like any other. Starts nothing once the revision is no longer
+     * its flow's active one (see {@link DefaultFlowTriggerRegistry#findCronFlow}).
+     *
+     * @param bundleId   the revision the cron job was scheduled from
+     * @param parameters the flow's initial variables
+     * @return the start, or nothing when the revision no longer runs on this schedule
+     */
+    public List<FlowTriggerResult> fireCron(Long bundleId, Map<String, Object> parameters) {
+        FlowTriggerEvent event = FlowTriggerEvent.builder()
+                .type(CRON_TRIGGER_TYPE)
+                .parameters(parameters)
+                .build();
+        List<CompiledFlowDefinition> scheduledFlow = triggerRegistry.findCronFlow(bundleId).stream().toList();
+        return dispatch(event, scheduledFlow, null, definition -> startFlow(definition, event), "fireCron");
     }
 
     /**
@@ -114,7 +142,7 @@ public class FlowAutomationService {
      * can roll back.
      */
     public void fireSyncOnly(FlowTriggerEvent event) {
-        dispatch(event,
+        dispatch(event, triggerRegistry.findMatchingFlows(event),
                 definition -> Boolean.TRUE.equals(definition.getSync()),
                 definition -> Boolean.TRUE.equals(definition.getRollbackOnFail())
                         ? startFlowWithPropagation(definition, event)
@@ -126,7 +154,7 @@ public class FlowAutomationService {
      * Fire a trigger event but only execute flows with {@code sync=false} (async flows).
      */
     public List<FlowTriggerResult> fireAsyncOnly(FlowTriggerEvent event) {
-        return dispatch(event,
+        return dispatch(event, triggerRegistry.findMatchingFlows(event),
                 definition -> !Boolean.TRUE.equals(definition.getSync()),
                 definition -> startFlow(definition, event),
                 "fireAsyncOnly");
@@ -136,22 +164,22 @@ public class FlowAutomationService {
      * Fire a trigger event and only run flows matching the given scenario.
      */
     public List<FlowTriggerResult> fireForScenario(FlowTriggerEvent event, FlowScenario scenario) {
-        return dispatch(event,
+        return dispatch(event, triggerRegistry.findMatchingFlows(event),
                 definition -> scenario.equals(definition.getScenario()),
                 definition -> startFlow(definition, event),
                 "fireForScenario");
     }
 
     /**
-     * Shared trigger-dispatch skeleton: resolve matching flows, run each {@code accept}-ed flow
+     * Shared trigger-dispatch skeleton: run each {@code accept}-ed flow of those the event matched
      * through {@code starter}, and record an event-log entry per fire. {@code accept} may be null
      * (accept all matching flows).
      */
     private List<FlowTriggerResult> dispatch(FlowTriggerEvent event,
+                                             List<CompiledFlowDefinition> matchingFlows,
                                              Predicate<CompiledFlowDefinition> accept,
                                              Function<CompiledFlowDefinition, FlowTriggerResult> starter,
                                              String fireMethod) {
-        List<CompiledFlowDefinition> matchingFlows = triggerRegistry.findMatchingFlows(event);
         if (matchingFlows.isEmpty()) {
             log.debug("No flows matched trigger event ({}): type={}, sourceModel={}",
                     fireMethod, event.getType(), event.getSourceModel());

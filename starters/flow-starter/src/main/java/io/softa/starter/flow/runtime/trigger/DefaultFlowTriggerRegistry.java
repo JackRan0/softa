@@ -72,6 +72,20 @@ public class DefaultFlowTriggerRegistry {
         return matches;
     }
 
+    /**
+     * The Cron-triggered flow a schedule fired for: revision {@code bundleId}, the one its cron job was
+     * scheduled from, while it is still its flow's active revision — the job of a revision a publish or a
+     * rollback has replaced starts nothing in the moments before the scheduler drops it. Like any bundle, it
+     * is found only in its own tenant, or in every tenant when platform-shared.
+     */
+    public Optional<CompiledFlowDefinition> findCronFlow(Long bundleId) {
+        return bundleRegistry.getByBundleId(bundleId)
+                .filter(definition -> definition.getTrigger() instanceof CronTrigger)
+                .filter(definition -> bundleRegistry.getActiveByFlowId(definition.getFlowId())
+                        .map(active -> Objects.equals(active.getBundleId(), bundleId))
+                        .orElse(false));
+    }
+
     private static boolean evaluateSubmitCondition(CompiledFlowDefinition definition, SubmitTrigger trigger,
                                                    Map<String, Object> record) {
         try {
@@ -111,8 +125,9 @@ public class DefaultFlowTriggerRegistry {
 
     private boolean matches(CompiledFlowDefinition definition, FlowTriggerEvent event) {
         TriggerSource trigger = definition.getTrigger();
-        // A submit trigger is chosen per record by findSubmitFlows, never by a generic event.
-        if (trigger == null || trigger instanceof SubmitTrigger) {
+        // A submit trigger is chosen per record by findSubmitFlows and a cron trigger per schedule by
+        // findCronFlow, never by a generic event.
+        if (trigger == null || trigger instanceof SubmitTrigger || trigger instanceof CronTrigger) {
             return false;
         }
         // Derive the trigger type discriminator from the TriggerSource class name
