@@ -9,7 +9,7 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
-import io.softa.starter.flow.design.trigger.ApiTrigger;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
@@ -96,9 +96,9 @@ class ApproverDedupScenarioTest {
     private static DesignFlowDefinition threeNodeFlow(ApproverDedupStrategy dedup) {
         return DesignFlowDefinition.builder()
                 .name("Approver Dedup " + dedup)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.APPROVAL)
                 .approverDedup(dedup)
-                .trigger(new ApiTrigger(null))
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),

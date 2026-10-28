@@ -115,7 +115,7 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
                     "Bundle " + bundleId + " does not belong to design " + flowId);
         }
         FlowDesign design = requireDesign(flowId);
-        design.setDesignJson(bundle.getDesignJson());
+        design.setDesignJson(alignedDefinition(bundle.getDesignJson(), design));
         updateOne(design, false);
         return requireDesign(flowId);
     }
@@ -134,9 +134,10 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
 
     /**
      * Keep the document's identity fields aligned with the entity's denormalised
-     * columns: flowName and scenario follow the entity.
+     * columns: flowName and scenario follow the entity. Publish compiles the aligned
+     * document too, so a document written past this service cannot change the scenario.
      */
-    private static DesignFlowDefinition alignedDefinition(DesignFlowDefinition definition, FlowDesign design) {
+    public static DesignFlowDefinition alignedDefinition(DesignFlowDefinition definition, FlowDesign design) {
         DesignFlowDefinition doc = definition != null ? definition : emptyDefinition();
         doc.setName(design.getFlowName());
         doc.setScenario(design.getScenario());

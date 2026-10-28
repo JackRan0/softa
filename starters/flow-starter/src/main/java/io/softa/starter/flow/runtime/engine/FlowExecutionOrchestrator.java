@@ -5,8 +5,10 @@ import java.time.ZoneId;
 import java.util.*;
 import org.springframework.stereotype.Component;
 
+import io.softa.starter.flow.design.trigger.SubflowTrigger;
 import io.softa.starter.flow.enums.EmptyApproverStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
@@ -290,8 +292,16 @@ public class FlowExecutionOrchestrator {
         }
 
         if (!subflow) {
-            finalizeRootState(state, notifyOnComplete);
+            finalizeRootState(state, announcesCompletion(definition, notifyOnComplete));
         }
+    }
+
+    /**
+     * The completion notice tells the initiator their approval went through, so only an Approval flow
+     * sends one — an automation run is not something its triggering user asked to hear about.
+     */
+    private static boolean announcesCompletion(CompiledFlowDefinition definition, boolean notifyOnComplete) {
+        return notifyOnComplete && FlowScenario.APPROVAL.equals(definition.getScenario());
     }
 
     // ── Subflow ───────────────────────────────────────────────────────────────
@@ -313,6 +323,16 @@ public class FlowExecutionOrchestrator {
         CompiledFlowDefinition subflow = bundleRegistry.getActiveByFlowId(subflowId)
                 .orElseThrow(() -> new FlowRuntimeException("Compiled subflow bundle not found: flowId=" + subflowId));
         String subflowName = subflow.getFlowName();
+        // A flow's trigger is its start contract: only a flow that declares a Subflow trigger (an
+        // Automation flow) runs from a parent.
+        if (!FlowScenario.AUTOMATION.equals(subflow.getScenario()) || !(subflow.getTrigger() instanceof SubflowTrigger)) {
+            FlowStatusTransitions.apply(parentState, FlowExecutionStatus.FAILED);
+            parentState.setErrorMessage("Flow '" + subflowName + "' cannot run as a subflow: only an Automation flow "
+                    + "with a Subflow trigger can");
+            auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.FLOW_FAILED,
+                    parentState.getErrorMessage());
+            return;
+        }
         auditService.addTrace(parentState, subflowId, parentNode, FlowTraceEventType.SUBFLOW_START,
                 "Starting subflow " + subflowName + " (flowId=" + subflowId + ") from node " + parentNode.getNodeId());
 
@@ -339,7 +359,7 @@ public class FlowExecutionOrchestrator {
         Set<String> childFlowStack = new LinkedHashSet<>(flowStack);
         childFlowStack.add(subflowId);
         executeDefinition(subflow, childState, subflow.getEntryNodeIds(), true, childFlowStack, childCtx, notifyOnComplete);
-        finalizeRootState(childState, notifyOnComplete);
+        finalizeRootState(childState, announcesCompletion(subflow, notifyOnComplete));
 
         FlowExecutionStatus childStatus = childState.getStatus();
         if (FlowExecutionStatus.WAITING.equals(childStatus)) {

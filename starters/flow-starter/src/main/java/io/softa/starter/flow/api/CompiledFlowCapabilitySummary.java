@@ -7,7 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Derived capability summary for operational routing and observability.
+ * Derived capability summary for operational routing and observability. Whether a flow is an approval
+ * is not derived here: its {@code FlowScenario} declares it.
  */
 @Data
 @Builder
@@ -15,9 +16,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Schema(name = "CompiledFlowCapabilitySummary")
 public class CompiledFlowCapabilitySummary {
-
-    @Schema(description = "Whether the graph contains Approval nodes (human-centric flow)")
-    private boolean hasApproval;
 
     @Schema(description = "Whether the graph contains Subflow nodes")
     private boolean hasSubflow;

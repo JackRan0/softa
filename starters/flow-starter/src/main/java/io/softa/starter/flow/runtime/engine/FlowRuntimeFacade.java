@@ -4,6 +4,7 @@ import java.util.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.softa.starter.flow.design.trigger.ApiTrigger;
 import io.softa.starter.flow.enums.CcTiming;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.action.*;
@@ -79,16 +80,27 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
 
     @Override
     public FlowExecutionState start(FlowStartRequest request) {
-        return startInstance(request, false);
+        return startInstance(resolveRequestedDefinition(request), request, false);
+    }
+
+    @Override
+    public FlowExecutionState startAutomation(FlowStartRequest request) {
+        CompiledFlowDefinition definition = resolveRequestedDefinition(request);
+        if (!FlowScenario.AUTOMATION.equals(definition.getScenario())
+                || !(definition.getTrigger() instanceof ApiTrigger)) {
+            throw new FlowActionValidationException("Flow '" + definition.getFlowName()
+                    + "' cannot be started explicitly: only an Automation flow with an Api trigger can be");
+        }
+        return startInstance(definition, request, false);
     }
 
     @Override
     public FlowExecutionState startRecordApproval(FlowStartRequest request) {
-        return startInstance(request, true);
+        return startInstance(resolveRequestedDefinition(request), request, true);
     }
 
-    private FlowExecutionState startInstance(FlowStartRequest request, boolean recordApproval) {
-        CompiledFlowDefinition definition = resolveRequestedDefinition(request);
+    private FlowExecutionState startInstance(CompiledFlowDefinition definition, FlowStartRequest request,
+                                             boolean recordApproval) {
         FlowExecutionState state = buildInitialState(definition, request, recordApproval);
 
         try {
@@ -109,9 +121,9 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     @Override
     public FlowExecutionState evaluate(FlowStartRequest request) {
         CompiledFlowDefinition definition = resolveRequestedDefinition(request);
-        if (definition.getScenario() == null || FlowScenario.PROCESS.equals(definition.getScenario())) {
+        if (definition.getScenario() == null || !definition.getScenario().isTransient()) {
             throw new FlowActionValidationException("evaluate() only runs stateless Validation/Compute flows; "
-                    + "use start() for Process flows: " + definition.getFlowName());
+                    + "Approval and Automation flows start instances: " + definition.getFlowName());
         }
         FlowExecutionState state = buildInitialState(definition, request, false);
         // Zero flow footprint: nothing is persisted on success or failure. A failure propagates
@@ -164,6 +176,7 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                 .rowId(request.getRowId())
                 .initiatorId(request.getInitiatorId())
                 .recordApproval(recordApproval)
+                .triggerEventId(request.getTriggerEventId())
                 .status(FlowExecutionStatus.RUNNING)
                 .inputPayload(Map.of())
                 .variables(vars)

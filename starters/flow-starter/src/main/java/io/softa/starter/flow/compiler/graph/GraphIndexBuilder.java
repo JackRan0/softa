@@ -89,18 +89,15 @@ public final class GraphIndexBuilder {
         return outgoing;
     }
 
-    public static List<String> resolveEntryNodes(Collection<FlowGraphNode> nodes,
-                                                  Map<String, List<String>> incomingEdgeIds) {
-        List<String> explicitStarts = nodes.stream()
+    /**
+     * The flow's entry is its Start node — never inferred from the graph shape, so a node
+     * that merely lacks incoming edges is not an entry. Exactly one is required; the
+     * {@code GraphStructureValidator} reports zero or several.
+     */
+    public static List<String> resolveEntryNodes(Collection<FlowGraphNode> nodes) {
+        return nodes.stream()
                 .filter(node -> FlowNodeType.START.equals(node.getType()))
                 .map(FlowGraphNode::getId)
-                .toList();
-        if (!explicitStarts.isEmpty()) {
-            return explicitStarts;
-        }
-        return nodes.stream()
-                .map(FlowGraphNode::getId)
-                .filter(id -> CollectionUtils.isEmpty(incomingEdgeIds.get(id)))
                 .toList();
     }
 

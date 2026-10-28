@@ -93,7 +93,7 @@ class DefaultFlowPublishServiceTest {
                 "beanName", "echoService", "methodName", "run", "route", taskInput.get("route"));
         return DesignFlowDefinition.builder()
                 .name(flowName)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(

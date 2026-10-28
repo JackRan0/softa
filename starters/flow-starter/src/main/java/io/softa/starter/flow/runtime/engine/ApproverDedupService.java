@@ -7,8 +7,8 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
+import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
@@ -19,7 +19,7 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 /**
  * Automatic approvals at node activation, before the node starts waiting:
  * <ul>
- *   <li><b>The submitter.</b> On a submit flow, a step whose approvers include the record's
+ *   <li><b>The submitter.</b> On an Approval flow, a step whose approvers include the record's
  *       submitter counts them as having approved — nobody is asked to approve their own
  *       submission. Whether the step then passes is the step's own approval mode: an any-one step
  *       passes, an all-approve step still waits for the others.</li>
@@ -53,7 +53,7 @@ public class ApproverDedupService {
      */
     public boolean applyAndCheckComplete(CompiledFlowDefinition definition, CompiledFlowNode node,
                                          FlowExecutionState state, PendingApproval pending) {
-        if (definition.getTrigger() instanceof SubmitTrigger && StringUtils.hasText(state.getInitiatorId())) {
+        if (FlowScenario.APPROVAL.equals(definition.getScenario()) && StringUtils.hasText(state.getInitiatorId())) {
             autoApprove(definition, node, state, pending, state.getInitiatorId(), "Auto-approved (submitter)");
         }
         ApproverDedupStrategy strategy = strategyOf(definition);

@@ -6,6 +6,7 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.engine.FlowStatusTransitions;
 import io.softa.starter.flow.runtime.api.FlowWithdrawRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
@@ -38,6 +39,11 @@ public class WithdrawActionHandler implements FlowActionHandler<FlowWithdrawRequ
         CompiledFlowDefinition definition = contextService.resolveDefinition(state.getBundleId());
         FlowExecutionStatus statusBefore = state.getStatus();
 
+        // Withdrawal takes back a submission; only an approval has one.
+        if (!FlowScenario.APPROVAL.equals(definition.getScenario())) {
+            throw new FlowActionValidationException("Only an approval can be withdrawn; flow instance "
+                    + request.getInstanceId() + " is not one");
+        }
         if (!FlowExecutionStatus.WAITING.equals(state.getStatus())) {
             throw new FlowActionValidationException("Flow instance is not waiting for approval and cannot be withdrawn: " + request.getInstanceId());
         }

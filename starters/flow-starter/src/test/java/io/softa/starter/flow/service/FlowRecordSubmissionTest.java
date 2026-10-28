@@ -38,6 +38,7 @@ import io.softa.starter.flow.runtime.StubFlowInstanceStore;
 import io.softa.starter.flow.runtime.TestFlowRuntimeFactory;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.engine.*;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
@@ -194,26 +195,38 @@ class FlowRecordSubmissionTest {
     }
 
     @Test
-    void anotherFlowRunningOnTheRecordNeitherBlocksSubmissionNorWritesBack() {
-        publishService.publish("automation", flow("Automation", new ApiTrigger(null), List.of(MANAGER)));
+    void anAutomationRunOnTheRecordNeitherBlocksSubmissionNorWritesBack() {
+        publishService.publish("automation", flow("Automation", new ApiTrigger(null), null));
         FlowStartRequest automation = new FlowStartRequest();
         automation.setFlowId("automation");
         automation.setInitiatorId(SUBMITTER);
         automation.setModelName(MODEL);
         automation.setRowId(ROW);
-        FlowExecutionState other = engine.start(automation);
+        assertEquals(FlowExecutionStatus.COMPLETED, engine.startAutomation(automation).getStatus());
         publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
 
         assertEquals(FlowExecutionStatus.WAITING, launchService.submitRecord(MODEL, ROW, SUBMITTER).getStatus());
-        engine.approve(nodeRequest(new FlowApproveRequest(), other.getInstanceId(), MANAGER, "fine"));
 
         verify(handler, never()).onOutcome(anyString(), any());
     }
 
     @Test
+    void theSubmitFlowIsNotStartedByAnApiStart() {
+        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        FlowStartRequest apiStart = new FlowStartRequest();
+        apiStart.setFlowId("annual");
+        apiStart.setInitiatorId(SUBMITTER);
+        apiStart.setModelName(MODEL);
+        apiStart.setRowId(ROW);
+
+        assertThrows(FlowActionValidationException.class, () -> engine.startAutomation(apiStart));
+        verify(handler, never()).onSubmitted(anyString());
+    }
+
+    @Test
     void theSubmitFlowStartedAnotherWayIsNotTheRecordsApproval() {
         publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
-        // A debug run or an API start of the same flow, on the same record.
+        // A debug run of the same flow, on the same record.
         FlowStartRequest debugRun = new FlowStartRequest();
         debugRun.setFlowId("annual");
         debugRun.setInitiatorId(SUBMITTER);
@@ -437,10 +450,11 @@ class FlowRecordSubmissionTest {
             edges.add(edge("e2", "approval", "end"));
         }
         nodes.add(node("end", FlowNodeType.END));
+        boolean approval = trigger instanceof SubmitTrigger;
         return DesignFlowDefinition.builder()
                 .name(name)
-                .scenario(FlowScenario.PROCESS)
-                .allowInitiatorWithdraw(true)
+                .scenario(approval ? FlowScenario.APPROVAL : FlowScenario.AUTOMATION)
+                .allowInitiatorWithdraw(approval)
                 .trigger(trigger)
                 .graph(FlowGraphDocument.builder().nodes(nodes).edges(edges).build())
                 .build();

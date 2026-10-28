@@ -116,7 +116,7 @@ public class DefaultFlowCompiler {
         Map<String, FlowGraphEdge> edgeMap = GraphIndexBuilder.indexEdges(edges, structural);
         Map<String, List<String>> incomingEdgeIds = GraphIndexBuilder.buildIncomingEdgeIds(edgeMap.values());
         Map<String, List<String>> outgoingEdgeIds = GraphIndexBuilder.buildOutgoingEdgeIds(edgeMap.values());
-        List<String> entryNodeIds = GraphIndexBuilder.resolveEntryNodes(nodeMap.values(), incomingEdgeIds);
+        List<String> entryNodeIds = GraphIndexBuilder.resolveEntryNodes(nodeMap.values());
         List<String> terminalNodeIds = GraphIndexBuilder.resolveTerminalNodes(nodeMap.values(), outgoingEdgeIds);
 
         FlowGraphContext context = new FlowGraphContext(

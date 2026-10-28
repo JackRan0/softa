@@ -67,6 +67,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             LambdaUtils.getAttributeName(FlowInstance::getBundleId),
             LambdaUtils.getAttributeName(FlowInstance::getFlowId),
             LambdaUtils.getAttributeName(FlowInstance::getFlowName),
+            LambdaUtils.getAttributeName(FlowInstance::getScenario),
             LambdaUtils.getAttributeName(FlowInstance::getFlowRevision),
             LambdaUtils.getAttributeName(FlowInstance::getTitle),
             LambdaUtils.getAttributeName(FlowInstance::getModelName),
@@ -151,6 +152,14 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     @Override
+    public Optional<FlowInstance> findByTriggerEvent(String flowId, String eventId) {
+        Filters filters = new Filters()
+                .eq(FlowInstance::getFlowId, flowId)
+                .eq(FlowInstance::getTriggerEventId, eventId);
+        return this.searchOne(filters);
+    }
+
+    @Override
     public List<FlowInstance> findByInitiatorId(String initiatorId) {
         Filters filters = new Filters().eq(FlowInstance::getInitiatorId, initiatorId);
         return this.searchList(filters);
@@ -198,6 +207,11 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         String initiatorId = forcedInitiatorId != null ? forcedInitiatorId : request.initiatorId();
         if (initiatorId != null) {
             filters.eq(FlowInstance::getInitiatorId, initiatorId);
+        }
+        if (forcedInitiatorId != null) {
+            // The caller's own list is what they submitted: their records' approvals. An automation run
+            // their write happened to trigger records them as initiator too, but is not theirs to follow.
+            filters.eq(FlowInstance::getRecordApproval, true);
         }
         if (request.modelName() != null) {
             filters.eq(FlowInstance::getModelName, request.modelName());

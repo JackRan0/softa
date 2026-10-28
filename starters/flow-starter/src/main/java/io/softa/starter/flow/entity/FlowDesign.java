@@ -65,7 +65,10 @@ public class FlowDesign extends AuditableModel {
     @Field(required = true, length = 100, description = "Flow name, unique within the tenant")
     private String flowName;
 
-    @Field(description = "Flow scenario (denormalised for list views)")
+    @Field(description = "Flow scenario, fixed when the flow is created; the design document follows it",
+           readonlyWhen = """
+                   [["@mode", "=", "update"]]
+                   """)
     private FlowScenario scenario;
 
     @Field(description = "Optimistic-lock version; the editor echoes the loaded value on save "

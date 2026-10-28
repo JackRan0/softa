@@ -20,8 +20,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The editor asks for its palette with {@code ?scenario=Process}, the value a flow design carries in JSON; it reaches
- * the registry as {@link FlowScenario#PROCESS}.
+ * The editor asks for its palette with {@code ?scenario=Approval}, the value a flow design carries in JSON; it reaches
+ * the registry as {@link FlowScenario#APPROVAL}.
  */
 class FlowNodeDescriptorControllerScenarioParamTest {
 
@@ -49,10 +49,10 @@ class FlowNodeDescriptorControllerScenarioParamTest {
         }
     }
 
-    /** A value that names no scenario is a bad request and never reaches the registry. */
+    /** A value that names no scenario — the retired {@code Process} among them — is a bad request and never reaches the registry. */
     @Test
     void unknownValueIsRefused() throws Exception {
-        mockMvc.perform(get("/flow/nodeDescriptors").param("scenario", "Approval"))
+        mockMvc.perform(get("/flow/nodeDescriptors").param("scenario", "Process"))
                 .andExpect(status().isBadRequest());
         verify(registry, never()).listByScenario(any());
     }

@@ -68,10 +68,11 @@ public class FlowInstanceController {
     }
 
     @PostMapping("/start")
-    @Operation(summary = "Start flow instance", description = "Starts a runtime flow execution from a registered bundle.")
+    @Operation(summary = "Start flow instance", description = "Starts an Automation flow whose trigger is Api, "
+            + "by its id or a pinned bundle. Any other flow is refused: its trigger names another way to start it.")
     public ApiResponse<FlowExecutionState> start(@Valid @RequestBody FlowStartRequest request) {
         request.setInitiatorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.start(request));
+        return ApiResponse.success(runtimeEngine.startAutomation(request));
     }
 
     @GetMapping("/{instanceId}")
@@ -158,8 +159,9 @@ public class FlowInstanceController {
 
     @GetMapping("/{instanceId}/record")
     @Operation(summary = "Get the record an instance approves",
-            description = "The business record the instance runs on, for its initiator and the people it gives "
-                    + "a task to: read past their own row permissions. While steps wait, the fields those steps "
+            description = "The business record a record's approval runs on, for its initiator and the people it "
+                    + "gives a task to: read past their own row permissions. Any other instance is refused. While "
+                    + "steps wait, the fields those steps "
                     + "list in their field permissions (Readonly, Editable or Required); a step listing none "
                     + "shows every field. Relations and options come as references, and masked fields are masked "
                     + "as on every model read.")

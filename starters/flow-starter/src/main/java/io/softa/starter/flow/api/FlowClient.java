@@ -32,8 +32,10 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 public interface FlowClient {
 
     // lifecycle / launch
+    /** Start an Automation flow whose trigger is {@code Api}; any other flow is refused. */
     FlowExecutionState start(FlowStartRequest request);
 
+    /** Publish the definition, then start it as {@link #start} does — it must be an Automation flow with an Api trigger. */
     FlowExecutionState publishAndStart(PublishAndStartRequest request);
 
     /**

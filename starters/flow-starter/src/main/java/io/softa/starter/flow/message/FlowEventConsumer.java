@@ -20,7 +20,9 @@ import io.softa.starter.flow.runtime.trigger.FlowTriggerEvent;
  * <p>
  * If the message names a {@code bundleId} or {@code flowId}, that flow is started directly.
  * Otherwise, the message is mapped to a {@link FlowTriggerEvent} and fired
- * through the trigger registry to find matching flows.
+ * through the trigger registry to find matching flows. Only flows with {@code sync=false} run
+ * here: these events come from {@link FlowAutomationService#fireAsync}, and the sync flows
+ * matching the same change already ran in the writer's transaction, before it committed.
  * </p>
  */
 @Slf4j
@@ -63,7 +65,7 @@ public class FlowEventConsumer {
         request.setBundleId(message.getBundleId());
         request.setInitiatorId(message.getActorId());
         request.setVariables(message.getParameters());
-        runtimeEngine.start(request);
+        runtimeEngine.startAutomation(request);
         log.info("Async flow started: flowId={}, bundleId={}",
                 message.getFlowId(), message.getBundleId());
     }
@@ -71,12 +73,13 @@ public class FlowEventConsumer {
     private void fireTrigger(FlowEventMessage message) {
         FlowTriggerEvent event = FlowTriggerEvent.builder()
                 .type(message.getTriggerType())
+                .eventId(message.getEventId())
                 .sourceModel(message.getSourceModel())
                 .sourceRowId(message.getSourceRowId())
                 .parameters(message.getParameters())
                 .actorId(message.getActorId())
                 .build();
-        automationService.fire(event);
+        automationService.fireAsyncOnly(event);
         log.info("Async trigger fired: type={}, sourceModel={}", message.getTriggerType(), message.getSourceModel());
     }
 }

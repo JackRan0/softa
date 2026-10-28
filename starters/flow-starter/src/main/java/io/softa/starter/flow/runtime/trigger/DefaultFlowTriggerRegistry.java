@@ -125,9 +125,11 @@ public class DefaultFlowTriggerRegistry {
 
     private boolean matches(CompiledFlowDefinition definition, FlowTriggerEvent event) {
         TriggerSource trigger = definition.getTrigger();
-        // A submit trigger is chosen per record by findSubmitFlows and a cron trigger per schedule by
-        // findCronFlow, never by a generic event.
-        if (trigger == null || trigger instanceof SubmitTrigger || trigger instanceof CronTrigger) {
+        // No event starts these: a submit trigger is chosen per record by findSubmitFlows, a cron trigger
+        // per schedule by findCronFlow, an Api flow is started explicitly by its id, and a Subflow flow runs
+        // only from a parent flow.
+        if (trigger == null || trigger instanceof SubmitTrigger || trigger instanceof CronTrigger
+                || trigger instanceof ApiTrigger || trigger instanceof SubflowTrigger) {
             return false;
         }
         // Derive the trigger type discriminator from the TriggerSource class name

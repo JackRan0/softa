@@ -45,6 +45,17 @@ public class FlowAutomationService {
     /** Trigger type of {@code CronTrigger}: started on its own schedule, never fired as an event. */
     public static final String CRON_TRIGGER_TYPE = "Cron";
 
+    /**
+     * Trigger types no event starts — each names its own way in — with the refusal a fired event of
+     * that type gets.
+     */
+    private static final Map<String, String> NON_EVENT_TRIGGER_TYPES = Map.of(
+            SUBMIT_TRIGGER_TYPE, "Submit triggers start only through record submission, not as a trigger event",
+            CRON_TRIGGER_TYPE, "Cron triggers start only on their own schedule, not as a trigger event",
+            "Api", "Api-triggered flows are started explicitly by their id (POST /flow/instances/start), "
+                    + "not as a trigger event",
+            "Subflow", "Subflow-triggered flows run only from a parent flow's Subflow node, not as a trigger event");
+
     private final DefaultFlowTriggerRegistry triggerRegistry;
     private final FlowRuntimeEngine runtimeEngine;
 
@@ -87,6 +98,7 @@ public class FlowAutomationService {
         }
         FlowEventMessage message = new FlowEventMessage();
         message.setTriggerType(event.getType());
+        message.setEventId(event.getEventId());
         message.setSourceModel(event.getSourceModel());
         message.setSourceRowId(event.getSourceRowId());
         message.setActorId(event.getActorId());
@@ -99,20 +111,16 @@ public class FlowAutomationService {
     /**
      * Fire a trigger event. All matching flows will be started synchronously.
      * <p>
-     * Refuses the {@code Submit} type: a submit-triggered flow is chosen for one record and
+     * Refuses the trigger types no event starts. A submit-triggered flow is chosen for one record and
      * started by {@code FlowLaunchService.submitRecord}, which runs the business checks and the
-     * record's callbacks — firing it from here would start the approval without either. Refuses
-     * the {@code Cron} type too: a Cron-triggered flow starts on its own schedule, through
-     * {@link #fireCron}.
+     * record's callbacks — firing it from here would start the approval without either. A Cron flow
+     * starts on its own schedule, through {@link #fireCron}; an Api flow is started explicitly by its
+     * id, and a Subflow flow only from a parent flow.
      */
     public List<FlowTriggerResult> fire(FlowTriggerEvent event) {
-        if (SUBMIT_TRIGGER_TYPE.equals(event.getType())) {
-            throw new FlowActionValidationException(
-                    "Submit triggers start only through record submission, not as a trigger event");
-        }
-        if (CRON_TRIGGER_TYPE.equals(event.getType())) {
-            throw new FlowActionValidationException(
-                    "Cron triggers start only on their own schedule, not as a trigger event");
+        String refusal = NON_EVENT_TRIGGER_TYPES.get(event.getType());
+        if (refusal != null) {
+            throw new FlowActionValidationException(refusal);
         }
         return dispatch(event, triggerRegistry.findMatchingFlows(event), null,
                 definition -> startFlow(definition, event), "fire");
@@ -203,10 +211,10 @@ public class FlowAutomationService {
 
     /**
      * Validation / Compute flows are stateless: they evaluate transiently (no instance row,
-     * no trace, no event log). A missing scenario is treated as Process, conservatively.
+     * no trace, no event log). A missing scenario is treated as persisted, conservatively.
      */
     private static boolean isTransientScenario(CompiledFlowDefinition definition) {
-        return definition.getScenario() != null && !FlowScenario.PROCESS.equals(definition.getScenario());
+        return definition.getScenario() != null && definition.getScenario().isTransient();
     }
 
     /**
@@ -348,12 +356,11 @@ public class FlowAutomationService {
         if (isTransientScenario(definition)) {
             return runtimeEngine.evaluate(buildStartRequest(definition, event));
         }
-        // Start-dedup: a change-log redelivery must not open a SECOND active instance
-        // for the same business row + flow. If one is already active, return it idempotently.
-        FlowExecutionState active = findActiveInstanceState(
-                definition.getFlowId(), event.getSourceModel(), event.getSourceRowId());
-        if (active != null) {
-            return active;
+        // An event starts a flow at most once: a redelivered change log finds the run it already
+        // started and returns it. Distinct events each start their own run, even on the same row.
+        FlowExecutionState started = findRunOfEvent(definition.getFlowId(), event.getEventId());
+        if (started != null) {
+            return started;
         }
         return runtimeEngine.start(buildStartRequest(definition, event));
     }
@@ -373,25 +380,23 @@ public class FlowAutomationService {
         request.setInitiatorId(event.getActorId());
         request.setModelName(event.getSourceModel());
         request.setRowId(event.getSourceRowId());
+        request.setTriggerEventId(event.getEventId());
         request.setVariables(variables);
         return request;
     }
 
     /**
-     * The currently-active instance for a business row + flow, or {@code null}. "Active" = not in a
-     * terminal status, so a re-submitted row (whose prior instance is terminal) can legitimately start
-     * a new one. Returns null when no {@link FlowInstanceService} is wired or the event carries no
-     * business row (modelName / rowId). Read past the caller's data permissions: whether a run is
-     * already open must not depend on whose write fired the trigger.
+     * The run {@code eventId} already started for the flow, or {@code null} — also when the event
+     * carries no identity (it is then not deduplicated) or no {@link FlowInstanceService} is wired.
+     * Read past the caller's data permissions: whether the event already ran must not depend on whose
+     * write fired it. Two deliveries racing each other both pass this read; the unique index on the
+     * event id then refuses the second instance, though not the side effects its nodes already had.
      */
-    FlowExecutionState findActiveInstanceState(String flowId, String model, String rowId) {
-        if (instanceService == null || model == null || model.isBlank() || rowId == null || rowId.isBlank()) {
+    FlowExecutionState findRunOfEvent(String flowId, String eventId) {
+        if (instanceService == null || flowId == null || eventId == null || eventId.isBlank()) {
             return null;
         }
-        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByModelNameAndRowId(model, rowId)).stream()
-                .filter(i -> flowId != null && flowId.equals(i.getFlowId()))
-                .filter(i -> i.getStatus() != null && !i.getStatus().isTerminal())
-                .findFirst()
+        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByTriggerEvent(flowId, eventId))
                 .flatMap(i -> runtimeEngine.getInstance(i.getInstanceId()))
                 .orElse(null);
     }

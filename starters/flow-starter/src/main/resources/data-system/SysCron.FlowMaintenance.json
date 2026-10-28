@@ -59,6 +59,16 @@
       "tenantJobMode": "CrossTenant",
       "active": false,
       "description": "Purge expired debug-run bundles with their instances, traces and approval projections"
+    },
+    {
+      "id": "flow_automation_purge",
+      "name": "flow_automation_purge",
+      "cronExpression": "0 30 2 * * ?",
+      "cronSemantic": "Every day at 02:30",
+      "limitExecution": false,
+      "tenantJobMode": "CrossTenant",
+      "active": false,
+      "description": "Purge finished Automation runs past their retention period, with their traces and trigger event log"
     }
   ]
 }

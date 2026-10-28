@@ -55,6 +55,10 @@ public class FlowExecutionState {
             + "so its result is written back to it. Other instances running on a record are automation or debug runs")
     private Boolean recordApproval;
 
+    @Schema(description = "Identity of the trigger event that started the instance (a change log's uuid); with "
+            + "the flow, an event starts a run at most once")
+    private String triggerEventId;
+
     @Schema(description = "Execution status")
     private FlowExecutionStatus status;
 

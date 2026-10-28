@@ -165,7 +165,7 @@ class CronFlowScheduleTest {
     private CompiledFlowDefinition publish(String cronExpression) {
         CompiledFlowDefinition definition = CompiledFlowDefinition.builder()
                 .flowName("daily-report")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .compiledAt(LocalDateTime.now())
                 .trigger(new CronTrigger(cronExpression))
                 .build();

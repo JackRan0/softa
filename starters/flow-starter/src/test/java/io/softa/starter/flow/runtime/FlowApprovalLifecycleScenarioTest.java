@@ -10,7 +10,7 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
-import io.softa.starter.flow.design.trigger.ApiTrigger;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.api.FlowAddSignAfterRequest;
@@ -167,9 +167,9 @@ class FlowApprovalLifecycleScenarioTest {
     private static DesignFlowDefinition flowDefinition() {
         return DesignFlowDefinition.builder()
                 .name("Approval Lifecycle")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.APPROVAL)
                 .allowInitiatorWithdraw(true)
-                .trigger(new ApiTrigger(null))
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),

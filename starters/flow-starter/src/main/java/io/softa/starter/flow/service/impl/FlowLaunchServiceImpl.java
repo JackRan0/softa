@@ -125,7 +125,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         startRequest.setBundleId(published.getBundleId());
         startRequest.setInitiatorId(request.getInitiatorId());
         startRequest.setVariables(request.getVariables());
-        FlowExecutionState state = flowRuntimeEngine.start(startRequest);
+        FlowExecutionState state = flowRuntimeEngine.startAutomation(startRequest);
         return FlowLaunchResponse.builder()
                 .bundle(published)
                 .state(state)

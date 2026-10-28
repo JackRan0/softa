@@ -11,6 +11,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
 /**
@@ -31,6 +32,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 @Index(indexName = "idx_tenant_model_row", fields = {"tenantId", "modelName", "rowId"})
 @Index(indexName = "uk_flow_instance_open_record", fields = {"tenantId", "modelName", "openRecordId"}, unique = true,
        message = "This record is already in approval.")
+@Index(indexName = "uk_flow_instance_trigger_event", fields = {"tenantId", "flowId", "triggerEventId"}, unique = true)
 @EqualsAndHashCode(callSuper = true)
 public class FlowInstance extends AuditableModel {
 
@@ -59,6 +61,10 @@ public class FlowInstance extends AuditableModel {
     @Field(cascadedField = "flowId.flowName", dynamic = true, readonly = true)
     private String flowName;
 
+    @Field(cascadedField = "flowId.scenario", dynamic = true, readonly = true,
+           description = "The flow's scenario; fixed when the flow is created, so every instance of it shares it")
+    private FlowScenario scenario;
+
     @Field(description = "Published flow revision")
     private Integer flowRevision;
 
@@ -81,6 +87,10 @@ public class FlowInstance extends AuditableModel {
     @Field(label = "Open Record ID", description = "The record's id while this record approval is unfinished, empty "
             + "otherwise. Unique with the model in a tenant: a record has at most one approval in progress")
     private String openRecordId;
+
+    @Field(label = "Trigger Event ID", description = "Identity of the event that started the run (a change log's "
+            + "uuid), empty for other starts. Unique with the flow in a tenant: an event starts a flow at most once")
+    private String triggerEventId;
 
     @Field(required = true, description = "Execution status")
     private FlowExecutionStatus status;

@@ -9,7 +9,7 @@ import io.softa.framework.base.utils.JsonUtils;
 
 /**
  * Binds request parameters (query, path, header) to enums by the value JSON uses for them, so
- * {@code ?scenario=Process} reaches {@code FlowScenario.PROCESS} just as {@code "scenario": "Process"} does in a
+ * {@code ?scenario=Approval} reaches {@code FlowScenario.APPROVAL} just as {@code "scenario": "Approval"} does in a
  * request body.
  * <p>
  * That value is the one Jackson writes: the {@code @JsonValue} field when the enum declares one, the constant name

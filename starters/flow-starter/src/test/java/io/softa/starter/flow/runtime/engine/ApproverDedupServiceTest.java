@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
+import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
@@ -23,7 +24,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link ApproverDedupService}: the GLOBAL / CONTIGUOUS distinction, and the
- * submitter's own approval on a submit flow (recorded, and counted by the step's approval mode).
+ * submitter's own approval on an Approval flow (recorded, and counted by the step's approval mode).
  */
 class ApproverDedupServiceTest {
 
@@ -40,9 +41,10 @@ class ApproverDedupServiceTest {
         return CompiledFlowDefinition.builder().flowId("f").approverDedup(strategy).build();
     }
 
-    /** A submit flow — a record's approval — with approver dedup switched off. */
+    /** An Approval flow — a record's approval — with approver dedup switched off. */
     private static CompiledFlowDefinition submitFlow() {
         return CompiledFlowDefinition.builder().flowId("f").approverDedup(ApproverDedupStrategy.NONE)
+                .scenario(FlowScenario.APPROVAL)
                 .trigger(new SubmitTrigger("LeaveRequest", null)).build();
     }
 

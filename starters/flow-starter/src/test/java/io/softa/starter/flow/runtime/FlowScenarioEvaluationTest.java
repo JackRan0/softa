@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Scenario-driven execution strategy: Validation / Compute flows evaluate transiently —
- * no instance is persisted, success or fail — while Process flows persist via start().
+ * no instance is persisted, success or fail — while Approval and Automation flows persist via start().
  */
 class FlowScenarioEvaluationTest {
 
@@ -89,8 +89,8 @@ class FlowScenarioEvaluationTest {
     }
 
     @Test
-    void evaluateRejectsProcessScenarioBundles() {
-        publishService.publish("9103", processFlow());
+    void evaluateRejectsAutomationBundles() {
+        publishService.publish("9103", automationFlow());
 
         FlowStartRequest request = new FlowStartRequest();
         request.setFlowId("9103");
@@ -139,10 +139,10 @@ class FlowScenarioEvaluationTest {
                 .build();
     }
 
-    private static DesignFlowDefinition processFlow() {
+    private static DesignFlowDefinition automationFlow() {
         return DesignFlowDefinition.builder()
-                .name("Plain Process")
-                .scenario(FlowScenario.PROCESS)
+                .name("Plain Automation")
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(

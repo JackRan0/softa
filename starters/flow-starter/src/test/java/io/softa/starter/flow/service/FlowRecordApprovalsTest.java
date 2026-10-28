@@ -107,7 +107,7 @@ class FlowRecordApprovalsTest {
     @Test
     void historyListsTheRecordsApprovalInstancesNewestFirstWithNamedUsers() {
         CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
-        CompiledFlowDefinition automation = publishService.publish("audit", flow("Audit", new ApiTrigger(null), Map.of()));
+        CompiledFlowDefinition automation = publishService.publish("audit", automationFlow("Audit"));
         instance("old", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
         PendingApproval waiting = PendingApproval.builder().nodeId("approval").nodeLabel("Manager")
                 .approvers(List.of("2001", "2002")).approvedActors(new ArrayList<>(List.of("2001")))
@@ -275,10 +275,25 @@ class FlowRecordApprovalsTest {
                 .nodeLabel("Manager").build();
     }
 
+    /** An automation flow on the record: start → end, nothing to approve. */
+    private static DesignFlowDefinition automationFlow(String name) {
+        return DesignFlowDefinition.builder()
+                .name(name)
+                .scenario(FlowScenario.AUTOMATION)
+                .trigger(new ApiTrigger(null))
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
+                                FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
+                        .edges(List.of(FlowGraphEdge.builder().id("e1").source("start").target("end").build()))
+                        .build())
+                .build();
+    }
+
     private static DesignFlowDefinition flow(String name, TriggerSource trigger, Map<String, String> formPermissions) {
         return DesignFlowDefinition.builder()
                 .name(name)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.APPROVAL)
                 .trigger(trigger)
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(

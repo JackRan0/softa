@@ -68,7 +68,7 @@ public class CompiledFlowDefinition {
      * <ul>
      *   <li>Required for {@link FlowScenario#VALIDATION} and {@link FlowScenario#COMPUTE}
      *       flows — the caller inspects these keys from {@code FlowExecutionState.outputs}.</li>
-     *   <li>Optional for {@link FlowScenario#PROCESS} flows.</li>
+     *   <li>Optional for {@link FlowScenario#APPROVAL} and {@link FlowScenario#AUTOMATION} flows.</li>
      * </ul>
      */
     @Schema(description = "Variable names this flow promises to produce in FlowExecutionState.outputs")

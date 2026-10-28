@@ -79,11 +79,23 @@ class FlowInstanceServiceImplSearchTest {
     }
 
     @Test
+    void theCallersOwnListKeepsTheirRecordApprovalsOnly() {
+        runSearch(request(null, null, null, null, null), "u1");
+        assertTrue(queryCaptor.getValue().getFilters().toString().contains("recordApproval"));
+    }
+
+    @Test
+    void theMonitorListKeepsEveryInstance() {
+        runSearch(request("u1", null, null, null, null), null);
+        assertFalse(queryCaptor.getValue().getFilters().toString().contains("recordApproval"));
+    }
+
+    @Test
     void summaryProjectionExcludesJsonStateColumns() {
         runSearch(request(null, null, null, null, null), null);
         List<String> fields = queryCaptor.getValue().getFields();
-        assertEquals(16, fields.size());
-        assertTrue(fields.containsAll(List.of("id", "instanceId", "bundleId", "flowId", "flowName",
+        assertEquals(17, fields.size());
+        assertTrue(fields.containsAll(List.of("id", "instanceId", "bundleId", "flowId", "flowName", "scenario",
                 "flowRevision", "title", "modelName", "rowId", "initiatorId", "recordApproval", "status",
                 "failedNodeId", "nextFireAt", "createdTime", "updatedTime")));
         assertFalse(fields.contains("variables"));

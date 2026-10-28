@@ -453,7 +453,7 @@ class FlowApprovalPreviewTest {
                                              List<FlowGraphEdge> edges) {
         return DesignFlowDefinition.builder()
                 .name(name)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.APPROVAL)
                 .trigger(new SubmitTrigger(MODEL, submitCondition))
                 .graph(FlowGraphDocument.builder().nodes(nodes).edges(edges).build())
                 .build();

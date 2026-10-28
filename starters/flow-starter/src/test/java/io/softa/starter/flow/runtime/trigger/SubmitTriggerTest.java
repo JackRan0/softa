@@ -24,7 +24,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * The submit trigger is chosen per record — by model and condition — and never by a generic
- * trigger event; the REST trigger refuses it and the compiler keeps it on Process flows.
+ * trigger event; the REST trigger refuses it and the compiler keeps it on Approval flows.
  */
 class SubmitTriggerTest {
 
@@ -84,15 +84,15 @@ class SubmitTriggerTest {
     }
 
     @Test
-    void theCompilerKeepsSubmitTriggersOnProcessFlowsThatNameTheirModel() {
+    void theCompilerKeepsSubmitTriggersOnApprovalFlowsThatNameTheirModel() {
         TriggerConsistencyValidator validator = new TriggerConsistencyValidator();
 
         List<CompileDiagnostic> wrongScenario = validator.validate(DesignFlowDefinition.builder()
                 .scenario(FlowScenario.VALIDATION).trigger(new SubmitTrigger("LeaveRequest", null)).build(), null);
         List<CompileDiagnostic> noModel = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.PROCESS).trigger(new SubmitTrigger(" ", null)).build(), null);
+                .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger(" ", null)).build(), null);
         List<CompileDiagnostic> valid = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.PROCESS).trigger(new SubmitTrigger("LeaveRequest", "days > 1")).build(), null);
+                .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger("LeaveRequest", "days > 1")).build(), null);
 
         assertEquals(1, wrongScenario.size());
         assertEquals(1, noModel.size());

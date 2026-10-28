@@ -54,6 +54,28 @@ public final class TestFlowRuntimeFactory {
                                     FlowStateChangeListener taskSyncListener,
                                     FlowStateChangeListener recordSyncListener,
                                     ModelService<?> recordModelService) {
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSyncListener,
+                recordSyncListener, recordModelService, new DefaultApprovalNotificationService());
+    }
+
+    /** With the notification service the engine reports to, for tests that watch what it announces. */
+    public static FlowRuntimeFacade createWithNotifications(FlowBundleRegistry bundleRegistry,
+                                                     FlowInstanceStore instanceStore,
+                                                     DefaultNodeHandlerRegistry nodeHandlerRegistry,
+                                                     ApprovalNodeExecutionHandler approvalHandler,
+                                                     ApprovalNotificationService notificationService) {
+        return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, state -> {}, state -> {},
+                Mockito.mock(ModelService.class), notificationService);
+    }
+
+    private static FlowRuntimeFacade create(FlowBundleRegistry bundleRegistry,
+                                    FlowInstanceStore instanceStore,
+                                    DefaultNodeHandlerRegistry nodeHandlerRegistry,
+                                    ApprovalNodeExecutionHandler approvalHandler,
+                                    FlowStateChangeListener taskSyncListener,
+                                    FlowStateChangeListener recordSyncListener,
+                                    ModelService<?> recordModelService,
+                                    ApprovalNotificationService notificationService) {
         FlowProjectionPublisher projectionPublisher =
                 new FlowProjectionPublisher(List.of(taskSyncListener, recordSyncListener));
 
@@ -64,8 +86,6 @@ public final class TestFlowRuntimeFactory {
         ApprovalLifecycleService lifecycleService = new ApprovalLifecycleService(pendingApprovalFactory);
         ApprovalActorValidator actorValidator = new ApprovalActorValidator(lifecycleService, auditReader);
         FlowActionContextService contextService = new FlowActionContextService(instanceStore, bundleRegistry, projectionPublisher);
-
-        ApprovalNotificationService notificationService = new DefaultApprovalNotificationService();
 
         FlowGatewayRouter gatewayRouter = new FlowGatewayRouter();
         NodeRetryExecutor retryExecutor = new NodeRetryExecutor(auditService);

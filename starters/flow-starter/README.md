@@ -5,7 +5,7 @@
 - design-time graph documents for a visual editor
 - compile-time validation and transformation into runtime bundles
 - published bundle revisions by `flowId`
-- runtime execution for process, validation, and compute flows
+- runtime execution for approval, automation, validation, and compute flows
 - persistent projections for instances, approval tasks, approval records, delegations, CC rules, and trigger events
 - optional Pulsar-based trigger and async-task integration
 
@@ -34,18 +34,38 @@ This README documents the current backend contract implemented in this module.
 
 ### Flow Scenarios
 
-The module now uses a single `FlowScenario` enum instead of the old `FlowKind + FlowPurpose` split.
+A single `FlowScenario` enum declares what a flow is. It is chosen when the flow is created and fixed
+from then on (`FlowDesign.scenario` is readonly on update; the design document follows the column).
 
-| Scenario | Meaning |
+| Scenario | Meaning | Triggers it may declare |
+|---|---|---|
+| `APPROVAL` | A record's approval: started by submitting the record, approval steps, the outcome written back to the record. Persisted instances, kept as the record's approval history | `Submit` |
+| `AUTOMATION` | Started by a change, a cron, an explicit start or a parent flow; no approval steps. Persisted runs, purged after their retention period | `EntityChange`, `Cron`, `Api`, `Subflow` |
+| `VALIDATION` | Stateless synchronous validation flow — evaluated transiently: no instance row, no trace, no event log | `EntityChange`, `Cron` |
+| `COMPUTE` | Stateless synchronous compute/onchange flow — evaluated transiently, same zero-footprint rules | `FieldChange`, `EntityChange`, `Cron` |
+
+The scenario decides the execution strategy: `APPROVAL` / `AUTOMATION` flows go through
+`FlowRuntimeEngine.start` (persisted, resumable); `VALIDATION` / `COMPUTE` flows go through `evaluate` —
+the same traversal with zero flow footprint. Business writes made by task nodes still join the caller's
+transaction, so a failed evaluation rolls them back.
+
+Every flow declares a trigger, and **the trigger is the flow's start contract** — one way in each:
+
+| Trigger | How the flow starts |
 |---|---|
-| `PROCESS` | Stateful runtime flow with persisted instances; covers both approval-style and automation-style flows |
-| `VALIDATION` | Stateless synchronous validation flow — evaluated transiently: no instance row, no trace, no event log |
-| `COMPUTE` | Stateless synchronous compute/onchange flow — evaluated transiently, same zero-footprint rules |
+| `Submit` | Only by submitting a record (`FlowClient.submitRecord`) — see [Approving Business Records](#approving-business-records) |
+| `EntityChange` / `FieldChange` | Only by their events |
+| `Cron` | Only on its own schedule — see [Cron-triggered flows](#cron-triggered-flows) |
+| `Api` | Only explicitly, by id: `POST /flow/instances/start`, `FlowClient.start` / `publishAndStart` |
+| `Subflow` | Only from a parent flow's Subflow node |
 
-The scenario decides the execution strategy: `PROCESS` flows go through `FlowRuntimeEngine.start`
-(persisted, resumable); `VALIDATION` / `COMPUTE` flows go through `evaluate` — the same traversal
-with zero flow footprint. Business writes made by task nodes still join the caller's transaction,
-so a failed evaluation rolls them back.
+An explicit start and a Subflow call both run an Automation flow, so `Api` and `Subflow` belong to
+Automation alone. Debug runs of a draft ignore the trigger.
+
+Settings belong to one scenario too: `allowInitiatorWithdraw` and `approverDedup` to Approval flows;
+`sync` / `rollbackOnFail` to Automation flows, and a sync flow — which runs inside the writer's
+transaction — may not contain a Timer, AsyncTask or Approval node. The compiler rejects a flow that
+breaks any of these rules.
 
 ### Node Types
 
@@ -62,11 +82,21 @@ Current `FlowNodeType` values:
 from the node palette and rejected at compile time (`UNSUPPORTED_NODE_TYPE`), so a flow
 containing them cannot publish.
 
+Each `FlowNodeType` declares the scenarios that may use it (`FlowNodeType.getScenarios()`); the palette
+and the compiler (`INVALID_SCENARIO_NODE`) both read it:
+
+| Node types | Scenarios |
+|---|---|
+| `Start`, `End`, `Script`, `ReturnValue`, `CreateRecord`, `GetRecord`, `UpdateRecord`, `DeleteRecord`, `QueryRecords`, `CallService`, `CallWebhook` | all four |
+| `Timer`, the gateways, `Subflow`, `ValidateData`, `Transform`, `SendEmail`, `SendSms`, `SendInboxNotification`, `QueryAI`, `AsyncTask`, `GenerateFile`, `ForEach` | Approval, Automation |
+| `Approval`, `HumanTask` | Approval |
+
 Node-behavior invariants:
 
 - **`Subflow` is synchronous-only**: the orchestrator fails the parent if a child
-  enters a waiting state (`WAITING_APPROVAL` / `TIMER` / `ASYNC`), and recursive
-  subflow invocation is rejected. Model human steps in the parent flow, not a child.
+  enters a waiting state (`TIMER` / `ASYNC`), and recursive subflow invocation is
+  rejected. The child must be an Automation flow with a `Subflow` trigger, else the
+  parent fails. Model human steps in an Approval flow, not a child.
 - **`ParallelFork` branches execute serially** (deterministic order), not
   wall-clock-parallel — the gateway models routing topology, not concurrency.
 
@@ -136,7 +166,7 @@ Base path: `/flow/nodeDescriptors`
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/flow/nodeDescriptors` | List all node descriptors for the editor palette |
-| `GET` | `/flow/nodeDescriptors?scenario=Process` | Filter descriptors by `FlowScenario` |
+| `GET` | `/flow/nodeDescriptors?scenario=Approval` | Filter descriptors by `FlowScenario` |
 
 ### Instance APIs
 
@@ -144,11 +174,11 @@ Base path: `/flow/instances` — launch, reads and approval actions on runtime i
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/flow/instances/start` | Start a flow instance |
+| `POST` | `/flow/instances/start` | Start an Automation flow whose trigger is `Api`, by `flowId` or a pinned `bundleId`; any other flow is refused |
 | `GET` | `/flow/instances/{instanceId}?includeTrace=` | Get one runtime instance (trace excluded by default) |
 | `GET` | `/flow/instances/{instanceId}/overlay` | Per-node run state for canvas painting |
 | `GET` | `/flow/instances/{instanceId}/trace?sinceSequence=` | Incremental trace rows for polling |
-| `POST` | `/flow/instances/search` | Paged summaries of the caller's own instances — the initiator filter is always the authenticated user (filters: flowId/status/model/row/createdFrom/createdTo) |
+| `POST` | `/flow/instances/search` | Paged summaries of the caller's own record approvals — the initiator filter is always the authenticated user, and automation runs their writes triggered are left out (filters: flowId/status/model/row/createdFrom/createdTo) |
 | `POST` | `/flow/instances/approve` | Approve a pending approval |
 | `POST` | `/flow/instances/reject` | Reject a pending approval; the comment saying why is required |
 | `POST` | `/flow/instances/transfer` | Transfer a pending approval task |
@@ -158,13 +188,13 @@ Base path: `/flow/instances` — launch, reads and approval actions on runtime i
 | `POST` | `/flow/instances/cc` | Send a CC notification |
 | `POST` | `/flow/instances/cc/read` | Mark a CC as read |
 | `POST` | `/flow/instances/return` | Return a pending approval to the initiator, ending the instance as `Returned`. Only the step's approver, with a comment saying what to change |
-| `POST` | `/flow/instances/withdraw` | Withdraw a flow instance |
+| `POST` | `/flow/instances/withdraw` | Withdraw an Approval instance (its initiator, when the flow allows it) |
 | `POST` | `/flow/instances/urge` | Urge pending approvers |
 | `POST` | `/flow/instances/comment` | Add a comment audit entry |
 | `GET` | `/flow/instances/{instanceId}/nodes/{nodeId}/formPermissions` | Get field-level form permissions |
 | `GET` | `/flow/instances/by-record?modelName=&rowId=` | A business record's approval history: its approval instances newest first, with the steps still waiting, the approvers yet to act and the approval actions, every user named (names are resolved only once the caller is allowed); a failed instance says where and why it stopped (`failure`). Allowed to whoever took part in its approvals or can read the record |
 | `GET` | `/flow/instances/preview?modelName=&rowId=` | What submitting the record would do now, without submitting it: the Submit flow it would get and its approval steps, each with the approvers who would be asked or why it passes on its own; a refusal, no applicable flow or several are reported, a route decided only once the approval runs is reported as undecided. Nothing is started or written. Allowed to whoever can read the record (see [Previewing a record's approval](#previewing-a-records-approval)) |
-| `GET` | `/flow/instances/{instanceId}/record` | The business record the instance approves, for its initiator and the people it gives a task to: read past their own row permissions, limited to the fields the waiting steps list in their field permissions (`Readonly` / `Editable` / `Required`; once nothing waits, those of every approval step). A step that lists no fields shows them all; a field marked `Hidden` never shows. Read as the model read API returns a record (relations and options as references, masked fields masked), with each one-to-many's rows in full — an expense claim comes with its lines |
+| `GET` | `/flow/instances/{instanceId}/record` | The business record a record's approval runs on — any other instance is refused, since its record was named freely rather than submitted — for its initiator and the people it gives a task to: read past their own row permissions, limited to the fields the waiting steps list in their field permissions (`Readonly` / `Editable` / `Required`; once nothing waits, those of every approval step). A step that lists no fields shows them all; a field marked `Hidden` never shows. Read as the model read API returns a record (relations and options as references, masked fields masked), with each one-to-many's rows in full — an expense claim comes with its lines |
 
 Who may view an instance: its initiator and the people it gives a task to (approvers pending or done, CC
 recipients, transfer, delegation and add-sign targets) by default; anyone else through the standard role and
@@ -188,7 +218,7 @@ acts on an existing instance.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/flow/automation/trigger` | Fire a trigger event and start matching flows |
+| `POST` | `/flow/automation/trigger` | Fire a trigger event and start matching flows. `Submit`, `Api` and `Subflow` events are refused: those flows start by record submission, by id, or from a parent flow |
 | `POST` | `/flow/automation/onchange` | Run `COMPUTE` flows transiently and return variable diffs |
 | `POST` | `/flow/automation/validate` | Run `VALIDATION` flows transiently against candidate row data; returns each flow's declared outputs keyed by `flowId` |
 
@@ -363,7 +393,7 @@ Approval timeout strategies:
 `ApprovalTimeoutScheduler` handles reminders, auto actions, and escalation against persisted pending approvals.
 
 It runs off a cron row. The starter's maintenance crons (approval timeout reminders and handling, delegation
-expiry, timer sweep, stuck-instance scan, debug bundle purge) ship switched off in
+expiry, timer sweep, stuck-instance scan, debug bundle purge, automation run purge) ship switched off in
 `data-system/SysCron.FlowMaintenance.json`. The app lists that file under `platform` in its
 `seed-manifest.yml`, or the rows never exist; then switch on the ones it uses. See the
 [seed-starter README](../seed-starter/README.md).
@@ -421,7 +451,7 @@ Current module notes:
 
 ## Approving Business Records
 
-A business record — a leave request, an expense claim — is approved by a Process flow whose trigger is a
+A business record — a leave request, an expense claim — is approved by an Approval flow whose trigger is a
 `SubmitTrigger(modelName, conditionExpression)`. The host implements one `ModelApprovalHandler` per model
 (`runtime/spi`, a Spring bean) and calls `FlowClient` from its own submit and withdraw endpoints:
 
@@ -433,7 +463,8 @@ A business record — a leave request, an expense claim — is approved by a Pro
 | `previewRecord(modelName, rowId)` | The approval a submission would start, as `GET /flow/instances/preview` — see below. Call it outside a transaction |
 
 Only the instance a submission starts is the record's **approval** (`FlowExecutionState.recordApproval`): a
-debug run or an API start of the same flow on the same record is not, and is never written back. A record has
+debug run of the same flow on the same record is not, and is never written back (an API start of an Approval
+flow is refused — its trigger is `Submit`). A record has
 at most one approval in progress — `FlowInstance.openRecordId` holds the record's id while its approval is
 unfinished, under a unique index with the model, so a second submission is refused even when two arrive at
 once.
@@ -504,23 +535,27 @@ The default `ApprovalNotificationService` is `InboxApprovalNotificationService`:
 through message-starter that point at the flow instance (`sourceModel` = `FlowInstance`, `sourceId` = its
 instance id; the client opens the instance and goes on from there) — tasks to the approvers still to act
 (assigned, transferred, delegated, urged, about to time out), CCs to their recipients, and the result to the
-initiator (approved; rejected or returned, with the comment). Messages are written after the action commits,
+initiator (approved; rejected or returned, with the comment). Only an Approval flow announces its completion:
+an Automation run is not something the user whose write triggered it asked to hear about. Messages are written after the action commits,
 in a transaction of their own: a rolled-back action sends nothing, and a message that cannot be written is
 logged without failing the action. Titles longer than the inbox's 200 characters are cut. Texts are translated
 into the tenant's default language. Provide your own `ApprovalNotificationService` bean for email, SMS or IM.
 
 ## Trigger And Messaging Integration
 
-Supported trigger sources (`TriggerSource` sealed sub-types):
+Supported trigger sources (`TriggerSource` sealed sub-types), each the start contract of the flows that
+declare it (see [Flow Scenarios](#flow-scenarios) for which scenario takes which):
 
-- `EntityChange`
-- `Api`
-- `Cron` (PROCESS scenario only) — the flow's own Quartz schedule; started only by it (see
-  [Cron-triggered flows](#cron-triggered-flows)): other cron jobs' ticks never start it, and
-  `POST /flow/automation/trigger` refuses it
-- `Subflow`
+- `EntityChange` — a change log of the model. Each change log starts a run at most once per flow: its
+  `uuid` travels as the event id onto `FlowInstance.triggerEventId` (unique with the flow), so a redelivered
+  change log returns the run it already started, while distinct changes of one row each start their own
+- `Cron` — the flow's own Quartz schedule; started only by it (see [Cron-triggered flows](#cron-triggered-flows)):
+  other cron jobs' ticks never start it, and `POST /flow/automation/trigger` refuses the type
 - `FieldChange` (COMPUTE scenario only)
-- `Submit` (PROCESS scenario only) — names the model whose records the flow approves and, optionally, a
+- `Api` (AUTOMATION scenario only) — started explicitly by id; no event matches it, and
+  `POST /flow/automation/trigger` refuses the type
+- `Subflow` (AUTOMATION scenario only) — run only from a parent's Subflow node; refused as an event likewise
+- `Submit` (APPROVAL scenario only) — names the model whose records the flow approves and, optionally, a
   condition over the record. Started only by record submission (see Approving Business Records); change
   logs never produce it and `POST /flow/automation/trigger` refuses it
 
@@ -544,8 +579,9 @@ Important timer note:
 A Cron-triggered flow owns its schedule: the trigger's `cronExpression`, in the Quartz format cron-starter runs
 (`second minute hour day-of-month month day-of-week [year]`, e.g. `0 0 9 ? * MON-FRI` for 09:00 on weekdays, in
 the scheduler's time zone). Publishing parses it the way the scheduler does: a blank expression fails with
-`CRON_MISSING_EXPRESSION`, one the scheduler cannot run with `CRON_INVALID_EXPRESSION`, and a Validation or Compute
-flow cannot run on a schedule (`CRON_WRONG_SCENARIO`).
+`CRON_MISSING_EXPRESSION`, one the scheduler cannot run with `CRON_INVALID_EXPRESSION`. Automation, Validation and
+Compute flows may run on a schedule, Approval flows may not (see [Flow Scenarios](#flow-scenarios)); a scheduled
+Validation or Compute flow is evaluated transiently, like any of their runs.
 
 - **Scheduling.** `CronFlowJobProvider` is a cron-starter `CronJobProvider`: the scheduling leader reads every
   tenant's active Cron-triggered revisions (`FlowBundle.cronExpression`, copied from the trigger at publish) when it
@@ -560,10 +596,10 @@ flow cannot run on a schedule (`CRON_WRONG_SCENARIO`).
   (`FlowAutomationService.fireCron`), and only while it is still its flow's active revision: the job of a replaced
   revision firing before the leader's next read starts nothing. Every other cron message — the maintenance crons,
   other modules' jobs, a `SysCron` row whatever its name — is ignored, and no trigger event matches a Cron flow. The
-  flow starts with no initiator and the time the schedule fired as variable `triggerTime`, and the fire is logged in
-  `FlowEvent` like any other.
-- **Every execution starts an instance**, even while the previous one is still running or waiting: there is no record
-  to deduplicate on.
+  flow starts with no initiator and the time the schedule fired as variable `triggerTime`, and an Automation flow's
+  fire is logged in `FlowEvent` like any other.
+- **Every execution starts its own run**, even while the previous one is still running or waiting. An execution
+  carries no event id, so unlike a change log, a redelivered cron message is not recognized as one that already ran.
 
 ## Persistence Model
 
@@ -571,7 +607,7 @@ flow cannot run on a schedule (`CRON_WRONG_SCENARIO`).
 |---|---|
 | `FlowDesign` | Draft working copy |
 | `FlowBundle` | Published compiled bundle |
-| `FlowInstance` | Persisted runtime instance state (trace and approval history are NOT embedded — see the two dedicated tables) |
+| `FlowInstance` | Persisted runtime instance state (trace and approval history are NOT embedded — see the two dedicated tables). Approval instances are kept; finished Automation runs, with their trace, branches and the trigger event log, are purged after `flow.automation.retention-days` (default 30) by the `flow_automation_purge` cron |
 | `FlowExecutionTrace` | Append-only execution trace rows (the in-memory state keeps only the current attempt's delta) |
 | `FlowApprovalTask` | Pending/completed/CC task projections |
 | `FlowApprovalRecord` | Approval action audit ledger — the authoritative approval history, flushed by the instance store in the same transaction as the instance row |

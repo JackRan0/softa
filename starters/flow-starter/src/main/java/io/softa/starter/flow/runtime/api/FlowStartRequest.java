@@ -1,5 +1,6 @@
 package io.softa.starter.flow.runtime.api;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -35,4 +36,9 @@ public class FlowStartRequest extends AbstractFlowLaunchContextRequest {
 
     @Schema(description = "Related row data ID for SQL-level indexing")
     private String rowId;
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    @Schema(description = "Identity of the trigger event that starts the run (server-side only); with the "
+            + "flow, an event starts a run at most once", accessMode = Schema.AccessMode.READ_ONLY)
+    private String triggerEventId;
 }

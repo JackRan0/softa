@@ -188,12 +188,27 @@ class FlowInstanceAccessGuardTest {
         FlowExecutionState state = FlowExecutionState.builder()
                 .instanceId("i1")
                 .initiatorId("initiator")
+                .recordApproval(true)
                 .pendingApprovals(List.of(PendingApproval.builder().approvers(List.of("approver")).build()))
                 .build();
 
         assertDoesNotThrow(() -> guard.requireRecordGrantee(state, "initiator"));
         assertDoesNotThrow(() -> guard.requireRecordGrantee(state, "approver"));
         assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordGrantee(state, "monitor"));
+    }
+
+    @Test
+    void onlyARecordsApprovalLendsItsRecord() {
+        // An explicit start or a debug run names its record freely; its initiator must not read it past
+        // their own row permissions through the instance.
+        FlowExecutionState namedFreely = FlowExecutionState.builder()
+                .instanceId("i2")
+                .initiatorId("initiator")
+                .modelName("Employee")
+                .rowId("42")
+                .build();
+
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordGrantee(namedFreely, "initiator"));
     }
 
     @Test

@@ -12,6 +12,7 @@ import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.design.trigger.FieldChangeTrigger;
 import io.softa.starter.flow.enums.*;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
@@ -28,8 +29,8 @@ class DefaultFlowCompilerTest {
     void shouldCompileApprovalFlowWithPostApprovalAutomation() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Leave Approval")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -50,7 +51,7 @@ class DefaultFlowCompilerTest {
         assertEquals(List.of("start"), compiled.getEntryNodeIds());
         assertEquals(List.of("end"), compiled.getTerminalNodeIds());
         assertEquals(List.of("start", "managerApproval", "syncLeaveBalance", "end"), compiled.getTopologicalOrder());
-        assertTrue(compiled.getCapabilitySummary().isHasApproval());
+        assertEquals(FlowScenario.APPROVAL, compiled.getScenario());
         assertFalse(compiled.getCapabilitySummary().isHasSubflow());
         assertFalse(compiled.getCapabilitySummary().isHasParallelGateway());
     }
@@ -59,7 +60,7 @@ class DefaultFlowCompilerTest {
     void shouldCompileAutomationFlowWithSubflowAndParallelGateway() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Order Automation")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -111,14 +112,15 @@ class DefaultFlowCompilerTest {
                 .build();
 
         FlowCompileException exception = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
-        assertTrue(exception.getDiagnostics().stream().anyMatch(d -> d.message().contains("lightweight nodes")));
+        assertTrue(exception.getDiagnostics().stream().anyMatch(d ->
+                "INVALID_SCENARIO_NODE".equals(d.code()) && "approval".equals(d.nodeId())));
     }
 
     @Test
     void shouldRejectTaskNodeWithoutConfig() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Missing Task Config")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -141,7 +143,7 @@ class DefaultFlowCompilerTest {
     void shouldRejectNodeWithMultipleDefaultOutgoingEdges() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Default Edges")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -164,9 +166,9 @@ class DefaultFlowCompilerTest {
     void shouldCompileFlowWithAllowInitiatorWithdraw() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Withdraw Flow")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.APPROVAL)
                 .allowInitiatorWithdraw(true)
-                .trigger(new ApiTrigger(null))
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -188,8 +190,8 @@ class DefaultFlowCompilerTest {
     void shouldCompileApprovalNodeReturnPolicy() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Returnable Approval")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -221,8 +223,8 @@ class DefaultFlowCompilerTest {
     void shouldCompileApprovalNodeWithUnanimousMode() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Unanimous Approval")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -253,8 +255,8 @@ class DefaultFlowCompilerTest {
     void shouldRejectUnanimousApprovalModeWithoutApprovers() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Unanimous Approval")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -281,8 +283,8 @@ class DefaultFlowCompilerTest {
     void shouldRejectMinCountApprovalModeWhenThresholdExceedsApprovers() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Min Count Approval")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -312,8 +314,8 @@ class DefaultFlowCompilerTest {
     void shouldCompileMinCountApprovalModeWithDynamicApproverSource() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Dynamic Min Count Approval")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -349,8 +351,8 @@ class DefaultFlowCompilerTest {
     void shouldRejectPercentageApprovalModeOutsideRange() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Percentage Approval")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -380,8 +382,8 @@ class DefaultFlowCompilerTest {
     void shouldRejectMinCountRejectModeWhenThresholdExceedsApprovers() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Min Count Reject")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -411,8 +413,8 @@ class DefaultFlowCompilerTest {
     void shouldRejectDeadlockingApprovalAndRejectThresholds() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Deadlocking Thresholds")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -446,7 +448,7 @@ class DefaultFlowCompilerTest {
         // it must be rejected at compile time so it can never publish and silently no-op.
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("ForEach Flow")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -479,8 +481,8 @@ class DefaultFlowCompilerTest {
         // must be rejected at compile time so it can never publish and fail at execution.
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Human Task Flow")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -507,7 +509,7 @@ class DefaultFlowCompilerTest {
     void shouldRejectCreateRecordWithoutModelName() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Create")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -535,7 +537,7 @@ class DefaultFlowCompilerTest {
     void shouldRejectCallServiceWithMismatchedArgTypesArity() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid ArgTypes")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -569,7 +571,7 @@ class DefaultFlowCompilerTest {
     void validate_returnsEmptyListForCompilableDefinition() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Valid Flow")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(node("start", FlowNodeType.START), node("end", FlowNodeType.END)))
@@ -585,7 +587,7 @@ class DefaultFlowCompilerTest {
         // duplicate node id + missing node type + dangling edge endpoint — all in one round
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Broken Flow")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -611,7 +613,7 @@ class DefaultFlowCompilerTest {
     void validate_anchorsCycleDiagnosticsToNodes() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Cyclic Flow")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -644,7 +646,7 @@ class DefaultFlowCompilerTest {
     void validate_anchorsUnknownEdgeEndpointsToTheEdge() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Dangling Flow")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(node("start", FlowNodeType.START), node("end", FlowNodeType.END)))
@@ -656,6 +658,44 @@ class DefaultFlowCompilerTest {
 
         assertTrue(diagnostics.stream().anyMatch(d ->
                 "UNKNOWN_EDGE_TARGET".equals(d.code()) && "e1".equals(d.edgeId())));
+    }
+
+    @Test
+    void validate_requiresAStartNodeEvenWhenTheGraphHasASingleRoot() {
+        DesignFlowDefinition definition = DesignFlowDefinition.builder()
+                .name("No Start")
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(node("approval", FlowNodeType.APPROVAL), node("end", FlowNodeType.END)))
+                        .edges(List.of(edge("e1", "approval", "end")))
+                        .build())
+                .build();
+
+        List<CompileDiagnostic> diagnostics = compiler.validate(definition);
+
+        assertTrue(diagnostics.stream().anyMatch(d -> "NO_START_NODE".equals(d.code())));
+    }
+
+    @Test
+    void validate_rejectsMoreThanOneStartNode() {
+        DesignFlowDefinition definition = DesignFlowDefinition.builder()
+                .name("Two Starts")
+                .scenario(FlowScenario.AUTOMATION)
+                .trigger(new ApiTrigger(null))
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                node("startA", FlowNodeType.START),
+                                node("startB", FlowNodeType.START),
+                                node("end", FlowNodeType.END)))
+                        .edges(List.of(edge("e1", "startA", "end"), edge("e2", "startB", "end")))
+                        .build())
+                .build();
+
+        List<CompileDiagnostic> diagnostics = compiler.validate(definition);
+
+        assertTrue(diagnostics.stream().anyMatch(d -> "MULTIPLE_START_NODES".equals(d.code())
+                && d.message().contains("startA") && d.message().contains("startB")));
     }
 
     private static FlowGraphNode node(String id, FlowNodeType type) {

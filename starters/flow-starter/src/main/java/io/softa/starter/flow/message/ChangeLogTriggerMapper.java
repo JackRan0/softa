@@ -77,6 +77,7 @@ public final class ChangeLogTriggerMapper {
 
         return FlowTriggerEvent.builder()
                 .type("EntityChange")
+                .eventId(changeLog.getUuid())
                 .sourceModel(changeLog.getModel())
                 .sourceRowId(changeLog.getRowId())
                 .parameters(parameters)

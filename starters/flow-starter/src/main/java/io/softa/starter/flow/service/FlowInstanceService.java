@@ -72,6 +72,15 @@ public interface FlowInstanceService {
     List<FlowInstance> findByModelNameAndRowId(String modelName, String rowId);
 
     /**
+     * Find the run a trigger event started for a flow — an event starts a flow at most once.
+     *
+     * @param flowId  the flow id
+     * @param eventId the trigger event's identity
+     * @return the instance, if the event already started the flow
+     */
+    Optional<FlowInstance> findByTriggerEvent(String flowId, String eventId);
+
+    /**
      * Find all instances initiated by a specific user.
      *
      * @param initiatorId the initiator id
@@ -110,9 +119,10 @@ public interface FlowInstanceService {
      * state columns excluded) and the filter set from the request, newest first.
      *
      * @param request           search filters and paging
-     * @param forcedInitiatorId when non-null, overrides any requested initiator filter —
-     *                          the caller-facing "my instances" contract; when {@code null}
-     *                          the request's own {@code initiatorId} is honored (monitor views)
+     * @param forcedInitiatorId when non-null, overrides any requested initiator filter and keeps
+     *                          the record approvals only — the caller-facing "my instances"
+     *                          contract; when {@code null} the request's own {@code initiatorId}
+     *                          is honored over every instance (monitor views)
      * @return one page of instance summary rows
      */
     Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId);

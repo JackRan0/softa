@@ -3,7 +3,6 @@ package io.softa.starter.flow.runtime.descriptor;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
@@ -11,7 +10,6 @@ import io.softa.starter.flow.design.FlowNodeDescriptor;
 import io.softa.starter.flow.design.FlowNodeDescriptor.Ports;
 import io.softa.starter.flow.design.FlowNodeDescriptorProvider;
 import io.softa.starter.flow.enums.FlowNodeType;
-import io.softa.starter.flow.enums.FlowScenario;
 
 /**
  * Provides {@link FlowNodeDescriptor}s for structural (non-executor) node types.
@@ -27,29 +25,26 @@ import io.softa.starter.flow.enums.FlowScenario;
 @Component
 public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider {
 
-    private static final Set<FlowScenario> ALL_SCENARIOS = Set.of(FlowScenario.values());
-    private static final Set<FlowScenario> PROCESS_ONLY = Set.of(FlowScenario.PROCESS);
-
     @Override
     public List<FlowNodeDescriptor> getDescriptors() {
         return List.of(
-                structural(FlowNodeType.START,             "Start",            "Flow entry point",                    "circle-play",      0,  Ports.entry(),    ALL_SCENARIOS),
-                structural(FlowNodeType.END,               "End",              "Flow terminal point",                 "circle-stop",      1,  Ports.terminal(), ALL_SCENARIOS),
-                structural(FlowNodeType.TIMER,             "Timer",            "Scheduled wait node",                 "clock",            5,  null, PROCESS_ONLY, timerConfigSchema()),
-                structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "circle-check",     10, null, PROCESS_ONLY, approvalConfigSchema()),
+                structural(FlowNodeType.START,             "Start",            "Flow entry point",                    "circle-play",      0,  Ports.entry()),
+                structural(FlowNodeType.END,               "End",              "Flow terminal point",                 "circle-stop",      1,  Ports.terminal()),
+                structural(FlowNodeType.TIMER,             "Timer",            "Scheduled wait node",                 "clock",            5,  null, timerConfigSchema()),
+                structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "circle-check",     10, null, approvalConfigSchema()),
                 // HUMAN_TASK is intentionally omitted: the runtime has no human-task wait
                 // (dedicated wait token, assignee resolution, completion API) and the node is
                 // rejected at compile time. Restore this entry (+ humanTaskConfigSchema) from
                 // version control when the runtime lands.
-                structural(FlowNodeType.INCLUSIVE_GATEWAY, "Inclusive Gateway","Routes to every matching edge",       "git-merge",        21, null, PROCESS_ONLY),
-                structural(FlowNodeType.PARALLEL_FORK,     "Parallel Fork",    "Forks into parallel branches (branches execute serially, in order)", "git-fork", 22, null, PROCESS_ONLY),
-                structural(FlowNodeType.PARALLEL_JOIN,     "Parallel Join",    "Waits for all forked branches",       "git-pull-request", 23, null, PROCESS_ONLY),
-                structural(FlowNodeType.SCRIPT,            "Script",           "AviatorScript expression node",       "terminal",         30, null, ALL_SCENARIOS, scriptConfigSchema()),
+                structural(FlowNodeType.INCLUSIVE_GATEWAY, "Inclusive Gateway","Routes to every matching edge",       "git-merge",        21, null),
+                structural(FlowNodeType.PARALLEL_FORK,     "Parallel Fork",    "Forks into parallel branches (branches execute serially, in order)", "git-fork", 22, null),
+                structural(FlowNodeType.PARALLEL_JOIN,     "Parallel Join",    "Waits for all forked branches",       "git-pull-request", 23, null),
+                structural(FlowNodeType.SCRIPT,            "Script",           "AviatorScript expression node",       "terminal",         30, null, scriptConfigSchema()),
                 // FOR_EACH is intentionally omitted: its runtime child-node iteration is not yet
                 // implemented and it is rejected at compile time. Restore this entry
                 // (+ forEachConfigSchema) from version control when the runtime lands.
-                structural(FlowNodeType.SUBFLOW,           "Subflow",          "Calls another flow (synchronous-only: the subflow must not wait on approvals or timers)", "layers", 32, null, PROCESS_ONLY, subflowConfigSchema()),
-                structural(FlowNodeType.RETURN_VALUE,      "Return Value",     "Returns named values from the flow",  "corner-down-left", 33, null, ALL_SCENARIOS, returnValueConfigSchema())
+                structural(FlowNodeType.SUBFLOW,           "Subflow",          "Calls a flow with a Subflow trigger (synchronous-only: it must not wait on timers or async tasks)", "layers", 32, null, subflowConfigSchema()),
+                structural(FlowNodeType.RETURN_VALUE,      "Return Value",     "Returns named values from the flow",  "corner-down-left", 33, null, returnValueConfigSchema())
                 // GENERATE_FILE is deliberately NOT listed here: GenerateFileTaskExecutor
                 // (conditional on DocumentTemplateService) contributes its descriptor, and a
                 // second entry here would trip the registry's duplicate-type boot check.
@@ -57,16 +52,15 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
     }
 
     private static FlowNodeDescriptor structural(FlowNodeType type, String label, String description,
-                                                 String icon, int sortOrder, Ports ports,
-                                                 Set<FlowScenario> scenarios) {
-        return structural(type, label, description, icon, sortOrder, ports, scenarios, Map.of());
+                                                 String icon, int sortOrder, Ports ports) {
+        return structural(type, label, description, icon, sortOrder, ports, Map.of());
     }
 
     private static FlowNodeDescriptor structural(FlowNodeType type, String label, String description,
                                                  String icon, int sortOrder, Ports ports,
-                                                 Set<FlowScenario> scenarios, Map<String, Object> configSchema) {
+                                                 Map<String, Object> configSchema) {
         return FlowNodeDescriptor.of(type, label, description, icon, sortOrder, ports,
-                configSchema, Map.of(), scenarios, true);
+                configSchema, Map.of(), type.getScenarios(), true);
     }
 
     /** Insertion-ordered map builder — property panels render fields in this order. */

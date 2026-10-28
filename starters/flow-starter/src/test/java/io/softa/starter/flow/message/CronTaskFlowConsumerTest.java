@@ -162,7 +162,7 @@ class CronTaskFlowConsumerTest {
     private CompiledFlowDefinition publish(long tenantId, String flowId, String flowName, TriggerSource trigger) {
         CompiledFlowDefinition definition = CompiledFlowDefinition.builder()
                 .flowName(flowName)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .compiledAt(LocalDateTime.now())
                 .trigger(trigger)
                 .build();

@@ -81,7 +81,7 @@ public class InProcessFlowClient implements FlowClient {
     @Override
     public FlowExecutionState start(FlowStartRequest r) {
         r.setInitiatorId(currentUserId());
-        return engine.start(r);
+        return engine.startAutomation(r);
     }
 
     @Override

@@ -81,7 +81,7 @@ class DefaultFlowLaunchServiceTest {
     private static DesignFlowDefinition flowDefinition(String code, String routeValue) {
         return DesignFlowDefinition.builder()
                 .name(routeValue)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(

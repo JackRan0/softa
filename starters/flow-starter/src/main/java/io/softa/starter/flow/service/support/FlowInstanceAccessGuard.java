@@ -136,11 +136,17 @@ public class FlowInstanceAccessGuard {
 
     /**
      * Authorizes a caller to read the record an instance approves past their own row permissions:
-     * the initiator and the people the instance gives a task to.
+     * the initiator and the people the instance gives a task to. Only a record's approval grants it —
+     * its record was submitted, checked with the submitter's own permissions; any other start names
+     * its record freely, and must not become a way to read past row permissions.
      */
     public void requireRecordGrantee(FlowExecutionState state, String requesterId) {
         String instanceId = state == null ? null : state.getInstanceId();
         requireAuthenticated(requesterId, "read the record of instance " + instanceId);
+        if (state != null && !state.isApprovalOfRecord()) {
+            throw new FlowAuthorizationException("Flow instance " + instanceId
+                    + " is not a record's approval; its record is read through the record's own permissions");
+        }
         if (state != null && isTaskHolder(state, requesterId)) {
             return;
         }
