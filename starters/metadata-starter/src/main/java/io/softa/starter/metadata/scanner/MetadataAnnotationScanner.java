@@ -12,11 +12,11 @@ import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.utils.StringTools;
+import io.softa.framework.orm.jdbc.database.DbSessionLock;
 import io.softa.framework.orm.meta.MetadataInitializer;
 import io.softa.starter.metadata.catalog.SysCatalog;
 import io.softa.starter.metadata.checksum.CatalogFingerprint;
 import io.softa.starter.metadata.config.MetadataProperties;
-import io.softa.starter.metadata.ddl.BootDdlLock;
 import io.softa.starter.metadata.ddl.DdlOrchestrator;
 import io.softa.starter.metadata.ddl.ReferenceColumnResolver;
 import io.softa.starter.metadata.ddl.SysDdlContextBuilder;
@@ -88,12 +88,15 @@ import io.softa.starter.metadata.scanner.diff.SchemaDiff;
 @Component
 public class MetadataAnnotationScanner implements MetadataInitializer {
 
+    /** The boot DDL window's lock key: {@code softa:boot-ddl:<database>}. */
+    private static final String BOOT_DDL_LOCK = "boot-ddl";
+
     private final MetadataReadPipeline pipeline;
     private final MetadataProperties properties;
     private final String appCode;
     private final SysJdbcWriter writer;
     private final DdlOrchestrator ddlOrchestrator;
-    /** For {@link BootDdlLock} only; {@code null} in the test seam ⇒ lockless. */
+    /** For the {@link DbSessionLock} only; {@code null} in the test seam ⇒ lockless. */
     private final DataSource lockDataSource;
     private final String datasourceUrl;
 
@@ -162,9 +165,9 @@ public class MetadataAnnotationScanner implements MetadataInitializer {
             return;
         }
         // Everything past this point may execute DDL and write sys_* rows — one boot at a
-        // time across instances (BootDdlLock; null = lockless: test seam, or a dialect
-        // without session locks).
-        try (BootDdlLock ignored = BootDdlLock.acquire(lockDataSource, datasourceUrl)) {
+        // time across instances (DbSessionLock, 60s wait budget; null = lockless: test seam,
+        // or a dialect without session locks).
+        try (DbSessionLock ignored = DbSessionLock.acquire(lockDataSource, datasourceUrl, BOOT_DDL_LOCK, 60)) {
             // Stage A: the catalog tables themselves, physically converged from their own
             // annotations BEFORE the strict catalog read below — this is what lets a fresh
             // database bootstrap without baseline DDL and an existing one absorb additive

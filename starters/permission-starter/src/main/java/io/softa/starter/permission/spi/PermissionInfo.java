@@ -136,6 +136,19 @@ public class PermissionInfo implements Serializable {
     private List<RoleGrant> roleGrants;
 
     /**
+     * The build that computed this snapshot — its version and build time — or {@code null} when the build
+     * carries no build-info.
+     *
+     * <p>A snapshot is computed with what the instance built in memory at startup (the endpoint index, the
+     * sensitive field sets, the navigation tree), and the cache is shared. During a rolling deploy the
+     * instance being replaced keeps computing snapshots from its own startup state over rows the new build
+     * has already brought up to date, so the provider of another build reads a snapshot stamped by any
+     * build but its own as a miss.
+     */
+    @Schema(description = "The build that computed this snapshot (version@buildTime); null without build-info")
+    private String buildStamp;
+
+    /**
      * Single source of truth for the SUPER_ADMIN short-circuit consulted by every
      * layer (route-admission + data-plane + enricher). True iff the user holds the
      * {@link #CODE_SUPER_ADMIN} role.

@@ -41,8 +41,17 @@ you get, auto-wired:
   `IdentityScopeCompiler` (data-driven identity scopes) + `ScopeContributor`
   implementations → row-level `Filters`.
 - **`EndpointIndex`** (endpoint → required permission) and
-  **`SensitiveFieldSetCache`** (model → masked fields), each built once at
-  `@PostConstruct` from an SPI (seed data; redeploy to refresh).
+  **`SensitiveFieldSetCache`** (model → masked fields), each a softa-orm
+  `StartupSnapshot` built once from an SPI — after the seed files the build owns
+  have loaded, before the web server takes traffic. Their rows change only at
+  startup, so they never reload; read before they are built, they throw. The
+  scope registries (`ScopeApplicabilityResolver`, `IdentityScopeCompiler`,
+  `ModelDefaultScopeRegistry`) and the snapshot provider's navigation ancestry
+  are startup snapshots too.
+- **Cached permission snapshots** (`perm:{tenant}:user:{user}`) carry the build
+  that computed them (`buildStamp`: version@buildTime, from build-info); the
+  provider reads another build's entry as a miss, so during a rolling deploy
+  neither version serves snapshots the other computed from its own startup state.
 - **`EndpointCoverageValidator`** — startup (`ApplicationReadyEvent`) check that
   every Spring MVC handler URL is covered by a permission in the `EndpointIndex`
   (or a public / authenticated-bypass pattern); log-only, never fail-fast.
@@ -346,7 +355,7 @@ grant with the value baked into its `scopeExpr` (no longer a type-level column).
 > `ScopeType.valueOf` and `ScopeRuleCompiler` dispatches on an `EnumMap`, so a code
 > with no enum value is silently dropped. Keeping the enum (rather than a plain
 > String code — an intentionally-deferred design, see the split ADR's decision ④)
-> is a deliberate trade: `DataScopeType` is **seed data (redeploy to refresh)**, so
+> is a deliberate trade: `DataScopeType` is **seed data the build owns (it loads at startup)**, so
 > the enum value and the seed row are *both* build-time anyway — dropping the enum
 > would save one line, not unlock runtime/no-deploy scope-type addition (that also
 > needs `DataScopeType` writable at runtime). The enum buys compile-time safety for

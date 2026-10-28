@@ -41,9 +41,9 @@ public class SeedDataController {
         return ApiResponse.success(platformLoader.status());
     }
 
-    @Operation(summary = "Load the pending platform files — all of them, or the ones named — in one transaction; "
-            + "restart the instances afterwards. An environment's first load initializes it first: it records the "
-            + "tenant files tenants already have rows of as run, changing no data")
+    @Operation(summary = "Load the pending platform files — all of them, or the ones named — in one transaction, "
+            + "leaving out the files the build owns, which load at startup. An environment's first load initializes "
+            + "it first: it records the tenant files tenants already have rows of as run, changing no data")
     @PostMapping("/platform/load")
     @RequireRole(SystemRole.SYSTEM_ROLE_ADMIN)
     public ApiResponse<PlatformLoadResult> loadPlatform(@RequestBody(required = false) PlatformLoadRequest request) {

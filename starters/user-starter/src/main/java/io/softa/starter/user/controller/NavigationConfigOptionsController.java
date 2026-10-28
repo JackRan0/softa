@@ -1,24 +1,15 @@
 package io.softa.starter.user.controller;
 
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import java.util.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
 import io.softa.framework.orm.domain.FilterUnit;
@@ -29,6 +20,7 @@ import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.startup.StartupSnapshot;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.user.dto.NavConfigOptions;
 import io.softa.starter.user.dto.NavConfigOptions.SfsRef;
@@ -46,11 +38,11 @@ import static io.softa.framework.base.context.ContextUtils.inSystemContext;
  *
  * <h3>Data sources (all in-memory, no per-request DB scan)</h3>
  * <ul>
- *   <li><b>primary model</b> — {@link NavigationModelResolver} (boot-loaded
+ *   <li><b>primary model</b> — NavigationModelResolver (boot-loaded
  *       Navigation tree).</li>
- *   <li><b>applicable scopes</b> — {@link ScopeApplicabilityResolver} (model
+ *   <li><b>applicable scopes</b> — ScopeApplicabilityResolver (model
  *       column metadata).</li>
- *   <li><b>applicable sensitive field sets</b> — {@link SensitiveFieldSetCache}
+ *   <li><b>applicable sensitive field sets</b> — SensitiveFieldSetCache
  *       (boot-loaded SFS table). Reading from cache avoids the per-request
  *       {@code modelService.searchList("SensitiveFieldSet", …)} that would
  *       otherwise be subject to {@code ScopeFilterAspect} — admins without
@@ -60,7 +52,9 @@ import static io.softa.framework.base.context.ContextUtils.inSystemContext;
  * </ul>
  *
  * <p>Per-request cost is constant — a few HashMap lookups regardless of
- * total SFS / model count.
+ * total SFS / model count. The two registries this reads itself — the
+ * sensitive field sets and the data scope types — are a {@link StartupSnapshot},
+ * built once at startup after the seed files the build owns have loaded.
  *
  * <h3>Grant ceiling</h3>
  * The options are the same for every caller. What a non-administrator may actually grant is served
@@ -72,7 +66,7 @@ import static io.softa.framework.base.context.ContextUtils.inSystemContext;
 @RestController
 @RequestMapping("/userAccess")
 @RequiredArgsConstructor
-public class NavigationConfigOptionsController {
+public class NavigationConfigOptionsController implements StartupSnapshot {
 
     private final NavigationModelResolver navResolver;
     private final ModelService<?> modelService;
@@ -263,16 +257,41 @@ public class NavigationConfigOptionsController {
         return sfs().attachedByModel().getOrDefault(model, Set.of());
     }
 
-    /** Lazy cache of the {@code SensitiveFieldSet} table, indexed for the wizard. A platform catalogue
-     *  that is the same for every caller, and the cache is shared by all of them, so it is read in the
-     *  system context: read as a role manager without a range on it, it came back empty and stayed so. */
+    /** The {@code SensitiveFieldSet} table, indexed for the wizard; null until built. A platform catalogue
+     *  that is the same for every caller, and the index is shared by all of them, so it is read in the
+     *  system context: read as a role manager without a range on it, it came back empty. */
     private volatile SfsIndex sfsIndex;
 
+    @Override
+    public Set<String> sourceModels() {
+        return Set.of("SensitiveFieldSet", "DataScopeType");
+    }
+
+    /** Read both registries the wizard works from: the sensitive field sets and the data scope types. */
+    @Override
+    public void build() {
+        sfsIndex = loadSfsIndex();
+        // The registry is the same for every caller and the snapshot is shared, so it is read in the system
+        // context: read as a role manager without a range on it, every model offered All alone.
+        scopeTypes = inSystemContext(() ->
+                modelService.searchList("DataScopeType", new FlexQuery(), DataScopeTypeView.class));
+    }
+
     private SfsIndex sfs() {
-        SfsIndex idx = sfsIndex;
-        if (idx != null) {
-            return idx;
+        SfsIndex built = sfsIndex;
+        if (built == null) {
+            throw notBuilt();
         }
+        return built;
+    }
+
+    private static IllegalStateException notBuilt() {
+        return new IllegalStateException("The navigation wizard's registries are read before they are built: they "
+                + "are built at startup, once the seed files the build owns have loaded, and nothing may ask them "
+                + "before.");
+    }
+
+    private SfsIndex loadSfsIndex() {
         List<SensitiveFieldSetView> rows = inSystemContext(() ->
                 modelService.searchList("SensitiveFieldSet", new FlexQuery(), SensitiveFieldSetView.class));
         Map<String, Set<String>> owned = new HashMap<>();
@@ -298,9 +317,7 @@ public class NavigationConfigOptionsController {
                 }
             }
         }
-        SfsIndex built = new SfsIndex(Map.copyOf(owned), Map.copyOf(attached), Map.copyOf(names));
-        sfsIndex = built;
-        return built;
+        return new SfsIndex(Map.copyOf(owned), Map.copyOf(attached), Map.copyOf(names));
     }
 
     private record SfsIndex(Map<String, Set<String>> ownedByModel,
@@ -310,8 +327,8 @@ public class NavigationConfigOptionsController {
 
     // ─────────────────── scope applicability (data-driven) ───────────────────
 
-    /** Lazy cache of the {@code DataScopeType} registry (seed data; changes on
-     *  redeploy). */
+    /** The {@code DataScopeType} registry, whose rows change only at startup;
+     *  null until built. */
     private volatile List<DataScopeTypeView> scopeTypes;
 
     /**
@@ -339,18 +356,11 @@ public class NavigationConfigOptionsController {
     }
 
     private List<DataScopeTypeView> scopeTypes() {
-        List<DataScopeTypeView> cached = scopeTypes;
-        if (cached != null) {
-            return cached;
+        List<DataScopeTypeView> built = scopeTypes;
+        if (built == null) {
+            throw notBuilt();
         }
-        // The registry is the same for every caller and the cache is shared, so it is read in the system
-        // context: read as a role manager without a range on it, every model offered All alone.
-        List<DataScopeTypeView> loaded = inSystemContext(() ->
-                modelService.searchList("DataScopeType", new FlexQuery(), DataScopeTypeView.class));
-        if (!loaded.isEmpty()) {
-            scopeTypes = loaded;
-        }
-        return loaded;
+        return built;
     }
 
     // ─────────────────── view DTOs (约定读 projections) ───────────────────

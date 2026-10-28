@@ -22,10 +22,6 @@ public record PlatformSeedStatus(
         @Schema(description = "End of the latest successful platform load")
         LocalDateTime lastLoadedAt,
 
-        @Schema(description = "The platform was loaded after this instance started: what it reads into memory at "
-                + "startup is still the old version until it restarts")
-        boolean restartRequired,
-
         @Schema(description = "The environment has been initialized, which its first platform load does; until then "
                 + "tenant runs are refused")
         boolean initialized,

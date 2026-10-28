@@ -60,7 +60,9 @@ class ScopeApplicabilityResolverTest {
     private static ScopeApplicabilityResolver resolverWith(Map<String, Object>... rows) {
         DataScopeTypeReader reader = mock(DataScopeTypeReader.class);
         when(reader.read()).thenReturn(List.of(rows));
-        return new ScopeApplicabilityResolver(reader);
+        ScopeApplicabilityResolver resolver = new ScopeApplicabilityResolver(reader);
+        resolver.build();
+        return resolver;
     }
 
     private static MetaField field(String name) {

@@ -86,8 +86,14 @@ class RoleGrantSnapshotTest {
                 .thenReturn(List.of());
         SensitiveFieldSetCache sets = mock(SensitiveFieldSetCache.class);
         when(sets.modelOf("pay-details")).thenReturn("Employee");
-        return new DefaultPermissionSnapshotProvider(null, modelService, sets, () -> null, List.of(), List.of())
+        return built(new DefaultPermissionSnapshotProvider(null, modelService, sets, () -> null, List.of(), List.of()))
                 .doLoadFromDb(TENANT, USER);
+    }
+
+    /** As startup leaves it: the navigation ancestry built from the rows stubbed. */
+    private static DefaultPermissionSnapshotProvider built(DefaultPermissionSnapshotProvider provider) {
+        provider.build();
+        return provider;
     }
 
     @Test
@@ -183,8 +189,8 @@ class RoleGrantSnapshotTest {
         });
         try (MockedStatic<ModelManager> models = Mockito.mockStatic(ModelManager.class)) {
             models.when(() -> ModelManager.existModel(ModelConstant.COMPANY_MODEL)).thenReturn(true);
-            return new DefaultPermissionSnapshotProvider(null, modelService, mock(SensitiveFieldSetCache.class),
-                    () -> compiler, List.of(), List.of()).doLoadFromDb(TENANT, USER);
+            return built(new DefaultPermissionSnapshotProvider(null, modelService, mock(SensitiveFieldSetCache.class),
+                    () -> compiler, List.of(), List.of())).doLoadFromDb(TENANT, USER);
         }
     }
 

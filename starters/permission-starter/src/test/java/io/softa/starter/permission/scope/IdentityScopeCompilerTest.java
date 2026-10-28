@@ -34,6 +34,7 @@ class IdentityScopeCompilerTest {
         DataScopeTypeReader reader = mock(DataScopeTypeReader.class);
         when(reader.read()).thenReturn(seedRows());
         compiler = new IdentityScopeCompiler(reader);
+        compiler.build();
     }
 
     /** Mirrors DataScopeType.Builtin.json (identity rows carry a filter template). */

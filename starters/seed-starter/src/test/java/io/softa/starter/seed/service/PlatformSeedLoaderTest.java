@@ -18,7 +18,6 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.seed.dto.FileState;
 import io.softa.starter.seed.dto.PlatformLoadResult;
-import io.softa.starter.seed.entity.SeedLoadRecord;
 import io.softa.starter.seed.enums.SeedLoadStatus;
 import io.softa.starter.seed.enums.SeedLoadType;
 import io.softa.starter.seed.enums.SeedRecordStatus;
@@ -46,18 +45,26 @@ import static org.mockito.Mockito.when;
 /**
  * Platform files load whole, all pending ones or the ones picked, in manifest order and one transaction. An
  * environment's first load initializes it first: the tenant files tenants already have are recorded as run. The
- * bootstrap files load on their own where they never loaded, without initializing.
+ * files the build owns load at startup wherever they are pending, without initializing, and never from the page.
  */
 class PlatformSeedLoaderTest {
 
-    private static final SeedManifest MANIFEST = SeedManifestReader.read(new ByteArrayInputStream("""
+    private static final SeedManifest MANIFEST = manifest("""
+            platform:
+              - data-system/Navigation.json
+              - data-system/Permission.json
+              - data-platform/MailTemplate.Platform.json
+            """);
+
+    /** The access catalogue owned by the build, beside a file the page loads. */
+    private static final SeedManifest AUTO_MANIFEST = manifest("""
             platform:
               - file: data-system/Navigation.json
-                bootstrap: true
+                auto: true
               - file: data-system/Permission.json
-                bootstrap: true
-              - data-platform/MailTemplate.Platform.json
-            """.getBytes(StandardCharsets.UTF_8)), "test", path -> true);
+                auto: true
+              - data-system/Currency.json
+            """);
 
     private SeedCatalog catalog;
     private SeedLoadLog loadLog;
@@ -65,6 +72,8 @@ class PlatformSeedLoaderTest {
     private CacheService cacheService;
     private TenantSeedRunner tenantRunner;
     private PlatformSeedLoader loader;
+    /** The manifest the catalog answers with — held here so a matcher never has to ask the mock for it. */
+    private SeedManifest manifest;
 
     @BeforeAll
     static void ensureSystemConfig() {
@@ -76,7 +85,7 @@ class PlatformSeedLoaderTest {
     @BeforeEach
     void setUp() {
         catalog = mock(SeedCatalog.class);
-        when(catalog.manifest()).thenReturn(MANIFEST);
+        use(MANIFEST);
         when(catalog.checksum(any(SeedFile.class))).thenReturn("v2");
         loadLog = mock(SeedLoadLog.class);
         // An initialized environment; the tests of the first load say otherwise.
@@ -290,60 +299,120 @@ class PlatformSeedLoaderTest {
         verify(loadLog, never()).start(any(), any(), any());
     }
 
-    @Test
-    void theBootstrapFilesThatNeverLoadedLoadWithoutInitializing() {
-        firstLoad(false);
+    // ─────────────────────────── the files the build owns ───────────────────────────
 
-        PlatformLoadResult result = loader.loadBootstrapFiles().orElseThrow();
+    @Test
+    void thePendingFilesTheBuildOwnsLoadWithoutInitializing() {
+        use(AUTO_MANIFEST);
+        firstLoad(false);
+        // Never loaded, changed since: both pending. The page's file is not the startup's business.
+        when(loadLog.state(eq(file("Navigation.json")), any())).thenReturn(FileState.NOT_LOADED);
+        when(loadLog.state(eq(file("Permission.json")), any())).thenReturn(FileState.CHANGED);
+        when(loadLog.state(eq(file("Currency.json")), any())).thenReturn(FileState.NOT_LOADED);
+
+        PlatformLoadResult result = loader.loadAutoFiles().orElseThrow();
 
         assertTrue(result.succeeded());
         assertEquals(List.of("Navigation.json", "Permission.json"), result.loadedFiles());
-        verify(preDataService, never()).loadPrePlatformData(anyList(), any());
+        verify(preDataService, never()).loadPreSystemData(eq(List.of("Currency.json")), any());
         // Initializing is the first load from the page, after what the deployment runs once the build is up.
         verify(tenantRunner, never()).recordExistingFiles();
         verify(cacheService).clearByPrefix("perm:");
     }
 
     @Test
-    void aBatchLeftRunningDoesNotKeepTheBootstrapFilesOut() {
+    void aFailedFileTheBuildOwnsLoadsAgain() {
+        use(AUTO_MANIFEST);
+        pending("Permission.json");
+        when(loadLog.state(eq(file("Permission.json")), any())).thenReturn(FileState.FAILED);
+
+        PlatformLoadResult result = loader.loadAutoFiles().orElseThrow();
+
+        assertEquals(List.of("Permission.json"), result.loadedFiles());
+    }
+
+    @Test
+    void aBatchLeftRunningDoesNotKeepTheFilesTheBuildOwnsOut() {
+        use(AUTO_MANIFEST);
+        pending("Navigation.json", "Permission.json");
         // An instance that stopped part-way left its batch Running; it is not stale yet.
         doThrow(new BusinessException("A seed data operation is still running (batch 7).")).when(loadLog).requireIdle();
 
-        PlatformLoadResult result = loader.loadBootstrapFiles().orElseThrow();
+        PlatformLoadResult result = loader.loadAutoFiles().orElseThrow();
 
         assertEquals(List.of("Navigation.json", "Permission.json"), result.loadedFiles());
     }
 
     @Test
-    void aBootstrapFileThatLoadedHereOnceIsLeftAlone() {
-        // Navigation loaded once and has changed since: the page loads that. Permission only ever failed.
-        when(loadLog.platformRecords()).thenReturn(Map.of(
-                "Navigation.json", new SeedLoadLog.FileRecords(record(SeedRecordStatus.SUCCEEDED),
-                        record(SeedRecordStatus.SUCCEEDED)),
-                "Permission.json", new SeedLoadLog.FileRecords(record(SeedRecordStatus.FAILED), null)));
+    void aFileTheBuildOwnsThatANewerBuildLoadedIsLeftAlone() {
+        // After a rollback: this build's older content does not go over the newer one.
+        use(AUTO_MANIFEST);
+        pending("Navigation.json");
+        when(loadLog.state(eq(file("Permission.json")), any())).thenReturn(FileState.LOADED_BY_NEWER_BUILD);
 
-        PlatformLoadResult result = loader.loadBootstrapFiles().orElseThrow();
+        PlatformLoadResult result = loader.loadAutoFiles().orElseThrow();
 
-        assertEquals(List.of("Permission.json"), result.loadedFiles());
+        assertEquals(List.of("Navigation.json"), result.loadedFiles());
+        verify(preDataService, never()).loadPreSystemData(eq(List.of("Permission.json")), any());
+    }
+
+    @Test
+    void nothingLoadsWhenNoFileTheBuildOwnsIsPending() {
+        use(AUTO_MANIFEST);
+        pending("Currency.json");
+
+        assertTrue(loader.pendingAutoFiles().isEmpty());
+        assertTrue(loader.loadAutoFiles().isEmpty());
+        verify(loadLog, never()).start(any(), any(), any());
+    }
+
+    @Test
+    void thePageLeavesTheFilesTheBuildOwnsOut() {
+        use(AUTO_MANIFEST);
+        pending("Navigation.json", "Permission.json", "Currency.json");
+
+        PlatformLoadResult result = loader.load(null);
+
+        assertEquals(List.of("Currency.json"), result.loadedFiles());
         verify(preDataService, never()).loadPreSystemData(eq(List.of("Navigation.json")), any());
     }
 
     @Test
-    void nothingLoadsOnceEveryBootstrapFileHasLoadedHere() {
-        when(loadLog.platformRecords()).thenReturn(Map.of(
-                "Navigation.json", new SeedLoadLog.FileRecords(record(SeedRecordStatus.SUCCEEDED),
-                        record(SeedRecordStatus.SUCCEEDED)),
-                "Permission.json", new SeedLoadLog.FileRecords(record(SeedRecordStatus.SUCCEEDED),
-                        record(SeedRecordStatus.SUCCEEDED))));
+    void thePageRefusesAFileTheBuildOwnsByName() {
+        use(AUTO_MANIFEST);
+        pending("Navigation.json", "Currency.json");
 
-        assertTrue(loader.loadBootstrapFiles().isEmpty());
+        BusinessException failure = assertThrows(BusinessException.class,
+                () -> loader.load(List.of("Navigation.json", "Currency.json")));
+
+        assertTrue(failure.getMessage().contains("Navigation.json"), failure.getMessage());
+        assertTrue(failure.getMessage().contains("loads at startup"), failure.getMessage());
         verify(loadLog, never()).start(any(), any(), any());
     }
 
-    private static SeedLoadRecord record(SeedRecordStatus status) {
-        SeedLoadRecord record = new SeedLoadRecord();
-        record.setStatus(status);
-        return record;
+    @Test
+    void thePageHasNothingToDoWhenOnlyFilesTheBuildOwnsArePending() {
+        use(AUTO_MANIFEST);
+        pending("Navigation.json");
+
+        assertThrows(BusinessException.class, () -> loader.load(null));
+        verify(loadLog, never()).start(any(), any(), any());
+    }
+
+    @Test
+    void theStatusSaysWhichFilesTheBuildOwns() {
+        use(AUTO_MANIFEST);
+        pending();
+
+        Map<String, Boolean> auto = new java.util.LinkedHashMap<>();
+        loader.status().files().forEach(status -> auto.put(status.fileName(), status.auto()));
+
+        assertEquals(Map.of("Navigation.json", true, "Permission.json", true, "Currency.json", false), auto);
+    }
+
+    private static SeedManifest manifest(String yaml) {
+        return SeedManifestReader.read(new ByteArrayInputStream(yaml.getBytes(StandardCharsets.UTF_8)), "test",
+                path -> true);
     }
 
     /** An environment not initialized yet, which held platform seed data before the records, or did not. */
@@ -356,16 +425,21 @@ class PlatformSeedLoaderTest {
         return new TenantSeedRunner.BatchOutcome(41L, status, 3, status == SeedLoadStatus.FAILED ? 3 : 0, 12);
     }
 
-    /** The named platform files are pending; the others are loaded. */
+    private void use(SeedManifest manifest) {
+        this.manifest = manifest;
+        when(catalog.manifest()).thenReturn(manifest);
+    }
+
+    /** The named platform files of the manifest in use are pending; the others are loaded. */
     private void pending(String... names) {
         List<String> pending = List.of(names);
-        for (SeedFile file : MANIFEST.platformFiles()) {
+        for (SeedFile file : manifest.platformFiles()) {
             when(loadLog.state(eq(file), any())).thenReturn(pending.contains(file.file())
                     ? FileState.NOT_LOADED : FileState.LOADED);
         }
     }
 
-    private static SeedFile file(String name) {
-        return MANIFEST.file(name).orElseThrow();
+    private SeedFile file(String name) {
+        return manifest.file(name).orElseThrow();
     }
 }

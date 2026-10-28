@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
@@ -14,6 +16,7 @@ import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.permission.index.EndpointIndex;
@@ -267,7 +270,7 @@ public final class PermissionFlowFixture {
             }
             return defs;
         });
-        sfsCache.reload();
+        sfsCache.build();
 
         endpointIndex = new EndpointIndex((PermissionEndpointSource) () -> {
             List<PermissionEndpointSource.PermissionEndpointDef> defs = new ArrayList<>();
@@ -278,7 +281,7 @@ public final class PermissionFlowFixture {
             }
             return defs;
         });
-        ReflectionTestUtils.invokeMethod(endpointIndex, "init");
+        ReflectionTestUtils.invokeMethod(endpointIndex, "build");
 
         // No compiler: these flows exercise nav/permission derivation, and none of their fixture roles
         // scope the company model — so the company axis short-circuits to "unrestricted" before the
@@ -288,6 +291,11 @@ public final class PermissionFlowFixture {
         provider = new DefaultPermissionSnapshotProvider(cacheService, modelService, sfsCache,
                 () -> null,
                 java.util.List.of(), List.of());
+        // As startup leaves it: the navigation ancestry built from the seeded tree, the model being present.
+        try (MockedStatic<ModelManager> models = Mockito.mockStatic(ModelManager.class)) {
+            models.when(() -> ModelManager.existModel("Navigation")).thenReturn(true);
+            provider.build();
+        }
     }
 
     // ─── FlexQuery filter extraction helpers (framework types only) ───

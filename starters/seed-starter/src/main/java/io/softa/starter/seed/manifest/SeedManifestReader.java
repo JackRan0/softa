@@ -25,7 +25,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * <pre>{@code
  * platform:                                   # loaded whole, on the platform admin's load
  *   - file: data-system/Navigation.json       # shared rows
- *     bootstrap: true                         # loads on its own where it never loaded
+ *     auto: true                              # the build owns it: loads at startup, wherever pending
  *   - data-platform/MailTemplate.Platform.json  # the platform tenant's own rows
  * tenant:                                     # run once in each tenant
  *   - files:                                  # every tenant
@@ -42,8 +42,8 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * {@code data-platform/} and a tenant file in {@code data-tenant/}. Everything wrong is collected and reported
  * at once, so a broken manifest is fixed in one pass: an unknown key (a misspelt {@code countrys} would
  * otherwise be silently ignored), a file in a directory its list does not take, {@code overwrite} on a
- * platform file (platform files always reload), {@code bootstrap} on a tenant file (only platform files load on
- * their own), a file registered twice or missing from the classpath, a file
+ * platform file (platform files always reload), {@code auto} on a tenant file (only platform files load at
+ * startup), a file registered twice or missing from the classpath, a file
  * that is not JSON or CSV, a {@code module} that is not one name, a country that is not a two-letter code, and
  * blank or repeated entries. A key written twice is refused before any of that: YAML would keep the second
  * and drop the first, with its files.
@@ -57,7 +57,7 @@ public final class SeedManifestReader {
     private static final String TENANT = "tenant";
     private static final String FILE = "file";
     private static final String OVERWRITE = "overwrite";
-    private static final String BOOTSTRAP = "bootstrap";
+    private static final String AUTO = "auto";
     private static final String MODULE = "module";
     private static final String COUNTRIES = "countries";
     private static final String FILES = "files";
@@ -130,7 +130,7 @@ public final class SeedManifestReader {
     /** The platform list: files only, each in a platform directory. */
     private static List<SeedFile> parsePlatform(Object value, List<String> problems) {
         List<SeedFile> files = new ArrayList<>();
-        for (Entry entry : entries(value, "platform", Set.of(FILE, BOOTSTRAP), problems)) {
+        for (Entry entry : entries(value, "platform", Set.of(FILE, AUTO), problems)) {
             if (entry.overwriteDeclared()) {
                 problems.add("file '" + entry.path() + "' is a platform file, and platform files always reload: "
                         + "remove 'overwrite'");
@@ -141,7 +141,7 @@ public final class SeedManifestReader {
                 continue;
             }
             fileName(entry.path(), level.get(), problems).ifPresent(name ->
-                    files.add(new SeedFile(name, level.get(), false, null, List.of(), entry.bootstrap())));
+                    files.add(new SeedFile(name, level.get(), false, null, List.of(), entry.auto())));
         }
         return files;
     }
@@ -170,9 +170,9 @@ public final class SeedManifestReader {
                 continue;
             }
             for (Entry entry : entries(group.get(FILES), where + " files", TENANT_FILE_KEYS, problems)) {
-                if (entry.bootstrapDeclared()) {
-                    problems.add("file '" + entry.path() + "' is a tenant file, and only platform files load on "
-                            + "their own: remove 'bootstrap'");
+                if (entry.autoDeclared()) {
+                    problems.add("file '" + entry.path() + "' is a tenant file, and only platform files load at "
+                            + "startup: remove 'auto'");
                 }
                 if (SeedLevel.ofPath(entry.path()).orElse(null) != SeedLevel.TENANT) {
                     problems.add("tenant file '" + entry.path() + "' is not in data-tenant/");
@@ -186,8 +186,8 @@ public final class SeedManifestReader {
     }
 
     /** One file entry: its path, its flags, and whether it declares a flag its list does not take. */
-    private record Entry(String path, boolean overwrite, boolean overwriteDeclared, boolean bootstrap,
-                         boolean bootstrapDeclared) {
+    private record Entry(String path, boolean overwrite, boolean overwriteDeclared, boolean auto,
+                         boolean autoDeclared) {
     }
 
     /**
@@ -215,16 +215,16 @@ public final class SeedManifestReader {
                     continue;
                 }
                 Set<String> allowed = new HashSet<>(allowedKeys);
-                // A platform file's `overwrite` and a tenant file's `bootstrap` get messages of their own, not
+                // A platform file's `overwrite` and a tenant file's `auto` get messages of their own, not
                 // unknown-key ones.
                 allowed.add(OVERWRITE);
-                allowed.add(BOOTSTRAP);
+                allowed.add(AUTO);
                 unknownKeys(map, allowed, "file '" + path + "'", problems);
                 entries.add(new Entry(path,
                         parseFlag(map.get(OVERWRITE), OVERWRITE, path, problems),
                         map.containsKey(OVERWRITE) && !allowedKeys.contains(OVERWRITE),
-                        parseFlag(map.get(BOOTSTRAP), BOOTSTRAP, path, problems),
-                        map.containsKey(BOOTSTRAP) && !allowedKeys.contains(BOOTSTRAP)));
+                        parseFlag(map.get(AUTO), AUTO, path, problems),
+                        map.containsKey(AUTO) && !allowedKeys.contains(AUTO)));
             } else {
                 problems.add(entryWhere + " must be a file path, or a map with the path under `file`");
             }

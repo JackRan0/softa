@@ -13,18 +13,18 @@ import java.util.Set;
  *                  Platform files always reload, and never carry the flag
  * @param module    for a tenant file: the plan module a tenant must be entitled to; null for every plan
  * @param countries for a tenant file: the countries whose tenants run it; empty for every country
- * @param bootstrap for a platform file: it loads on its own once the application has started, where it never
- *                  loaded — the files holding the Seed Data page's own menu and permissions, without which the
- *                  page cannot be reached. Tenant files never carry the flag
+ * @param auto      for a platform file: the build owns its rows, so it loads at startup wherever it is pending,
+ *                  before the application takes traffic, and never from the Seed Data page. Tenant files never
+ *                  carry the flag
  */
 public record SeedFile(String file, SeedLevel level, boolean overwrite, String module, List<String> countries,
-                       boolean bootstrap) {
+                       boolean auto) {
 
     public SeedFile {
         countries = List.copyOf(countries);
     }
 
-    /** A file that does not load on its own: every tenant file, and most platform files. */
+    /** A file that does not load at startup: every tenant file, and the platform files people load. */
     public SeedFile(String file, SeedLevel level, boolean overwrite, String module, List<String> countries) {
         this(file, level, overwrite, module, countries, false);
     }

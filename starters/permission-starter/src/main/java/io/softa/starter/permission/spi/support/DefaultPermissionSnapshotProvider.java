@@ -30,6 +30,7 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.startup.StartupSnapshot;
 import io.softa.framework.base.utils.NavIds;
 import io.softa.starter.permission.scope.ScopeRuleCompiler;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
@@ -67,9 +68,14 @@ import io.softa.starter.permission.spi.ScopeType;
  * Three tiers, same as the former enricher: request-scoped (a single request
  * calls {@code get} 4+ times — interceptor + row-scope/field-mask/write-guard
  * AOP), then Redis ({@code perm:{tenant}:user:{user}}, TTL 1h), then DB build.
+ * A Redis entry another build computed is a miss — see {@link PermissionInfo#getBuildStamp()}.
+ *
+ * <h3>Navigation ancestry</h3>
+ * The leaf → ancestor-chain index granted navigations are expanded with is a
+ * {@link StartupSnapshot}, built once at startup from the Navigation tree.
  */
 @Slf4j
-public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProvider {
+public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProvider, StartupSnapshot {
 
     private static final int CACHE_TTL_SECONDS = RedisConstant.ONE_HOUR;
     private static final int ANCESTOR_DEPTH_CAP = 32;
@@ -126,8 +132,11 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private io.softa.framework.orm.service.EntitlementService entitlementService;
 
-    /** leafNavId → root→leaf ancestor chain; lazily built from the Navigation
-     *  tree (seed data — changes only on redeploy). */
+    /** This build's {@link PermissionInfo#getBuildStamp() stamp}, or null without build-info. */
+    private final String buildStamp;
+
+    /** leafNavId → root→leaf ancestor chain, built at startup from the Navigation
+     *  tree, whose rows change only at startup; null until then. */
     private volatile Map<String, List<String>> ancestorChains;
 
     public DefaultPermissionSnapshotProvider(CacheService cacheService,
@@ -136,12 +145,42 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
                                              Supplier<ScopeRuleCompiler> scopeRuleCompiler,
                                              List<String> platformNavPrefixes,
                                              List<String> sharedNavPrefixes) {
+        this(cacheService, modelService, sensitiveFieldSetCache, scopeRuleCompiler, platformNavPrefixes,
+                sharedNavPrefixes, null);
+    }
+
+    /**
+     * @param buildStamp the running build's version and build time, stamped on every snapshot this computes;
+     *                   null without build-info
+     */
+    public DefaultPermissionSnapshotProvider(CacheService cacheService,
+                                             ModelService<?> modelService,
+                                             SensitiveFieldSetCache sensitiveFieldSetCache,
+                                             Supplier<ScopeRuleCompiler> scopeRuleCompiler,
+                                             List<String> platformNavPrefixes,
+                                             List<String> sharedNavPrefixes,
+                                             String buildStamp) {
         this.cacheService = cacheService;
         this.modelService = modelService;
         this.sensitiveFieldSetCache = sensitiveFieldSetCache;
         this.scopeRuleCompiler = scopeRuleCompiler;
         this.platformNavPrefixes = platformNavPrefixes == null ? List.of() : platformNavPrefixes;
         this.sharedNavPrefixes = sharedNavPrefixes == null ? List.of() : sharedNavPrefixes;
+        this.buildStamp = buildStamp;
+    }
+
+    @Override
+    public Set<String> sourceModels() {
+        return Set.of(M_NAV);
+    }
+
+    /**
+     * Build the leaf → ancestor-chain index from the Navigation tree; empty where the model is absent (a
+     * pure-enforce deployment), whose snapshot builds fail closed anyway.
+     */
+    @Override
+    public void build() {
+        ancestorChains = ModelManager.existModel(M_NAV) ? buildAncestorChains() : Map.of();
     }
 
     @Override
@@ -158,10 +197,10 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
             }
         }
 
-        // Tier 2: Redis.
+        // Tier 2: Redis — this build's entries only.
         try {
             PermissionInfo cached = cacheService.get(key, PermissionInfo.class);
-            if (cached != null) {
+            if (cached != null && Objects.equals(cached.getBuildStamp(), buildStamp)) {
                 stashInRequest(ra, key, cached);
                 return cached;
             }
@@ -172,6 +211,7 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         // Tier 3: build from RBAC config.
         PermissionInfo fresh = loadFromDb(tenantId, userId);
         if (fresh != null) {
+            fresh.setBuildStamp(buildStamp);
             try {
                 cacheService.save(key, fresh, CACHE_TTL_SECONDS);
             } catch (Throwable t) {
@@ -578,16 +618,11 @@ public class DefaultPermissionSnapshotProvider implements PermissionSnapshotProv
         return out;
     }
 
-    /** Lazy leaf → ancestor-chain index, built from the Navigation tree; cached
-     *  once non-empty (Navigation is seed data). */
     private Map<String, List<String>> ancestorChains() {
-        Map<String, List<String>> cached = ancestorChains;
-        if (cached != null) {
-            return cached;
-        }
-        Map<String, List<String>> built = buildAncestorChains();
-        if (!built.isEmpty()) {
-            ancestorChains = built;
+        Map<String, List<String>> built = ancestorChains;
+        if (built == null) {
+            throw new IllegalStateException("The navigation ancestry is read before it is built: it is built at "
+                    + "startup, once the seed files the build owns have loaded, and nothing may ask it before.");
         }
         return built;
     }

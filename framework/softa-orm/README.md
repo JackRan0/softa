@@ -858,6 +858,21 @@ Every skip is silent by design: an over-eager condition empties a list the user 
 
 The set is on the context before the first read — one Redis round trip for the permission snapshot, which the interceptor pays anyway. The affiliation fallback costs `CompanyCountryEnricher` one company → country lookup per request for callers with an employee record, cached in Redis for five minutes — short deliberately, because the country is an editable field on the company's own form and there is no eviction hook on the generic write path. If it cannot be resolved (a deleted company, a row with no country, an application with no company model), the fallback is simply absent and the narrowing skips for that caller.
 
+## Startup snapshots
+
+Some rows are read on every request and change only with the build — the permission and navigation catalogue, the sensitive field sets, the data scope types. A starter keeps them in memory as a **`StartupSnapshot`** (`io.softa.framework.orm.startup`): it names the models it is built from (`sourceModels()`) and builds itself from their rows (`build()`).
+
+**`StartupSnapshots`** builds them, once per process, in a lifecycle phase between Redis' connection factory (phase 0) and the embedded web server (`2147481599` in Spring Boot 4.1; the message listener containers start after it at `Integer.MAX_VALUE`):
+
+1. every **`StartupConvergence`** runs, in `@Order` — seed-starter's `SeedStartupLoad` loads the seed files the build owns here;
+2. every snapshot builds, in `@Order`, from the converged rows.
+
+A failure in either stops the start before any request is served. Not a `@PostConstruct`: a bean initializes when the dependency graph reaches it, and converging rows needs the whole write pipeline, which the snapshots are tangled into — no initialization order can promise "converge, then build". A snapshot read before it is built throws rather than answering from nothing: an empty endpoint index refuses every request, empty sensitive field sets mask nothing.
+
+Because the snapshots are built once, their source models change only during the convergence: **`StartupSnapshotWriteGuard`**, a `ModelWriteValidator` at the write roots, refuses a write to one at any other time — the change would reach no instance until it restarted. Change those rows in the files the build owns.
+
+`DbSessionLock` (`io.softa.framework.orm.jdbc.database`) serializes a startup window across instances on a database session lock (`softa:<key>:<database>`): the boot DDL (`boot-ddl`) and the startup seed load (`seed-startup`).
+
 ## Configuration
 ### MQ Topic
 ```yml
