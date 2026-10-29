@@ -37,6 +37,7 @@ import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.runtime.LeaveRequest;
 import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
@@ -140,7 +141,8 @@ class FlowApprovalPreviewTest {
                 ModelApprovalHandlerRegistry.of(List.of(handler)), null, new DefaultFlowTriggerRegistry(bundleRegistry),
                 instanceService, modelService, previewer,
                 new FlowInstanceAccessGuard(instanceService, auditReader, modelService),
-                new FlowUserNames(organizationProvider, modelService));
+                new FlowUserNames(organizationProvider, modelService),
+                new WithdrawPolicyGuard(bundleRegistry, auditReader));
     }
 
     @AfterEach
@@ -177,7 +179,7 @@ class FlowApprovalPreviewTest {
         DesignFlowDefinition design = chain("Annual leave", null,
                 approval("manager", "Manager", Map.of("approvers", List.of(MANAGER))),
                 approval("hr", "HR", Map.of("approvers", List.of(HR))));
-        design.setAllowInitiatorWithdraw(true);
+        design.setWithdrawPolicy(WithdrawPolicy.UNTIL_COMPLETED);
         CompiledFlowDefinition flow = publishService.publish("annual", design);
         record.put("approvalStatus", "Pending");
         FlowInstance running = new FlowInstance();

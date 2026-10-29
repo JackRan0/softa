@@ -37,6 +37,12 @@ public interface FlowDelegationService {
      */
     void cancelDelegation(Long delegationId, String requesterId);
 
+    /** Every delegation rule, newest first — for an administrator, authorized by the caller beforehand. */
+    List<FlowDelegation> listAll();
+
+    /** Deactivates any delegation rule — for an administrator, authorized by the caller beforehand. */
+    void deactivate(Long delegationId);
+
     /**
      * List delegations created by a delegator.
      */

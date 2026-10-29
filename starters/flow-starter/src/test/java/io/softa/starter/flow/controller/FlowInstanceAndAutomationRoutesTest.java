@@ -25,6 +25,9 @@ class FlowInstanceAndAutomationRoutesTest {
                         "POST /flow/instances/search",
                         "POST /flow/instances/approve",
                         "POST /flow/instances/reject",
+                        "POST /flow/instances/batch/approve",
+                        "POST /flow/instances/batch/return",
+                        "POST /flow/instances/batch/reject",
                         "POST /flow/instances/transfer",
                         "POST /flow/instances/delegate",
                         "POST /flow/instances/add-sign-before",
@@ -35,6 +38,7 @@ class FlowInstanceAndAutomationRoutesTest {
                         "POST /flow/instances/withdraw",
                         "POST /flow/instances/urge",
                         "GET /flow/instances/{instanceId}/urge",
+                        "GET /flow/instances/{instanceId}/withdraw",
                         "POST /flow/instances/comment",
                         "GET /flow/instances/{instanceId}/nodes/{nodeId}/formPermissions",
                         "GET /flow/instances/by-record",
@@ -48,7 +52,13 @@ class FlowInstanceAndAutomationRoutesTest {
         assertEquals(new TreeSet<>(Set.of(
                         "GET /flow/monitor/health",
                         "POST /flow/monitor/instances/search",
-                        "POST /flow/monitor/instances/urge")),
+                        "POST /flow/monitor/instances/urge",
+                        "POST /flow/monitor/instances/terminate",
+                        "POST /flow/monitor/approvers/reassign/preview",
+                        "POST /flow/monitor/approvers/reassign",
+                        "POST /flow/monitor/delegations",
+                        "GET /flow/monitor/delegations",
+                        "POST /flow/monitor/delegations/{id}/cancel")),
                 routes(FlowMonitorController.class));
     }
 

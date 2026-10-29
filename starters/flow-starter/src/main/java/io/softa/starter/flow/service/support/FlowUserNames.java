@@ -1,6 +1,7 @@
 package io.softa.starter.flow.service.support;
 
 import java.util.*;
+import java.util.function.BiFunction;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -9,6 +10,7 @@ import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.starter.flow.dto.FlowInstanceSummaryView;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
@@ -40,6 +42,35 @@ public class FlowUserNames {
         Map<String, String> names = ContextUtils.withoutPermissionChecks(
                 () -> userNames(users.stream().map(FlowRecordApprovalsView.Actor::getId).toList()));
         users.forEach(user -> user.setName(names.get(user.getId())));
+    }
+
+    /**
+     * Names each employee in place — a record's subject, whose id is an employee id, not a user id — from
+     * the organization service. Null entries are skipped; an employee who has no name keeps a null one.
+     */
+    public void nameEmployees(Collection<FlowRecordApprovalsView.Actor> employees) {
+        List<FlowRecordApprovalsView.Actor> named = employees.stream().filter(Objects::nonNull).toList();
+        Map<Long, String> names = organizationNames(named.stream().map(e -> toLong(e.getId())).toList(),
+                OrganizationService::getEmployeeNames);
+        named.forEach(employee -> employee.setName(names.get(toLong(employee.getId()))));
+    }
+
+    /** Names each department in place from the organization service; null entries are skipped. */
+    public void nameDepartments(Collection<FlowInstanceSummaryView.Department> departments) {
+        List<FlowInstanceSummaryView.Department> named = departments.stream().filter(Objects::nonNull).toList();
+        Map<Long, String> names = organizationNames(
+                named.stream().map(FlowInstanceSummaryView.Department::getId).toList(), OrganizationService::getDeptNames);
+        named.forEach(department -> department.setName(names.get(department.getId())));
+    }
+
+    private Map<Long, String> organizationNames(List<Long> ids,
+                                                BiFunction<OrganizationService, Collection<Long>, Map<Long, String>> lookup) {
+        List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
+        OrganizationService organization = organizationService == null ? null : organizationService.getIfAvailable();
+        if (distinct.isEmpty() || organization == null) {
+            return Map.of();
+        }
+        return ContextUtils.withoutPermissionChecks(() -> lookup.apply(organization, distinct));
     }
 
     private Map<String, String> userNames(Collection<String> userIds) {

@@ -1,5 +1,6 @@
 package io.softa.starter.flow.runtime.api;
 
+import java.time.LocalDate;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -41,4 +42,24 @@ public class FlowStartRequest extends AbstractFlowLaunchContextRequest {
     @Schema(description = "Identity of the trigger event that starts the run (server-side only); with the "
             + "flow, an event starts a run at most once", accessMode = Schema.AccessMode.READ_ONLY)
     private String triggerEventId;
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    @Schema(description = "A record's approval: the employee the record is about (server-side only)",
+            accessMode = Schema.AccessMode.READ_ONLY)
+    private Long subjectId;
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    @Schema(description = "A record's approval: the subject's department at submission (server-side only)",
+            accessMode = Schema.AccessMode.READ_ONLY)
+    private Long subjectDeptId;
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    @Schema(description = "A record's approval: the date the record takes effect (server-side only)",
+            accessMode = Schema.AccessMode.READ_ONLY)
+    private LocalDate effectiveDate;
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    @Schema(description = "A record's approval: the record's own number (server-side only)",
+            accessMode = Schema.AccessMode.READ_ONLY)
+    private String recordCode;
 }

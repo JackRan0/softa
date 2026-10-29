@@ -135,9 +135,11 @@ public final class TestFlowRuntimeFactory {
                 new BatchCcActionHandler(contextService, actorValidator, auditService),
                 new ReadCcActionHandler(contextService, auditService),
                 new ReturnApprovalActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService),
-                new WithdrawActionHandler(contextService, auditService),
+                new WithdrawActionHandler(contextService, auditService, new WithdrawPolicyGuard(bundleRegistry, auditReader)),
                 new UrgeActionHandler(contextService, auditService, notificationService,
                         new UrgeThrottle(auditReader, 240)),
-                new CommentActionHandler(contextService, auditService, auditReader));
+                new CommentActionHandler(contextService, auditService, auditReader),
+                new TerminateActionHandler(contextService, auditService, notificationService),
+                new ReassignActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService));
     }
 }

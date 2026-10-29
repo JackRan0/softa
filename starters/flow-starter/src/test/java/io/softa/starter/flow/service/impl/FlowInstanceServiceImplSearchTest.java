@@ -38,7 +38,7 @@ class FlowInstanceServiceImplSearchTest {
                                                      LocalDateTime createdFrom, LocalDateTime createdTo,
                                                      Integer pageNumber, Integer pageSize) {
         return new FlowInstanceSearchRequest(null, null, initiatorId, null, null,
-                createdFrom, createdTo, pageNumber, pageSize);
+                createdFrom, createdTo, null, null, null, null, null, null, pageNumber, pageSize);
     }
 
     private void runSearch(FlowInstanceSearchRequest request, String forcedInitiatorId) {
@@ -91,13 +91,23 @@ class FlowInstanceServiceImplSearchTest {
     }
 
     @Test
+    void awaitingRevisionKeepsTheReturnedApprovalsNoLaterSubmissionReplaced() {
+        FlowInstanceSearchRequest request = new FlowInstanceSearchRequest(null, null, null, null, null, null, null,
+                null, null, null, null, null, true, null, null);
+        runSearch(request, "u1");
+        String filters = queryCaptor.getValue().getFilters().toString();
+        assertTrue(filters.contains("Returned") && filters.contains("superseded"), filters);
+    }
+
+    @Test
     void summaryProjectionExcludesJsonStateColumns() {
         runSearch(request(null, null, null, null, null), null);
         List<String> fields = queryCaptor.getValue().getFields();
-        assertEquals(17, fields.size());
+        assertEquals(22, fields.size());
         assertTrue(fields.containsAll(List.of("id", "instanceId", "bundleId", "flowId", "flowName", "scenario",
                 "flowRevision", "title", "modelName", "rowId", "initiatorId", "recordApproval", "status",
-                "failedNodeId", "nextFireAt", "createdTime", "updatedTime")));
+                "failedNodeId", "nextFireAt", "createdTime", "updatedTime",
+                "subjectId", "subjectDeptId", "effectiveDate", "recordCode", "superseded")));
         assertFalse(fields.contains("variables"));
         assertFalse(fields.contains("inputPayload"));
         assertFalse(fields.contains("pendingApprovals"));

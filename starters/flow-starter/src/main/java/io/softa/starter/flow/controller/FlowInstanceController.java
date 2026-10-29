@@ -16,8 +16,10 @@ import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.dto.FlowApprovalPreview;
+import io.softa.starter.flow.dto.FlowBatchActionResult;
 import io.softa.starter.flow.dto.FlowInstanceOverlay;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
+import io.softa.starter.flow.dto.FlowInstanceSummaryView;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.dto.FlowTraceEntryView;
 import io.softa.starter.flow.dto.FlowUrgeStatus;
@@ -26,11 +28,14 @@ import io.softa.starter.flow.enums.FormFieldPermission;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.FormPermissionService;
+import io.softa.starter.flow.runtime.engine.BatchApprovalExecutor;
 import io.softa.starter.flow.runtime.engine.UrgeThrottle;
+import io.softa.starter.flow.runtime.engine.WithdrawPolicyGuard;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.service.FlowExecutionTraceService;
 import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.FlowLaunchService;
+import io.softa.starter.flow.service.query.FlowInstanceSummaryComposer;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 
 import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
@@ -56,6 +61,9 @@ public class FlowInstanceController {
     private final FlowInstanceAccessGuard accessGuard;
     private final FlowLaunchService launchService;
     private final UrgeThrottle urgeThrottle;
+    private final WithdrawPolicyGuard withdrawPolicyGuard;
+    private final BatchApprovalExecutor batchExecutor;
+    private final FlowInstanceSummaryComposer summaryComposer;
 
     public FlowInstanceController(FlowRuntimeEngine runtimeEngine,
                                   FormPermissionService formPermissionService,
@@ -63,7 +71,10 @@ public class FlowInstanceController {
                                   FlowExecutionTraceService traceService,
                                   FlowInstanceAccessGuard accessGuard,
                                   FlowLaunchService launchService,
-                                  UrgeThrottle urgeThrottle) {
+                                  UrgeThrottle urgeThrottle,
+                                  WithdrawPolicyGuard withdrawPolicyGuard,
+                                  BatchApprovalExecutor batchExecutor,
+                                  FlowInstanceSummaryComposer summaryComposer) {
         this.runtimeEngine = runtimeEngine;
         this.formPermissionService = formPermissionService;
         this.instanceService = instanceService;
@@ -71,6 +82,9 @@ public class FlowInstanceController {
         this.accessGuard = accessGuard;
         this.launchService = launchService;
         this.urgeThrottle = urgeThrottle;
+        this.withdrawPolicyGuard = withdrawPolicyGuard;
+        this.batchExecutor = batchExecutor;
+        this.summaryComposer = summaryComposer;
     }
 
     @PostMapping("/start")
@@ -195,8 +209,8 @@ public class FlowInstanceController {
                     + "Cross-initiator monitoring lives on POST /flow/monitor/instances/search.")
     // Pinned to the caller, so row scope could only empty it: FlowInstance is granted to no business role.
     @SkipPermissionCheck
-    public ApiResponse<Page<FlowInstance>> searchInstances(@RequestBody FlowInstanceSearchRequest request) {
-        return ApiResponse.success(instanceService.searchSummaries(request, currentUserId()));
+    public ApiResponse<Page<FlowInstanceSummaryView>> searchInstances(@RequestBody FlowInstanceSearchRequest request) {
+        return ApiResponse.success(summaryComposer.summarize(instanceService.searchSummaries(request, currentUserId()), currentUserId()));
     }
 
     @PostMapping("/approve")
@@ -211,6 +225,33 @@ public class FlowInstanceController {
     public ApiResponse<FlowExecutionState> reject(@Valid @RequestBody FlowRejectRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.reject(request));
+    }
+
+    @PostMapping("/batch/approve")
+    @Operation(summary = "Approve pending tasks in a batch",
+            description = "Approves each of the caller's pending tasks named, each on its own: one refused task changes "
+                    + "nothing for the others. A task whose step is a handling step or has fields to fill in is "
+                    + "skipped. Returns each task's outcome.")
+    public ApiResponse<FlowBatchActionResult> batchApprove(@Valid @RequestBody FlowBatchActionRequest request) {
+        return ApiResponse.success(batchExecutor.execute(BatchApprovalExecutor.Action.APPROVE, request, currentUserId()));
+    }
+
+    @PostMapping("/batch/return")
+    @Operation(summary = "Return pending tasks in a batch",
+            description = "Returns each of the caller's pending tasks named to its initiator, each on its own, with one "
+                    + "comment (required). A task whose step allows no return, is a handling step or has fields to "
+                    + "fill in is skipped. Returns each task's outcome.")
+    public ApiResponse<FlowBatchActionResult> batchReturn(@Valid @RequestBody FlowBatchActionRequest request) {
+        return ApiResponse.success(batchExecutor.execute(BatchApprovalExecutor.Action.RETURN, request, currentUserId()));
+    }
+
+    @PostMapping("/batch/reject")
+    @Operation(summary = "Reject pending tasks in a batch",
+            description = "Rejects each of the caller's pending tasks named, each on its own, with one comment "
+                    + "(required). A task whose step is a handling step or has fields to fill in is skipped. Returns "
+                    + "each task's outcome.")
+    public ApiResponse<FlowBatchActionResult> batchReject(@Valid @RequestBody FlowBatchActionRequest request) {
+        return ApiResponse.success(batchExecutor.execute(BatchApprovalExecutor.Action.REJECT, request, currentUserId()));
     }
 
     @PostMapping("/transfer")
@@ -263,7 +304,9 @@ public class FlowInstanceController {
     }
 
     @PostMapping("/withdraw")
-    @Operation(summary = "Withdraw approval flow", description = "Allows the flow initiator to withdraw an approval flow before approval completes when enabled by policy.")
+    @Operation(summary = "Withdraw approval flow", description = "The initiator takes back an approval waiting on "
+            + "its approvers, within the flow's withdraw policy: Never, BeforeFirstAction (until an approver first "
+            + "acts) or UntilCompleted.")
     public ApiResponse<FlowExecutionState> withdraw(@Valid @RequestBody FlowWithdrawRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.withdraw(request));
@@ -290,6 +333,22 @@ public class FlowInstanceController {
                 .map(state -> {
                     accessGuard.requireInstanceViewer(state, currentUserId());
                     return ApiResponse.success(urgeThrottle.status(state, LocalDateTime.now()));
+                })
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
+    }
+
+    @GetMapping("/{instanceId}/withdraw")
+    @Operation(summary = "Get whether the caller may withdraw",
+            description = "True when the caller is the initiator of an approval waiting on its approvers and the "
+                    + "flow's withdraw policy still permits it — exactly when a withdrawal would be accepted. "
+                    + "Allowed to whoever may view the instance.")
+    public ApiResponse<Boolean> getWithdrawable(@PathVariable String instanceId) {
+        return runtimeEngine.getInstance(instanceId)
+                .map(state -> {
+                    String userId = currentUserId();
+                    accessGuard.requireInstanceViewer(state, userId);
+                    return ApiResponse.success(withdrawPolicyGuard.withdrawable(state, userId));
                 })
                 .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                         "Flow instance not found: " + instanceId));

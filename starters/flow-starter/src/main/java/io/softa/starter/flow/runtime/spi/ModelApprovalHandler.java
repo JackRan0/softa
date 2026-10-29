@@ -1,7 +1,11 @@
 package io.softa.starter.flow.runtime.spi;
 
+import java.util.Collection;
+import java.util.Map;
+
 import io.softa.framework.base.utils.SFunction;
 import io.softa.starter.flow.entity.ApprovalModel;
+import io.softa.starter.flow.enums.RecordEffectStatus;
 
 /**
  * The business side of one model's record approvals: implement one per model (a Spring bean) and submit
@@ -98,4 +102,15 @@ public interface ModelApprovalHandler<T extends ApprovalModel> {
      * @param outcome how the approval ended, and who ended it
      */
     default void afterOutcome(T record, ApprovalOutcome outcome) {}
+
+    /**
+     * Where each of these approved records' change stands — applied, failed to apply, or still scheduled — for a
+     * model whose approval takes effect later, read from the records themselves, never guessed from dates. The
+     * monitoring console shows it beside each approved instance; nothing filters on it. Keys are the row ids as
+     * given; a record with nothing to say is left out. Empty — the default — for a model whose approval takes
+     * effect at once. Called past the caller's permissions, one call per model on a page.
+     */
+    default Map<String, RecordEffectStatus> effectStatuses(Collection<String> rowIds) {
+        return Map.of();
+    }
 }

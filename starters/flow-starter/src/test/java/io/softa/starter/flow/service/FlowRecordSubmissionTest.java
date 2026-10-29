@@ -1,6 +1,7 @@
 package io.softa.starter.flow.service;
 
 import java.io.Serializable;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,6 +36,7 @@ import io.softa.starter.flow.enums.ApprovalOutcomeType;
 import io.softa.starter.flow.enums.ApprovalStatus;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.runtime.LeaveRequest;
 import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
 import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
@@ -105,7 +107,8 @@ class FlowRecordSubmissionTest {
     // The preview's collaborators stay null: FlowApprovalPreviewTest covers it.
     private final FlowLaunchServiceImpl launchService = new FlowLaunchServiceImpl(
             publishService, engine, bundleRegistry, compiler, handlerRegistry, statusWriter,
-            new DefaultFlowTriggerRegistry(bundleRegistry), instanceService, modelService, null, null, null);
+            new DefaultFlowTriggerRegistry(bundleRegistry), instanceService, modelService, null, null, null,
+            new WithdrawPolicyGuard(bundleRegistry, new ApprovalAuditReader(new NoopApprovalActionLedger())));
 
     /** The record as its table holds it: reads return a copy, updates land on it. */
     private final Map<String, Object> record = new LinkedHashMap<>(
@@ -185,6 +188,21 @@ class FlowRecordSubmissionTest {
         order.verify(handler).submission(any());
         order.verify(handler).afterSubmitted(argThat(leave -> leave.getApprovalStatus() == ApprovalStatus.PENDING));
         verify(handler, never()).afterOutcome(any(), any());
+    }
+
+    @Test
+    void theApprovalKeepsWhatTheRecordShowsInTheApprovalLists() {
+        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 3),
+                LocalDate.of(2026, 11, 2), "LR-0007"));
+
+        FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals(5001L, state.getSubjectId());
+        assertEquals(LocalDate.of(2026, 11, 2), state.getEffectiveDate());
+        assertEquals("LR-0007", state.getRecordCode());
+        // No organization service here, so no department to keep.
+        assertNull(state.getSubjectDeptId());
     }
 
     @Test
@@ -407,6 +425,8 @@ class FlowRecordSubmissionTest {
         when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 2)));
         FlowExecutionState submittedAgain = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
+        // The returned approval no longer waits for the record: this submission replaces it.
+        verify(instanceService, times(2)).markSuperseded(MODEL, ROW);
         assertNotEquals(started.getInstanceId(), submittedAgain.getInstanceId());
         assertEquals(FlowExecutionStatus.WAITING, submittedAgain.getStatus());
         assertEquals("approval", submittedAgain.getPendingApprovals().getFirst().getNodeId());
@@ -604,7 +624,7 @@ class FlowRecordSubmissionTest {
         return DesignFlowDefinition.builder()
                 .name(name)
                 .scenario(approval ? FlowScenario.APPROVAL : FlowScenario.AUTOMATION)
-                .allowInitiatorWithdraw(approval)
+                .withdrawPolicy(approval ? WithdrawPolicy.UNTIL_COMPLETED : null)
                 .trigger(trigger)
                 .graph(FlowGraphDocument.builder().nodes(nodes).edges(edges).build())
                 .build();

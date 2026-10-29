@@ -153,6 +153,8 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
         schema.put("timeout", ordered("type", "approvalTimeout", "label", "Timeout configuration"));
         // ── Return policy: a return goes to the initiator and ends the instance ──
         schema.put("returnEnabled",      ordered("type", "boolean", "label", "Allow return to initiator"));
+        // ── Handling step: the approver fills in the step's fields and submits, never in a batch ──
+        schema.put("handling",           ordered("type", "boolean", "label", "Handling step (approver submits)"));
         // ── Form field permissions ────────────────────────────────────────────
         schema.put("formPermissions", ordered("type", "fieldPermissionMap", "label", "Field permissions"));
         return schema;

@@ -19,6 +19,7 @@ import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -72,11 +73,14 @@ class ScenarioRulesCompileTest {
 
     @Test
     void approvalSettingsBelongToApprovalFlows() {
-        assertTrue(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).allowInitiatorWithdraw(true).build(),
+        assertTrue(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).withdrawPolicy(WithdrawPolicy.UNTIL_COMPLETED).build(),
+                "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
+        // Never is what any other flow has anyway.
+        assertFalse(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).withdrawPolicy(WithdrawPolicy.NEVER).build(),
                 "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
         assertTrue(has(builder(FlowScenario.AUTOMATION, new ApiTrigger(null)).approverDedup(ApproverDedupStrategy.GLOBAL)
                 .build(), "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
-        assertFalse(has(builder(FlowScenario.APPROVAL, submit()).allowInitiatorWithdraw(true)
+        assertFalse(has(builder(FlowScenario.APPROVAL, submit()).withdrawPolicy(WithdrawPolicy.BEFORE_FIRST_ACTION)
                 .approverDedup(ApproverDedupStrategy.GLOBAL).build(), "APPROVAL_SETTING_OUTSIDE_APPROVAL", null));
     }
 

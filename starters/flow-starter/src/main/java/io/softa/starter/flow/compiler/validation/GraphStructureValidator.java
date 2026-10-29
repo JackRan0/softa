@@ -11,6 +11,7 @@ import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 
 /**
  * Validates definition-level fields, edge endpoints, the single-Start rule,
@@ -121,10 +122,11 @@ public class GraphStructureValidator implements FlowValidator {
             return;
         }
         if (!FlowScenario.APPROVAL.equals(scenario)
-                && (Boolean.TRUE.equals(definition.getAllowInitiatorWithdraw()) || definition.getApproverDedup() != null
-                    || definition.getSelfApproval() != null)) {
+                && ((definition.getWithdrawPolicy() != null && definition.getWithdrawPolicy() != WithdrawPolicy.NEVER)
+                    || definition.getApproverDedup() != null || definition.getSelfApproval() != null
+                    || definition.getEmailNotification() != null)) {
             d.add(CompileDiagnostic.flowLevel(APPROVAL_SETTING_OUTSIDE_APPROVAL,
-                    "allowInitiatorWithdraw, approverDedup and selfApproval apply only to Approval flows"));
+                    "withdrawPolicy, approverDedup, selfApproval and emailNotification apply only to Approval flows"));
         }
         boolean sync = Boolean.TRUE.equals(definition.getSync());
         if (!FlowScenario.AUTOMATION.equals(scenario) && (sync || Boolean.TRUE.equals(definition.getRollbackOnFail()))) {

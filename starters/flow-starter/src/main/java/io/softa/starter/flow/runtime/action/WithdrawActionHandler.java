@@ -7,27 +7,32 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.runtime.engine.FlowStatusTransitions;
 import io.softa.starter.flow.runtime.api.FlowWithdrawRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
+import io.softa.starter.flow.runtime.engine.WithdrawPolicyGuard;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.state.*;
 
 /**
- * Handles initiator withdrawal of an in-progress approval flow.
+ * Handles initiator withdrawal of an in-progress approval flow, within the flow's {@link WithdrawPolicy}.
  */
 @Component
 public class WithdrawActionHandler implements FlowActionHandler<FlowWithdrawRequest> {
 
     private final FlowActionContextService contextService;
     private final FlowAuditService auditService;
+    private final WithdrawPolicyGuard policyGuard;
 
     public WithdrawActionHandler(FlowActionContextService contextService,
-                                 FlowAuditService auditService) {
+                                 FlowAuditService auditService,
+                                 WithdrawPolicyGuard policyGuard) {
         this.contextService = contextService;
         this.auditService = auditService;
+        this.policyGuard = policyGuard;
     }
 
     @Override
@@ -47,7 +52,7 @@ public class WithdrawActionHandler implements FlowActionHandler<FlowWithdrawRequ
         if (!FlowExecutionStatus.WAITING.equals(state.getStatus())) {
             throw new FlowActionValidationException("Flow instance is not waiting for approval and cannot be withdrawn: " + request.getInstanceId());
         }
-        if (!Boolean.TRUE.equals(definition.getAllowInitiatorWithdraw())) {
+        if (WithdrawPolicyGuard.policyOf(definition) == WithdrawPolicy.NEVER) {
             throw new FlowActionValidationException("Flow instance does not allow initiator withdrawal: " + request.getInstanceId());
         }
         if (!StringUtils.hasText(state.getInitiatorId())) {
@@ -55,6 +60,10 @@ public class WithdrawActionHandler implements FlowActionHandler<FlowWithdrawRequ
         }
         if (!state.getInitiatorId().equals(request.getActorId())) {
             throw new FlowActionValidationException("Only the initiator can withdraw this flow instance: " + request.getInstanceId());
+        }
+        if (!policyGuard.policyPermits(definition, state)) {
+            throw new FlowActionValidationException("An approver has already acted on this approval, so it can no "
+                    + "longer be withdrawn: " + request.getInstanceId());
         }
 
         state.getPendingApprovals().clear();

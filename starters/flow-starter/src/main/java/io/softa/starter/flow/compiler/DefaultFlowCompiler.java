@@ -18,6 +18,7 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowTransition;
@@ -91,7 +92,8 @@ public class DefaultFlowCompiler {
                 .compiledAt(LocalDateTime.now())
                 .trigger(definition.getTrigger())
                 .forms(defaultList(definition.getForms()))
-                .allowInitiatorWithdraw(Boolean.TRUE.equals(definition.getAllowInitiatorWithdraw()))
+                .withdrawPolicy(definition.getWithdrawPolicy() == null ? WithdrawPolicy.NEVER : definition.getWithdrawPolicy())
+                .emailNotification(definition.getEmailNotification())
                 .sync(Boolean.TRUE.equals(definition.getSync()))
                 .rollbackOnFail(Boolean.TRUE.equals(definition.getRollbackOnFail()))
                 .approverDedup(definition.getApproverDedup())

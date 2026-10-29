@@ -65,6 +65,34 @@ public class ApprovalLifecycleService {
         throw new FlowRuntimeException("Approver not found during transfer: " + sourceActorId);
     }
 
+    /**
+     * Gives {@code sourceActorId}'s place on the step to {@code targetActorId}; when the target is already one of
+     * its approvers, the two places merge into theirs — the step asks fewer people, and no more approvals than
+     * it now has approvers.
+     */
+    public void mergeApprover(PendingApproval pendingApproval, String sourceActorId, String targetActorId) {
+        if (!pendingApproval.getApprovers().contains(targetActorId)) {
+            replaceApprover(pendingApproval, sourceActorId, targetActorId);
+            return;
+        }
+        List<String> approvers = new ArrayList<>(pendingApproval.getApprovers());
+        if (!approvers.remove(sourceActorId)) {
+            throw new FlowRuntimeException("Approver not found during reassignment: " + sourceActorId);
+        }
+        pendingApproval.setApprovers(approvers);
+        pendingApproval.setTotalApproverCount(approvers.size());
+        if (pendingApproval.getRequiredApprovalCount() != null
+                && pendingApproval.getRequiredApprovalCount() > approvers.size()) {
+            pendingApproval.setRequiredApprovalCount(approvers.size());
+        }
+        if (sourceActorId.equals(pendingApproval.getBlockedActorId())) {
+            pendingApproval.setBlockedActorId(targetActorId);
+        }
+        if (sourceActorId.equals(pendingApproval.getPrerequisiteActorId())) {
+            pendingApproval.setPrerequisiteActorId(targetActorId);
+        }
+    }
+
     public void insertAddSignBefore(PendingApproval pendingApproval,
                                     String blockedActorId,
                                     String prerequisiteActorId,

@@ -42,6 +42,8 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     private final WithdrawActionHandler withdrawHandler;
     private final UrgeActionHandler urgeHandler;
     private final CommentActionHandler commentHandler;
+    private final TerminateActionHandler terminateHandler;
+    private final ReassignActionHandler reassignHandler;
 
     public FlowRuntimeFacade(FlowActionContextService contextService,
                              FlowExecutionOrchestrator orchestrator,
@@ -59,7 +61,9 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                              ReturnApprovalActionHandler returnApprovalHandler,
                              WithdrawActionHandler withdrawHandler,
                              UrgeActionHandler urgeHandler,
-                             CommentActionHandler commentHandler) {
+                             CommentActionHandler commentHandler,
+                             TerminateActionHandler terminateHandler,
+                             ReassignActionHandler reassignHandler) {
         this.contextService = contextService;
         this.orchestrator = orchestrator;
         this.instanceStore = instanceStore;
@@ -77,6 +81,8 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
         this.withdrawHandler = withdrawHandler;
         this.urgeHandler = urgeHandler;
         this.commentHandler = commentHandler;
+        this.terminateHandler = terminateHandler;
+        this.reassignHandler = reassignHandler;
     }
 
     @Override
@@ -186,6 +192,10 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
                 .rowId(request.getRowId())
                 .initiatorId(request.getInitiatorId())
                 .recordApproval(recordApproval)
+                .subjectId(request.getSubjectId())
+                .subjectDeptId(request.getSubjectDeptId())
+                .effectiveDate(request.getEffectiveDate())
+                .recordCode(request.getRecordCode())
                 .triggerEventId(request.getTriggerEventId())
                 .status(FlowExecutionStatus.RUNNING)
                 .inputPayload(Map.of())
@@ -264,6 +274,16 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     @Override
     public FlowExecutionState withdraw(FlowWithdrawRequest request) {
         return withdrawHandler.handle(request);
+    }
+
+    @Override
+    public FlowExecutionState terminate(FlowTerminateRequest request) {
+        return terminateHandler.handle(request);
+    }
+
+    @Override
+    public FlowExecutionState reassign(FlowReassignRequest request) {
+        return reassignHandler.handle(request);
     }
 
     @Override

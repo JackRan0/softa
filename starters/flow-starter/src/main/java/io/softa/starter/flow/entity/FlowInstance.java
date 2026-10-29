@@ -1,6 +1,7 @@
 package io.softa.starter.flow.entity;
 
 import java.io.Serial;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -30,6 +31,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 @Index(indexName = "idx_tenant_status_fire", fields = {"tenantId", "status", "nextFireAt"})
 @Index(indexName = "idx_tenant_initiator_status", fields = {"tenantId", "initiatorId", "status"})
 @Index(indexName = "idx_tenant_model_row", fields = {"tenantId", "modelName", "rowId"})
+@Index(indexName = "idx_flow_instance_subject_dept", fields = {"tenantId", "subjectDeptId"})
 @Index(indexName = "uk_flow_instance_open_record", fields = {"tenantId", "modelName", "openRecordId"}, unique = true,
        message = "This record is already in approval.")
 @Index(indexName = "uk_flow_instance_trigger_event", fields = {"tenantId", "flowId", "triggerEventId"}, unique = true)
@@ -83,6 +85,24 @@ public class FlowInstance extends AuditableModel {
     @Field(description = "Whether the instance is its record's approval: started by submitting the record, so its "
             + "result is written back to it")
     private Boolean recordApproval;
+
+    @Field(label = "Subject ID", description = "A record's approval: the employee the record is about, as at "
+            + "submission — whose supervisor and department its approvers are found from")
+    private Long subjectId;
+
+    @Field(label = "Subject Department ID", description = "A record's approval: the subject's department at "
+            + "submission, which the approval lists filter on and department data scopes narrow by")
+    private Long subjectDeptId;
+
+    @Field(description = "A record's approval: the date the record takes effect, when its model has one")
+    private LocalDate effectiveDate;
+
+    @Field(description = "A record's approval: the record's own number, as at submission")
+    private String recordCode;
+
+    @Field(defaultValue = "false", description = "A record's approval that a later submission of the same record "
+            + "replaced: an approval returned and not superseded is still waiting for its record to be edited")
+    private Boolean superseded;
 
     @Field(label = "Open Record ID", description = "The record's id while this record approval is unfinished, empty "
             + "otherwise. Unique with the model in a tenant: a record has at most one approval in progress")

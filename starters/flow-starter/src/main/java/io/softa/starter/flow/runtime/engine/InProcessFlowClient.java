@@ -117,9 +117,8 @@ public class InProcessFlowClient implements FlowClient {
     @SkipPermissionCheck
     public List<FlowInstanceView> myInstances(MineQuery q) {
         // The search behind POST /flow/instances/search; the port returns its first (newest) page.
-        FlowInstanceSearchRequest request = new FlowInstanceSearchRequest(
-                q == null ? null : q.flowId(), q == null ? null : q.status(),
-                null, null, null, null, null, null, null);
+        FlowInstanceSearchRequest request = FlowInstanceSearchRequest.of(
+                q == null ? null : q.flowId(), q == null ? null : q.status());
         return instances.searchSummaries(request, currentUserId()).getRows().stream()
                 .map(InProcessFlowClient::toView)
                 .toList();

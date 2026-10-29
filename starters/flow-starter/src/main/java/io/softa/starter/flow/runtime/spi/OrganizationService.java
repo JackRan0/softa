@@ -1,6 +1,8 @@
 package io.softa.starter.flow.runtime.spi;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * SPI for resolving organizational data.
@@ -91,6 +93,19 @@ public interface OrganizationService {
      */
     default ApproverInfo getDeptHrbp(Long deptId) {
         return null;
+    }
+
+    /**
+     * The display names of employees, by employee id: what approval lists show a record's subject as.
+     * Employees without a name are left out. Empty unless overridden.
+     */
+    default Map<Long, String> getEmployeeNames(Collection<Long> employeeIds) {
+        return Map.of();
+    }
+
+    /** The names of departments, by department id. Empty unless overridden. */
+    default Map<Long, String> getDeptNames(Collection<Long> deptIds) {
+        return Map.of();
     }
 }
 

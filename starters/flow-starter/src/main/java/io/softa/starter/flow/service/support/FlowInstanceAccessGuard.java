@@ -1,16 +1,22 @@
 package io.softa.starter.flow.service.support;
 
 import java.io.Serializable;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.PermissionException;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
@@ -42,6 +48,8 @@ import io.softa.starter.flow.service.FlowInstanceService;
 public class FlowInstanceAccessGuard {
 
     private static final String FLOW_INSTANCE_MODEL = FlowInstance.class.getSimpleName();
+
+    private static final String INSTANCE_ID_FIELD = LambdaUtils.getAttributeName(FlowInstance::getInstanceId);
 
     private final FlowInstanceService instanceService;
 
@@ -186,6 +194,26 @@ public class FlowInstanceAccessGuard {
     private boolean permittedByRoles(String instanceId, Boolean recordApproval, String modelName, String rowId) {
         return canReadInstance(instanceId)
                 || (Boolean.TRUE.equals(recordApproval) && canReadRecord(modelName, rowId));
+    }
+
+    /**
+     * Of these instances, the ones the caller may administer: those whose FlowInstance row their own permissions
+     * read — the monitoring console's data scope. One query however many.
+     */
+    public Set<String> administrableInstanceIds(Collection<String> instanceIds) {
+        if (instanceIds == null || instanceIds.isEmpty()) {
+            return Set.of();
+        }
+        FlexQuery query = new FlexQuery(new Filters().in(FlowInstance::getInstanceId, List.copyOf(instanceIds)));
+        query.setFields(List.of(INSTANCE_ID_FIELD));
+        try {
+            return modelService.searchList(FLOW_INSTANCE_MODEL, query).stream()
+                    .map(row -> Objects.toString(row.get(INSTANCE_ID_FIELD), null))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+        } catch (PermissionException e) {
+            return Set.of();
+        }
     }
 
     private boolean canReadInstance(String instanceId) {

@@ -31,6 +31,7 @@ public final class FlowApprovalRecordViewMapper {
                 .action(record.getAction())
                 .actorId(record.getActorId())
                 .targetActorId(record.getTargetActorId())
+                .operatorId(record.getOperatorId())
                 .addSignPosition(record.getAddSignPosition())
                 .comment(record.getComment())
                 .statusBefore(record.getStatusBefore())

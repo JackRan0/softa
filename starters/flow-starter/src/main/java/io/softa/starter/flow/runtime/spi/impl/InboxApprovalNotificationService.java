@@ -2,6 +2,7 @@ package io.softa.starter.flow.runtime.spi.impl;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -22,28 +23,17 @@ import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
-import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
-import io.softa.starter.flow.runtime.state.ApprovalActionType;
+import io.softa.starter.flow.runtime.spi.impl.ApprovalNotices.Notice;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
-import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.message.inbox.dto.SendInboxDTO;
 import io.softa.starter.message.inbox.enums.NotificationType;
 import io.softa.starter.message.service.MessageService;
 
 /**
- * Default {@link ApprovalNotificationService}: tells the people an approval concerns through
- * message-starter's inbox, as {@link NotificationType#WORKFLOW} messages that point at the flow
- * instance ({@code sourceModel} = {@code FlowInstance}, {@code sourceId} = its instance id) — the
- * client opens the instance and goes on from there.
- *
- * <ul>
- *   <li>A step's approvers still to act, and whoever a task is transferred or delegated to:
- *       "Pending approval".</li>
- *   <li>Approvers urged or about to time out: "Reminder" / "Approval due soon".</li>
- *   <li>CC recipients: "For your information".</li>
- *   <li>The initiator, when the instance is approved, rejected (with the comment) or returned
- *       (with the comment).</li>
- * </ul>
+ * The inbox channel of {@link ApprovalNotificationService}: tells the people an approval concerns — who, and
+ * what, is {@link ApprovalNotices}' — through message-starter's inbox, as {@link NotificationType#WORKFLOW}
+ * messages that point at the flow instance ({@code sourceModel} = {@code FlowInstance}, {@code sourceId} = its
+ * instance id) — the client opens the instance and goes on from there.
  *
  * <p>Recipients are approver ids, i.e. login account ids. Texts are translated into the tenant's
  * default language — a message is read later by people whose own language the action does not
@@ -65,12 +55,16 @@ public class InboxApprovalNotificationService implements ApprovalNotificationSer
     private final ObjectProvider<MessageService> messageService;
     private final ModelService<Long> modelService;
     private final TransactionTemplate newTransaction;
+    /** The users told when an approval fails, besides its initiator: those who fix flows or end approvals. */
+    private final Supplier<List<String>> administrators;
 
     @SuppressWarnings("unchecked")
     public InboxApprovalNotificationService(ObjectProvider<MessageService> messageService, ModelService<?> modelService,
-                                            PlatformTransactionManager transactionManager) {
+                                            PlatformTransactionManager transactionManager,
+                                            Supplier<List<String>> administrators) {
         this.messageService = messageService;
         this.modelService = (ModelService<Long>) modelService;
+        this.administrators = administrators;
         this.newTransaction = new TransactionTemplate(transactionManager);
         this.newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -78,29 +72,7 @@ public class InboxApprovalNotificationService implements ApprovalNotificationSer
     @Override
     public void notify(FlowNotificationEvent event) {
         FlowExecutionState state = event.state();
-        Notice notice = switch (event) {
-            case FlowNotificationEvent.TaskAssigned e ->
-                    new Notice(stillToAct(e.pendingApproval()), "Pending approval: {0}", null);
-            case FlowNotificationEvent.TaskTransferred e ->
-                    new Notice(List.of(e.newActorId()), "Pending approval: {0}", null);
-            case FlowNotificationEvent.TaskDelegated e ->
-                    new Notice(List.of(e.toActorId()), "Pending approval: {0}", null);
-            case FlowNotificationEvent.Urged e ->
-                    new Notice(e.pendingActorIds(), "Reminder to approve: {0}", e.message());
-            case FlowNotificationEvent.TimeoutReminded e ->
-                    new Notice(stillToAct(e.pendingApproval()), "Approval due soon: {0}", null);
-            case FlowNotificationEvent.CcSent e ->
-                    new Notice(e.recipientActorIds(), "For your information: {0}", e.message());
-            case FlowNotificationEvent.FlowCompleted e -> e.approved()
-                    ? new Notice(List.of(state.getInitiatorId()), "Approved: {0}", null)
-                    : null;
-            // Approving one step is no news to the initiator; a rejection ends the approval.
-            case FlowNotificationEvent.TaskCompleted e -> e.approved()
-                    ? null
-                    : new Notice(List.of(state.getInitiatorId()), "Rejected: {0}", latestComment(state, ApprovalActionType.REJECT));
-            case FlowNotificationEvent.Returned e ->
-                    new Notice(List.of(state.getInitiatorId()), "Returned to you: {0}", e.comment());
-        };
+        Notice notice = ApprovalNotices.of(event, administrators);
         if (notice == null) {
             return;
         }
@@ -114,7 +86,7 @@ public class InboxApprovalNotificationService implements ApprovalNotificationSer
             return;
         }
         String language = tenantLanguage();
-        String title = fit(translate(language, notice.title(), subjectOf(state)), TITLE_MAX_LENGTH);
+        String title = fit(translate(language, notice.title(), ApprovalNotices.subjectOf(state)), TITLE_MAX_LENGTH);
         String content = StringUtils.hasText(notice.content()) ? notice.content() : title;
         List<SendInboxDTO> inbox = recipients.stream().map(recipient -> {
             SendInboxDTO message = new SendInboxDTO();
@@ -126,19 +98,20 @@ public class InboxApprovalNotificationService implements ApprovalNotificationSer
             message.setSourceId(state.getInstanceId());
             return message;
         }).toList();
-        sendAfterCommit(inbox, state.getInstanceId());
+        // A failure is recorded in a transaction of its own while the failed attempt's rolls back: tell now.
+        send(inbox, state.getInstanceId(), event instanceof FlowNotificationEvent.FlowFailed);
     }
 
     /**
-     * Writes the messages once the action's transaction commits — at once when there is none. Not
-     * inside it: a failed write there marks the action's transaction rollback-only, and the action
-     * then fails on commit, whatever caught the exception.
+     * Writes the messages once the action's transaction commits — at once when there is none, or when asked
+     * ({@code now}). Not inside it: a failed write there marks the action's transaction rollback-only, and the
+     * action then fails on commit, whatever caught the exception.
      */
-    private void sendAfterCommit(List<SendInboxDTO> inbox, String instanceId) {
+    private void send(List<SendInboxDTO> inbox, String instanceId, boolean now) {
         Context context = ContextHolder.cloneContext();
         Runnable send = () -> ContextHolder.runWith(context,
                 () -> ContextUtils.withoutPermissionChecks(() -> write(inbox, instanceId)));
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+        if (!now && TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
@@ -172,37 +145,6 @@ public class InboxApprovalNotificationService implements ApprovalNotificationSer
     /** {@code text}, cut to {@code maxLength} characters with an ellipsis when longer. */
     private static String fit(String text, int maxLength) {
         return text.length() <= maxLength ? text : text.substring(0, maxLength - 1) + "…";
-    }
-
-    /** What the instance is called in a message: its title, else its flow's name. */
-    private static String subjectOf(FlowExecutionState state) {
-        if (StringUtils.hasText(state.getTitle())) {
-            return state.getTitle();
-        }
-        return StringUtils.hasText(state.getFlowName()) ? state.getFlowName() : state.getInstanceId();
-    }
-
-    /** The approvers of a step who have not acted yet. */
-    private static List<String> stillToAct(PendingApproval step) {
-        List<String> approvers = step.getApprovers() == null ? List.of() : step.getApprovers();
-        return approvers.stream()
-                .filter(approver -> step.getApprovedActors() == null || !step.getApprovedActors().contains(approver))
-                .filter(approver -> step.getRejectedActors() == null || !step.getRejectedActors().contains(approver))
-                .toList();
-    }
-
-    /** The comment of the latest {@code action} the current action recorded. */
-    private static String latestComment(FlowExecutionState state, ApprovalActionType action) {
-        List<ApprovalActionAuditEntry> delta = state.getApprovalAuditDelta();
-        if (delta == null) {
-            return null;
-        }
-        for (int i = delta.size() - 1; i >= 0; i--) {
-            if (action.equals(delta.get(i).getAction())) {
-                return delta.get(i).getComment();
-            }
-        }
-        return null;
     }
 
     /** The tenant's default language, else the current context's, else the system default. */
@@ -239,7 +181,4 @@ public class InboxApprovalNotificationService implements ApprovalNotificationSer
         }
     }
 
-    /** Who to tell, the title template (its {0} is the instance's subject), and an optional body. */
-    private record Notice(List<String> recipients, String title, String content) {
-    }
 }

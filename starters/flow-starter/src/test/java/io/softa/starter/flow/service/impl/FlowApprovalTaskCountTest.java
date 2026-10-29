@@ -29,7 +29,9 @@ class FlowApprovalTaskCountTest {
                 mock(FlowApprovalTaskProjector.class),
                 mock(io.softa.starter.flow.service.support.FlowInstanceAccessGuard.class),
                 new ApprovalAuditReader(new NoopApprovalActionLedger()),
-                new TaskInstanceContextEnricher(mock(FlowInstanceService.class))));
+                new TaskInstanceContextEnricher(mock(FlowInstanceService.class),
+                        mock(io.softa.starter.flow.service.support.FlowUserNames.class),
+                        mock(io.softa.starter.flow.runtime.bundle.FlowBundleRegistry.class))));
     }
 
     @Test

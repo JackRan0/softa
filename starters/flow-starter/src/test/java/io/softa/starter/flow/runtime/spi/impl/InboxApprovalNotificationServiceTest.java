@@ -39,7 +39,7 @@ class InboxApprovalNotificationServiceTest {
         ObjectProvider<MessageService> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(messageService);
         notifications = new InboxApprovalNotificationService(provider, mock(ModelService.class),
-                mock(PlatformTransactionManager.class));
+                mock(PlatformTransactionManager.class), () -> List.of("admin-1"));
     }
 
     @Test
@@ -125,6 +125,32 @@ class InboxApprovalNotificationServiceTest {
         assertEquals("Returned to you: Leave of Alice", batches.getAllValues().get(0).getFirst().getTitle());
         assertEquals("fix the dates", batches.getAllValues().get(0).getFirst().getContent());
         assertEquals("Approved: Leave of Alice", batches.getAllValues().get(1).getFirst().getTitle());
+    }
+
+    @Test
+    void aFailedApprovalTellsItsInitiatorAndTheAdministratorsAtOnce() {
+        FlowExecutionState state = state();
+        state.setRecordApproval(true);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            // The failed attempt's transaction rolls back: the notice cannot wait for its commit.
+            notifications.notify(new FlowNotificationEvent.FlowFailed(state, "manager", "No approver found"));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        List<SendInboxDTO> sent = sent();
+        assertEquals(List.of(1001L), sent.stream().map(SendInboxDTO::getRecipientId).toList(),
+                "admin-1 is not a numeric account id, so only the initiator is addressable");
+        assertEquals("Approval failed: Leave of Alice", sent.getFirst().getTitle());
+        assertEquals("No approver found", sent.getFirst().getContent());
+    }
+
+    @Test
+    void anAutomationRunThatFailsTellsNobody() {
+        notifications.notify(new FlowNotificationEvent.FlowFailed(state(), "step", "boom"));
+
+        verify(messageService, never()).sendInboxBatch(any());
     }
 
     private List<SendInboxDTO> sent() {

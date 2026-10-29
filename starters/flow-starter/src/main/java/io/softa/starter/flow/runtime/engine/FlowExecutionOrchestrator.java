@@ -153,6 +153,7 @@ public class FlowExecutionOrchestrator {
                 .eventTime(LocalDateTime.now())
                 .message(message)
                 .build());
+        notificationService.notify(new FlowNotificationEvent.FlowFailed(state, failedNodeId, message));
     }
 
     /**

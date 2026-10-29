@@ -163,11 +163,11 @@ class DefaultFlowCompilerTest {
     }
 
     @Test
-    void shouldCompileFlowWithAllowInitiatorWithdraw() {
+    void shouldCompileFlowWithWithdrawPolicy() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Withdraw Flow")
                 .scenario(FlowScenario.APPROVAL)
-                .allowInitiatorWithdraw(true)
+                .withdrawPolicy(WithdrawPolicy.BEFORE_FIRST_ACTION)
                 .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -183,7 +183,7 @@ class DefaultFlowCompilerTest {
                 .build();
 
         CompiledFlowDefinition compiled = compiler.compile(definition);
-        assertTrue(compiled.getAllowInitiatorWithdraw());
+        assertEquals(WithdrawPolicy.BEFORE_FIRST_ACTION, compiled.getWithdrawPolicy());
     }
 
     @Test

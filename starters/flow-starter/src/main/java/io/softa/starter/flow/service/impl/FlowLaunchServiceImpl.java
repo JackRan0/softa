@@ -46,12 +46,14 @@ import io.softa.starter.flow.runtime.engine.ApprovalStatusWriter;
 import io.softa.starter.flow.runtime.engine.ApproverResolutionService;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.ModelApprovalHandlerRegistry;
+import io.softa.starter.flow.runtime.engine.WithdrawPolicyGuard;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.spi.ApprovalOutcome;
 import io.softa.starter.flow.runtime.spi.ApprovalSubmission;
 import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
+import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
@@ -97,12 +99,17 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     private final ApprovalPathPreviewer pathPreviewer;
     private final FlowInstanceAccessGuard accessGuard;
     private final FlowUserNames userNames;
+    private final WithdrawPolicyGuard withdrawPolicyGuard;
 
     @Autowired(required = false)
     private FlowDebugHistoryService debugHistoryService;
 
     @Autowired(required = false)
     private FlowDesignService designService;
+
+    /** Where a submission's subject works, kept on its approval; an application without one keeps none. */
+    @Autowired(required = false)
+    private OrganizationService organizationService;
 
     @SuppressWarnings("unchecked")
     public FlowLaunchServiceImpl(FlowPublishService flowPublishService,
@@ -116,7 +123,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                                  ModelService<?> modelService,
                                  ApprovalPathPreviewer pathPreviewer,
                                  FlowInstanceAccessGuard accessGuard,
-                                 FlowUserNames userNames) {
+                                 FlowUserNames userNames,
+                                 WithdrawPolicyGuard withdrawPolicyGuard) {
         this.flowPublishService = flowPublishService;
         this.flowRuntimeEngine = flowRuntimeEngine;
         this.flowBundleRegistry = flowBundleRegistry;
@@ -129,6 +137,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         this.pathPreviewer = pathPreviewer;
         this.accessGuard = accessGuard;
         this.userNames = userNames;
+        this.withdrawPolicyGuard = withdrawPolicyGuard;
     }
 
     @Override
@@ -196,10 +205,21 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         // Before the start: a flow without an approval step completes while it starts, and its
         // result must land on a record that is already in approval.
         statusWriter.submitted(handler, rowId, submission.record(), initiatorId);
+        // The record's earlier approvals are over; this one replaces them — a returned one no longer
+        // waits for the record to be edited.
+        instanceService.markSuperseded(modelName, rowId);
+        FlowStartRequest request = submitStartRequest(definition, modelName, rowId, initiatorId,
+                submission.subjectId(), submission.approval());
+        request.setSubjectDeptId(subjectDeptOf(submission.subjectId()));
         // Started as the record's approval: its result is written back, and the unique open-record
         // key refuses a second approval of the record, a concurrent submission included.
-        return flowRuntimeEngine.startRecordApproval(submitStartRequest(definition, modelName, rowId, initiatorId,
-                submission.subjectId(), submission.approval()));
+        return flowRuntimeEngine.startRecordApproval(request);
+    }
+
+    /** The subject's department as the submission finds it, read past the submitter's permissions. */
+    private Long subjectDeptOf(Long subjectId) {
+        return organizationService == null ? null
+                : ContextUtils.withoutPermissionChecks(() -> organizationService.getDeptIdOfEmployee(subjectId));
     }
 
     /**
@@ -311,9 +331,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
             return notReady(FlowApprovalPreview.Status.REFUSED, I18n.get(ALREADY_IN_APPROVAL));
         }
         FlowApprovalPreview preview = pathPreviewer.previewRemaining(definition, state);
-        preview.setWithdrawable(Boolean.TRUE.equals(definition.getAllowInitiatorWithdraw())
-                && FlowExecutionStatus.WAITING.equals(state.getStatus())
-                && Objects.equals(requesterId, state.getInitiatorId()));
+        preview.setWithdrawable(withdrawPolicyGuard.withdrawable(state, requesterId));
         return preview;
     }
 
@@ -459,6 +477,9 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         request.setModelName(modelName);
         request.setRowId(rowId);
         request.setVariables(variables);
+        request.setSubjectId(subjectId);
+        request.setEffectiveDate(submission.effectiveDate());
+        request.setRecordCode(submission.code());
         return request;
     }
 

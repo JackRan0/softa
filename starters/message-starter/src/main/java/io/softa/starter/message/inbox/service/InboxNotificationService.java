@@ -26,6 +26,17 @@ public interface InboxNotificationService extends EntityService<InboxNotificatio
     void markAllAsRead(Long recipientId);
 
     /**
+     * Mark a recipient's unread notifications about one source object as read — once they have dealt with the
+     * object, what told them about it is old news (an approver who acted on an approval, every reminder of it).
+     *
+     * @param recipientId user ID
+     * @param sourceModel the source's model name, e.g. {@code FlowInstance}
+     * @param sourceId    the source object's id as text
+     * @return how many were marked
+     */
+    int markReadBySource(Long recipientId, String sourceModel, String sourceId);
+
+    /**
      * Count unread notifications for a recipient.
      *
      * @param recipientId user ID

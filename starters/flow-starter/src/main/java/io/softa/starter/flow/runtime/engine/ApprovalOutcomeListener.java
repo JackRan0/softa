@@ -102,7 +102,7 @@ public class ApprovalOutcomeListener implements FlowStateChangeListener {
             case REJECTED -> Set.of(ApprovalActionType.REJECT);
             case RETURNED -> Set.of(ApprovalActionType.RETURN);
             case WITHDRAWN -> Set.of(ApprovalActionType.WITHDRAW);
-            case CANCELLED -> Set.of();
+            case CANCELLED -> Set.of(ApprovalActionType.TERMINATE);
         };
         if (deciding.isEmpty()) {
             return null;

@@ -151,6 +151,33 @@ public class FlowOrgService implements OrganizationService {
     }
 
     @Override
+    public Map<Long, String> getEmployeeNames(Collection<Long> employeeIds) {
+        return namesOf(props.getEmployeeModel(), props.getNameField(), employeeIds);
+    }
+
+    @Override
+    public Map<Long, String> getDeptNames(Collection<Long> deptIds) {
+        return namesOf(props.getDepartmentModel(), props.getDeptNameField(), deptIds);
+    }
+
+    /** One read of a model's rows by id: their names, the rows without one left out. */
+    private Map<Long, String> namesOf(String model, String nameField, Collection<Long> ids) {
+        List<Long> distinct = ids == null ? List.of() : ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> names = new HashMap<>();
+        for (Map<String, Object> row : read(() -> modelService.getByIds(model, distinct, List.of(ModelConstant.ID, nameField)))) {
+            Long id = toLong(row.get(ModelConstant.ID));
+            Object name = row.get(nameField);
+            if (id != null && name != null && !name.toString().isBlank()) {
+                names.put(id, name.toString());
+            }
+        }
+        return names;
+    }
+
+    @Override
     public Long getDeptIdOfEmployee(Long employeeId) {
         if (employeeId == null) {
             return null;

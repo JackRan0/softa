@@ -128,6 +128,13 @@ public interface FlowInstanceService {
     Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId);
 
     /**
+     * Marks every approval of a record superseded, read and written past the caller's data
+     * permissions — engine bookkeeping: a new submission of the record replaces them, so a returned
+     * one no longer waits for the record to be edited.
+     */
+    void markSuperseded(String modelName, String rowId);
+
+    /**
      * Find non-terminal instances (RUNNING / WAITING_*) whose last update time is before
      * {@code threshold} — i.e. instances that have been silent longer than expected and may
      * require operator attention.

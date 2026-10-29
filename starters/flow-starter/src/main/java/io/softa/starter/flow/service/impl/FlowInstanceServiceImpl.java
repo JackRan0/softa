@@ -79,6 +79,11 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             LambdaUtils.getAttributeName(FlowInstance::getRowId),
             LambdaUtils.getAttributeName(FlowInstance::getInitiatorId),
             LambdaUtils.getAttributeName(FlowInstance::getRecordApproval),
+            LambdaUtils.getAttributeName(FlowInstance::getSubjectId),
+            LambdaUtils.getAttributeName(FlowInstance::getSubjectDeptId),
+            LambdaUtils.getAttributeName(FlowInstance::getEffectiveDate),
+            LambdaUtils.getAttributeName(FlowInstance::getRecordCode),
+            LambdaUtils.getAttributeName(FlowInstance::getSuperseded),
             LambdaUtils.getAttributeName(FlowInstance::getStatus),
             LambdaUtils.getAttributeName(FlowInstance::getFailedNodeId),
             LambdaUtils.getAttributeName(FlowInstance::getNextFireAt),
@@ -230,6 +235,26 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         if (request.createdTo() != null) {
             filters.le(FlowInstance::getCreatedTime, request.createdTo());
         }
+        if (request.subjectId() != null) {
+            filters.eq(FlowInstance::getSubjectId, request.subjectId());
+        }
+        if (request.subjectDeptId() != null) {
+            filters.eq(FlowInstance::getSubjectDeptId, request.subjectDeptId());
+        }
+        if (request.effectiveDateFrom() != null) {
+            filters.ge(FlowInstance::getEffectiveDate, request.effectiveDateFrom());
+        }
+        if (request.effectiveDateTo() != null) {
+            filters.le(FlowInstance::getEffectiveDate, request.effectiveDateTo());
+        }
+        if (StringUtils.hasText(request.recordCode())) {
+            filters.contains(FlowInstance::getRecordCode, request.recordCode().trim());
+        }
+        if (Boolean.TRUE.equals(request.awaitingRevision())) {
+            // Returned and not replaced by a later submission: the record still waits to be edited.
+            filters.eq(FlowInstance::getStatus, FlowExecutionStatus.RETURNED)
+                    .ne(FlowInstance::getSuperseded, true);
+        }
         FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowInstance::getCreatedTime));
         query.select(INSTANCE_SUMMARY_FIELDS);
         Page<FlowInstance> page = Page.of(
@@ -238,6 +263,18 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         // Funnel through searchInstances so a replacement implementation that
         // intercepts raw monitoring queries sees this path too.
         return this.searchInstances(query, page);
+    }
+
+    @Override
+    public void markSuperseded(String modelName, String rowId) {
+        FlowInstance superseded = new FlowInstance();
+        superseded.setSuperseded(true);
+        Filters filters = new Filters()
+                .eq(FlowInstance::getModelName, modelName)
+                .eq(FlowInstance::getRowId, rowId)
+                .eq(FlowInstance::getRecordApproval, true)
+                .ne(FlowInstance::getSuperseded, true);
+        ContextUtils.withoutPermissionChecks(() -> this.updateByFilter(filters, superseded));
     }
 
     @Override

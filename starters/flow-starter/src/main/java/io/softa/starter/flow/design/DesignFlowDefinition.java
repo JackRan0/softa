@@ -13,6 +13,7 @@ import io.softa.framework.orm.dto.DTOFieldObject;
 import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
 import io.softa.starter.flow.enums.SelfApprovalStrategy;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.enums.FlowScenario;
 
 /**
@@ -51,8 +52,13 @@ public class DesignFlowDefinition implements DTOFieldObject {
     @Schema(description = "Form bindings for human-interaction nodes")
     private List<FlowFormBinding> forms;
 
-    @Schema(description = "Whether the initiator can withdraw the flow before approval completes")
-    private Boolean allowInitiatorWithdraw;
+    @Schema(description = "Approval flows only: until when the initiator may withdraw an approval in progress; "
+            + "unset = Never")
+    private WithdrawPolicy withdrawPolicy;
+
+    @Schema(description = "Approval flows only: whether its notices are also emailed (the inbox always gets them); "
+            + "unset = on")
+    private Boolean emailNotification;
 
     @Schema(description = "Whether the flow executes synchronously within the triggering transaction")
     private Boolean sync;

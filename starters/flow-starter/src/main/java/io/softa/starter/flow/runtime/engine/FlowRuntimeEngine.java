@@ -75,6 +75,18 @@ public interface FlowRuntimeEngine {
     FlowExecutionState addComment(FlowCommentRequest request);
 
     /**
+     * Ends an instance that runs, waits or failed, as an administrator — authorized by the caller beforehand
+     * (the monitoring console's permission and data scope). The instance is cancelled, its record with it.
+     */
+    FlowExecutionState terminate(FlowTerminateRequest request);
+
+    /**
+     * Moves an approver's pending task to another approver, as an administrator — authorized by the caller
+     * beforehand. Recorded as the approver's transfer with the administrator as its operator.
+     */
+    FlowExecutionState reassign(FlowReassignRequest request);
+
+    /**
      * Current state of an instance, without the trace history (loads stay O(1) in
      * history length). Use {@link #getInstanceWithTrace} to render the event list.
      */

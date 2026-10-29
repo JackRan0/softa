@@ -17,6 +17,7 @@ import io.softa.starter.flow.design.FlowFormBinding;
 import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
 import io.softa.starter.flow.enums.SelfApprovalStrategy;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.enums.FlowScenario;
 
 /**
@@ -52,8 +53,11 @@ public class CompiledFlowDefinition {
     @Schema(description = "Compiled form bindings")
     private List<FlowFormBinding> forms;
 
-    @Schema(description = "Whether the initiator can withdraw the flow before approval completes")
-    private Boolean allowInitiatorWithdraw;
+    @Schema(description = "Until when the initiator may withdraw an approval in progress; Never for any other flow")
+    private WithdrawPolicy withdrawPolicy;
+
+    @Schema(description = "Whether the approval's notices are also emailed; null = on")
+    private Boolean emailNotification;
 
     @Schema(description = "Whether the flow executes synchronously within the triggering transaction")
     private Boolean sync;

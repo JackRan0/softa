@@ -35,6 +35,10 @@ final class FlowExecutionStateMapper {
         entity.setRowId(state.getRowId());
         entity.setInitiatorId(state.getInitiatorId());
         entity.setRecordApproval(state.getRecordApproval());
+        entity.setSubjectId(state.getSubjectId());
+        entity.setSubjectDeptId(state.getSubjectDeptId());
+        entity.setEffectiveDate(state.getEffectiveDate());
+        entity.setRecordCode(state.getRecordCode());
         entity.setTriggerEventId(state.getTriggerEventId());
         // Held while the record's approval is unfinished; the unique index on it keeps a record
         // to one approval in progress, concurrent submissions included.
@@ -71,6 +75,10 @@ final class FlowExecutionStateMapper {
                 .rowId(entity.getRowId())
                 .initiatorId(entity.getInitiatorId())
                 .recordApproval(entity.getRecordApproval())
+                .subjectId(entity.getSubjectId())
+                .subjectDeptId(entity.getSubjectDeptId())
+                .effectiveDate(entity.getEffectiveDate())
+                .recordCode(entity.getRecordCode())
                 .triggerEventId(entity.getTriggerEventId())
                 .status(entity.getStatus())
                 .errorMessage(entity.getErrorMessage())
