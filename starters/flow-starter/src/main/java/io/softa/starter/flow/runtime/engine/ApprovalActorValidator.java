@@ -56,6 +56,16 @@ public class ApprovalActorValidator {
         lifecycleService.assertActorNotBlockedByPrerequisite(pendingApproval, request.getActorId(), node);
     }
 
+    /**
+     * An administrator reassigning {@code actorId}'s task: they must be an approver of the step still to act. The
+     * new approver may already be one (the two merge), and an add-sign prerequisite moves with the task.
+     */
+    public void validateReassignActor(PendingApproval pendingApproval, String actorId, CompiledFlowNode node) {
+        requireNonEmptyApprovers(pendingApproval, node, "reassignable");
+        requireActorIsApprover(pendingApproval, actorId, node);
+        requireActorNotAlreadyVoted(pendingApproval, actorId);
+    }
+
     public void validateDelegateActors(PendingApproval pendingApproval, FlowDelegateRequest request, CompiledFlowNode node) {
         requireNonEmptyApprovers(pendingApproval, node, "delegatable");
         requireActorIsApprover(pendingApproval, request.getActorId(), node);

@@ -78,6 +78,10 @@ public class FlowApprovalRecord extends AuditableModel {
     @Field(label = "Target Actor ID", description = "Target actor id")
     private String targetActorId;
 
+    @Field(label = "Operator ID", description = "Who did it on the actor's behalf: an administrator who reassigned "
+            + "the actor's task; empty when the actor acted themselves")
+    private String operatorId;
+
     @Field(label = "Add-Sign Position", description = "Add-sign position when the record represents an add-sign action")
     private AddSignPosition addSignPosition;
 

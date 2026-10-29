@@ -32,8 +32,10 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 public interface FlowClient {
 
     // lifecycle / launch
+    /** Start an Automation flow whose trigger is {@code Api}; any other flow is refused. */
     FlowExecutionState start(FlowStartRequest request);
 
+    /** Publish the definition, then start it as {@link #start} does — it must be an Automation flow with an Api trigger. */
     FlowExecutionState publishAndStart(PublishAndStartRequest request);
 
     /**
@@ -48,17 +50,25 @@ public interface FlowClient {
      * What submitting the record as the current user would do now, without submitting it — the same
      * answer as {@code GET /flow/instances/preview}, under the same check: the current user can read
      * the record with their own permissions. Nothing is started or written. A refusal by the
-     * handler's {@code prepare} is reported rather than thrown, so call it outside a transaction: a
+     * handler's {@code validate} is reported rather than thrown, so call it outside a transaction: a
      * refusal thrown through a transactional method marks the transaction it joins rollback-only.
      */
     FlowApprovalPreview previewRecord(String modelName, String rowId);
 
     /**
      * Withdraws the record from approval as the current user, its submitter — or, when its approval
-     * failed, takes the record back. Refused when the record has no approval in progress. Joins the
-     * caller's transaction.
+     * failed, takes the record back. The record is a draft again. Refused when the record has no
+     * approval in progress, or its flow does not let its submitter withdraw. Joins the caller's
+     * transaction.
      */
     FlowExecutionState withdrawRecord(String modelName, String rowId, String comment);
+
+    /**
+     * Cancels the draft for good as the current user, its applicant: refused unless the record is a
+     * draft the user can read and its handler's {@code validateCancel} passes. Joins the caller's
+     * transaction.
+     */
+    void cancelRecord(String modelName, String rowId);
 
     /**
      * The record's approval history — its approval instances newest first, with steps, approvers

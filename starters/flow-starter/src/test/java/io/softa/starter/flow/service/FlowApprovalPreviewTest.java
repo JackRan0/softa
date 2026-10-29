@@ -2,6 +2,7 @@ package io.softa.starter.flow.service;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,14 +37,19 @@ import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.enums.WithdrawPolicy;
+import io.softa.starter.flow.runtime.LeaveRequest;
 import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.engine.*;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.spi.ApprovalSubmission;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
+import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
+import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
 import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
 import io.softa.starter.flow.service.impl.FlowLaunchServiceImpl;
@@ -89,7 +95,8 @@ class FlowApprovalPreviewTest {
             new ApproverDedupService(new ApprovalLifecycleService(pendingApprovalFactory), auditService, auditReader),
             auditService);
 
-    private final ModelApprovalHandler handler = mock(ModelApprovalHandler.class);
+    @SuppressWarnings("unchecked")
+    private final ModelApprovalHandler<LeaveRequest> handler = mock(ModelApprovalHandler.class);
     /** Nothing may start: every interaction with the engine fails the test. */
     private final FlowRuntimeEngine engine = mock(FlowRuntimeEngine.class);
     private final FlowInstanceService instanceService = mock(FlowInstanceService.class);
@@ -97,7 +104,7 @@ class FlowApprovalPreviewTest {
     private final ModelService<Serializable> modelService = mock(ModelService.class);
     private final OrganizationService organization = mock(OrganizationService.class);
     private final List<FlowInstance> instances = new ArrayList<>();
-    private final Map<String, Object> record = new LinkedHashMap<>(Map.of("id", 42L, "leaveType", "Annual", "days", 3));
+    private final Map<String, Object> record = new LinkedHashMap<>(Map.of("id", 42L, "employeeId", 5001L, "leaveType", "Annual", "days", 3));
     private FlowLaunchServiceImpl launchService;
     private MockedStatic<ModelManager> modelManager;
     private MockedStatic<IdUtils> idUtils;
@@ -122,18 +129,20 @@ class FlowApprovalPreviewTest {
                 .map(id -> new ApproverInfo(id, NAMES.get(id.toString())))
                 .toList());
 
-        when(handler.modelName()).thenReturn(MODEL);
-        when(handler.prepare(ROW)).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 3)));
+        when(handler.modelClass()).thenReturn(LeaveRequest.class);
+        when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 3)));
         // The submitter reads the record with their own permissions; the submit condition sees all of it.
         when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.of(Map.of("id", 42L)));
         when(modelService.getById(eq(MODEL), any())).thenAnswer(invocation -> Optional.of(record));
         when(instanceService.findByModelNameAndRowId(MODEL, ROW)).thenReturn(instances);
 
         launchService = new FlowLaunchServiceImpl(publishService, engine, bundleRegistry, compiler,
-                ModelApprovalHandlerRegistry.of(List.of(handler)), new DefaultFlowTriggerRegistry(bundleRegistry),
+                // No status writer: a preview writes nothing.
+                ModelApprovalHandlerRegistry.of(List.of(handler)), null, new DefaultFlowTriggerRegistry(bundleRegistry),
                 instanceService, modelService, previewer,
                 new FlowInstanceAccessGuard(instanceService, auditReader, modelService),
-                new FlowUserNames(organizationProvider, modelService));
+                new FlowUserNames(organizationProvider, modelService),
+                new WithdrawPolicyGuard(bundleRegistry, auditReader));
     }
 
     @AfterEach
@@ -166,6 +175,52 @@ class FlowApprovalPreviewTest {
     }
 
     @Test
+    void anApprovalInProgressShowsTheStepItWaitsOnThenTheRest() {
+        DesignFlowDefinition design = chain("Annual leave", null,
+                approval("manager", "Manager", Map.of("approvers", List.of(MANAGER))),
+                approval("hr", "HR", Map.of("approvers", List.of(HR))));
+        design.setWithdrawPolicy(WithdrawPolicy.UNTIL_COMPLETED);
+        CompiledFlowDefinition flow = publishService.publish("annual", design);
+        record.put("approvalStatus", "Pending");
+        FlowInstance running = new FlowInstance();
+        running.setInstanceId("run-1");
+        running.setStatus(FlowExecutionStatus.WAITING);
+        running.setRecordApproval(true);
+        instances.add(running);
+        FlowExecutionState state = FlowExecutionState.builder()
+                .instanceId("run-1").bundleId(flow.getBundleId()).flowId("annual")
+                .initiatorId(SUBMITTER).recordApproval(true).modelName(MODEL).rowId(ROW)
+                .status(FlowExecutionStatus.WAITING)
+                .variables(new LinkedHashMap<>(Map.of("days", 3, "_subjectId", 5001L)))
+                .completedNodeIds(new ArrayList<>(List.of("start")))
+                .pendingApprovals(new ArrayList<>(List.of(PendingApproval.builder()
+                        .nodeId("manager").approvers(new ArrayList<>(List.of(MANAGER)))
+                        .approvedActors(new ArrayList<>()).rejectedActors(new ArrayList<>())
+                        .requiredApprovalCount(1).build())))
+                .approvalAuditDelta(new ArrayList<>())
+                .joinArrivalCounts(new HashMap<>())
+                .build();
+        when(engine.getInstance("run-1")).thenReturn(Optional.of(state));
+
+        FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals(Status.IN_PROGRESS, preview.getStatus());
+        assertEquals(new FlowApprovalPreview.Flow("annual", "Annual leave"), preview.getFlow());
+        assertEquals(List.of("manager", "hr"), preview.getSteps().stream().map(Step::getNodeId).toList());
+        Step current = preview.getSteps().getFirst();
+        assertEquals(Boolean.TRUE, current.getCurrent());
+        assertEquals(List.of(new Actor(MANAGER, "Bob")), current.getApprovers());
+        Step next = preview.getSteps().get(1);
+        assertNull(next.getCurrent());
+        assertEquals(StepOutcome.WAITING, next.getOutcome());
+        assertEquals(List.of(new Actor(HR, "Carol")), next.getApprovers());
+        assertTrue(state.getApprovalAuditDelta().isEmpty(), "the running instance is never changed");
+        verify(handler, never()).validate(any());
+        assertEquals(Boolean.TRUE, preview.getWithdrawable(), "its submitter, on a flow that lets them");
+        assertEquals(Boolean.FALSE, launchService.previewRecord(MODEL, ROW, MANAGER).getWithdrawable());
+    }
+
+    @Test
     void nothingIsSubmittedStartedOrWritten() {
         publishService.publish("annual", chain("Annual leave", null,
                 approval("manager", "Manager", Map.of("approvers", List.of(MANAGER))),
@@ -182,9 +237,10 @@ class FlowApprovalPreviewTest {
         assertEquals(List.of(new Actor(DEPUTY, "Dan")), preview.getSteps().getFirst().getApprovers());
         // …but the delegation's use is not counted, and nothing else is written or sent.
         verify(delegations, never()).recordDelegationUsage(any());
-        verify(handler).prepare(ROW);
-        verify(handler, never()).onSubmitted(anyString());
-        verify(handler, never()).onOutcome(anyString(), any());
+        verify(handler).validate(any());
+        verify(handler).submission(any());
+        verify(handler, never()).afterSubmitted(any());
+        verify(handler, never()).afterOutcome(any(), any());
         verifyNoInteractions(engine, ledger);
         verify(instanceService).findByModelNameAndRowId(MODEL, ROW);
         verifyNoMoreInteractions(instanceService);
@@ -238,7 +294,7 @@ class FlowApprovalPreviewTest {
 
         assertEquals(List.of("manager"), nodeIds(launchService.previewRecord(MODEL, ROW, SUBMITTER)));
 
-        when(handler.prepare(ROW)).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 7)));
+        when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 7)));
         assertEquals(List.of("hr"), nodeIds(launchService.previewRecord(MODEL, ROW, SUBMITTER)));
     }
 
@@ -344,7 +400,7 @@ class FlowApprovalPreviewTest {
     void theRecordsOwnRefusalIsReportedNotThrown() {
         publishService.publish("annual", chain("Annual leave", null,
                 approval("manager", "Manager", Map.of("approvers", List.of(MANAGER)))));
-        when(handler.prepare(ROW)).thenThrow(new BusinessException("Only the requester can submit this leave."));
+        doThrow(new BusinessException("Only the requester can submit this leave.")).when(handler).validate(any());
 
         FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
 
@@ -366,6 +422,23 @@ class FlowApprovalPreviewTest {
 
         assertEquals(Status.REFUSED, preview.getStatus());
         assertEquals("This record is already in approval.", preview.getMessage());
+    }
+
+    @Test
+    void aRecordPendingOrApprovedIsReportedAsRefusedBeforeItsHandlerIsAsked() {
+        publishService.publish("annual", chain("Annual leave", null,
+                approval("manager", "Manager", Map.of("approvers", List.of(MANAGER)))));
+
+        record.put("approvalStatus", "Pending");
+        FlowApprovalPreview pending = launchService.previewRecord(MODEL, ROW, SUBMITTER);
+        record.put("approvalStatus", "Approved");
+        FlowApprovalPreview approved = launchService.previewRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals(Status.REFUSED, pending.getStatus());
+        assertEquals("This record is already in approval.", pending.getMessage());
+        assertEquals(Status.REFUSED, approved.getStatus());
+        assertEquals("This record is approved and cannot be submitted again.", approved.getMessage());
+        verify(handler, never()).validate(any());
     }
 
     @Test
@@ -400,7 +473,7 @@ class FlowApprovalPreviewTest {
         when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
 
         assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, SUBMITTER));
-        verify(handler, never()).prepare(anyString());
+        verify(handler, never()).validate(any());
     }
 
     private static List<StepOutcome> outcomes(FlowApprovalPreview preview) {
@@ -453,7 +526,7 @@ class FlowApprovalPreviewTest {
                                              List<FlowGraphEdge> edges) {
         return DesignFlowDefinition.builder()
                 .name(name)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.APPROVAL)
                 .trigger(new SubmitTrigger(MODEL, submitCondition))
                 .graph(FlowGraphDocument.builder().nodes(nodes).edges(edges).build())
                 .build();

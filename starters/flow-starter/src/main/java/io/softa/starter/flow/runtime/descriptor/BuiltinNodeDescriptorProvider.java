@@ -3,15 +3,16 @@ package io.softa.starter.flow.runtime.descriptor;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.stream.Stream;
 
 import org.springframework.stereotype.Component;
 
 import io.softa.starter.flow.design.FlowNodeDescriptor;
 import io.softa.starter.flow.design.FlowNodeDescriptor.Ports;
 import io.softa.starter.flow.design.FlowNodeDescriptorProvider;
+import io.softa.starter.flow.enums.ApproverDeptScope;
+import io.softa.starter.flow.enums.ApproverRelativeTo;
 import io.softa.starter.flow.enums.FlowNodeType;
-import io.softa.starter.flow.enums.FlowScenario;
 
 /**
  * Provides {@link FlowNodeDescriptor}s for structural (non-executor) node types.
@@ -27,29 +28,39 @@ import io.softa.starter.flow.enums.FlowScenario;
 @Component
 public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider {
 
-    private static final Set<FlowScenario> ALL_SCENARIOS = Set.of(FlowScenario.values());
-    private static final Set<FlowScenario> PROCESS_ONLY = Set.of(FlowScenario.PROCESS);
+    /** What the designer shows for each {@link ApproverRelativeTo}. */
+    private static final Map<String, String> RELATIVE_TO_LABELS = Map.of(
+            "SUBJECT", "The employee the record is about",
+            "INITIATOR", "The submitter");
+
+    /** What the designer shows for each {@link ApproverDeptScope}. */
+    private static final Map<String, String> DEPT_SCOPE_LABELS = Map.of(
+            "ALL", "Any department",
+            "SUBJECT_DEPT", "Department of the employee the record is about",
+            "INITIATOR_DEPT", "Submitter's department",
+            "SPECIFIC_DEPT", "A specific department",
+            "VARIABLE_DEPT", "Department held by a variable");
 
     @Override
     public List<FlowNodeDescriptor> getDescriptors() {
         return List.of(
-                structural(FlowNodeType.START,             "Start",            "Flow entry point",                    "circle-play",      0,  Ports.entry(),    ALL_SCENARIOS),
-                structural(FlowNodeType.END,               "End",              "Flow terminal point",                 "circle-stop",      1,  Ports.terminal(), ALL_SCENARIOS),
-                structural(FlowNodeType.TIMER,             "Timer",            "Scheduled wait node",                 "clock",            5,  null, PROCESS_ONLY, timerConfigSchema()),
-                structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "circle-check",     10, null, PROCESS_ONLY, approvalConfigSchema()),
+                structural(FlowNodeType.START,             "Start",            "Flow entry point",                    "circle-play",      0,  Ports.entry()),
+                structural(FlowNodeType.END,               "End",              "Flow terminal point",                 "circle-stop",      1,  Ports.terminal()),
+                structural(FlowNodeType.TIMER,             "Timer",            "Scheduled wait node",                 "clock",            5,  null, timerConfigSchema()),
+                structural(FlowNodeType.APPROVAL,          "Approval",         "Human approval node",                 "circle-check",     10, null, approvalConfigSchema()),
                 // HUMAN_TASK is intentionally omitted: the runtime has no human-task wait
                 // (dedicated wait token, assignee resolution, completion API) and the node is
                 // rejected at compile time. Restore this entry (+ humanTaskConfigSchema) from
                 // version control when the runtime lands.
-                structural(FlowNodeType.INCLUSIVE_GATEWAY, "Inclusive Gateway","Routes to every matching edge",       "git-merge",        21, null, PROCESS_ONLY),
-                structural(FlowNodeType.PARALLEL_FORK,     "Parallel Fork",    "Forks into parallel branches (branches execute serially, in order)", "git-fork", 22, null, PROCESS_ONLY),
-                structural(FlowNodeType.PARALLEL_JOIN,     "Parallel Join",    "Waits for all forked branches",       "git-pull-request", 23, null, PROCESS_ONLY),
-                structural(FlowNodeType.SCRIPT,            "Script",           "AviatorScript expression node",       "terminal",         30, null, ALL_SCENARIOS, scriptConfigSchema()),
+                structural(FlowNodeType.INCLUSIVE_GATEWAY, "Inclusive Gateway","Routes to every matching edge",       "git-merge",        21, null),
+                structural(FlowNodeType.PARALLEL_FORK,     "Parallel Fork",    "Forks into parallel branches (branches execute serially, in order)", "git-fork", 22, null),
+                structural(FlowNodeType.PARALLEL_JOIN,     "Parallel Join",    "Waits for all forked branches",       "git-pull-request", 23, null),
+                structural(FlowNodeType.SCRIPT,            "Script",           "AviatorScript expression node",       "terminal",         30, null, scriptConfigSchema()),
                 // FOR_EACH is intentionally omitted: its runtime child-node iteration is not yet
                 // implemented and it is rejected at compile time. Restore this entry
                 // (+ forEachConfigSchema) from version control when the runtime lands.
-                structural(FlowNodeType.SUBFLOW,           "Subflow",          "Calls another flow (synchronous-only: the subflow must not wait on approvals or timers)", "layers", 32, null, PROCESS_ONLY, subflowConfigSchema()),
-                structural(FlowNodeType.RETURN_VALUE,      "Return Value",     "Returns named values from the flow",  "corner-down-left", 33, null, ALL_SCENARIOS, returnValueConfigSchema())
+                structural(FlowNodeType.SUBFLOW,           "Subflow",          "Calls a flow with a Subflow trigger (synchronous-only: it must not wait on timers or async tasks)", "layers", 32, null, subflowConfigSchema()),
+                structural(FlowNodeType.RETURN_VALUE,      "Return Value",     "Returns named values from the flow",  "corner-down-left", 33, null, returnValueConfigSchema())
                 // GENERATE_FILE is deliberately NOT listed here: GenerateFileTaskExecutor
                 // (conditional on DocumentTemplateService) contributes its descriptor, and a
                 // second entry here would trip the registry's duplicate-type boot check.
@@ -57,16 +68,15 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
     }
 
     private static FlowNodeDescriptor structural(FlowNodeType type, String label, String description,
-                                                 String icon, int sortOrder, Ports ports,
-                                                 Set<FlowScenario> scenarios) {
-        return structural(type, label, description, icon, sortOrder, ports, scenarios, Map.of());
+                                                 String icon, int sortOrder, Ports ports) {
+        return structural(type, label, description, icon, sortOrder, ports, Map.of());
     }
 
     private static FlowNodeDescriptor structural(FlowNodeType type, String label, String description,
                                                  String icon, int sortOrder, Ports ports,
-                                                 Set<FlowScenario> scenarios, Map<String, Object> configSchema) {
+                                                 Map<String, Object> configSchema) {
         return FlowNodeDescriptor.of(type, label, description, icon, sortOrder, ports,
-                configSchema, Map.of(), scenarios, true);
+                configSchema, Map.of(), type.getScenarios(), true);
     }
 
     /** Insertion-ordered map builder — property panels render fields in this order. */
@@ -99,33 +109,34 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                         ordered("type", "InitiatorManager", "label", "Initiator's manager (variable)"),
                         ordered("type", "Role", "label", "Role (variable)",
                                 "fields", ordered("roleCode", ordered("type", "string", "label", "Role code", "required", true))),
+                        // Org-relative sources start from the record's subject — the employee it is about — unless
+                        // they say the initiator, so a request filed on someone's behalf goes to their approvers.
                         ordered("type", "Supervisor", "label", "Supervisor",
-                                "fields", ordered("level", ordered("type", "number", "label", "Level", "default", 1, "min", 1))),
-                        ordered("type", "DeptLeader", "label", "Department leader",
-                                "fields", ordered("deptId", ordered("type", "deptPicker", "label", "Department (blank = initiator's)"))),
-                        ordered("type", "DeptHrbp", "label", "Department HRBP",
-                                "fields", ordered("deptId", ordered("type", "deptPicker", "label", "Department (blank = initiator's)"))),
-                        ordered("type", "RoleQuery", "label", "Role query",
                                 "fields", ordered(
+                                        "relativeTo", ordered("type", "enum", "label", "Supervisor of",
+                                                "options", enumNames(ApproverRelativeTo.values()), "default", "SUBJECT",
+                                                "optionLabels", RELATIVE_TO_LABELS),
+                                        "level", ordered("type", "number", "label", "Level", "default", 1, "min", 1))),
+                        ordered("type", "DeptLeader", "label", "Department leader",
+                                "fields", deptScopeFields(false, "SUBJECT_DEPT")),
+                        ordered("type", "DeptHrbp", "label", "Department HRBP",
+                                "fields", deptScopeFields(false, "SUBJECT_DEPT")),
+                        ordered("type", "RoleQuery", "label", "Role query",
+                                "fields", concat(ordered(
                                         // Either list, or both. Ids reach every role, the tenant's own included; codes reach
                                         // the built-in roles (admin-created ones have none) and are the same in every tenant,
                                         // so a flow seeded to many tenants names roles by code.
                                         "roleIds", ordered("type", "rolePicker", "label", "Roles", "multiple", true),
                                         "roleCodes", ordered("type", "rolePicker", "label", "Built-in roles", "multiple", true,
-                                                "valueField", "code"),
-                                        "deptScope", ordered("type", "enum", "label", "Department scope",
-                                                "options", List.of("ALL", "INITIATOR_DEPT", "SPECIFIC_DEPT"), "default", "ALL"),
-                                        "deptId", ordered("type", "deptPicker", "label", "Department",
-                                                "depends", Map.of("deptScope", "SPECIFIC_DEPT")))),
+                                                "valueField", "code")),
+                                        deptScopeFields(false, "ALL"))),
                         ordered("type", "Position", "label", "Position",
                                 "fields", ordered("positionIds", ordered("type", "positionPicker", "label", "Positions",
                                         "multiple", true, "required", true))),
                         ordered("type", "Department", "label", "Department members",
-                                "fields", ordered(
-                                        "deptIds", ordered("type", "deptPicker", "label", "Departments", "multiple", true),
-                                        "deptScope", ordered("type", "enum", "label", "Department scope",
-                                                "options", List.of("SPECIFIC", "INITIATOR_DEPT"), "default", "SPECIFIC"),
-                                        "includeSubDepts", ordered("type", "boolean", "label", "Include sub-departments", "default", false)))
+                                "fields", concat(deptScopeFields(true, "SPECIFIC_DEPT"),
+                                        ordered("includeSubDepts", ordered("type", "boolean", "label", "Include sub-departments",
+                                                "default", false))))
                 )));
         schema.put("emptyApproverStrategy", ordered("type", "enum", "label", "Empty-approver strategy",
                 "options", List.of("ERROR", "AUTO_APPROVE", "SKIP"), "default", "ERROR"));
@@ -142,9 +153,42 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
         schema.put("timeout", ordered("type", "approvalTimeout", "label", "Timeout configuration"));
         // ── Return policy: a return goes to the initiator and ends the instance ──
         schema.put("returnEnabled",      ordered("type", "boolean", "label", "Allow return to initiator"));
+        // ── Handling step: the approver fills in the step's fields and submits, never in a batch ──
+        schema.put("handling",           ordered("type", "boolean", "label", "Handling step (approver submits)"));
         // ── Form field permissions ────────────────────────────────────────────
         schema.put("formPermissions", ordered("type", "fieldPermissionMap", "label", "Field permissions"));
         return schema;
+    }
+
+    /**
+     * The department a department-based source works on: {@code deptScope} — {@code ALL} offered only
+     * when {@code defaultScope} is it (a role query) — with the department it names when specific (one,
+     * or several for {@code multipleDepts}) and the variable that holds it otherwise.
+     */
+    private static Map<String, Object> deptScopeFields(boolean multipleDepts, String defaultScope) {
+        List<String> scopes = Stream.of(ApproverDeptScope.values())
+                .filter(scope -> scope != ApproverDeptScope.ALL || "ALL".equals(defaultScope))
+                .map(Enum::name)
+                .toList();
+        return ordered(
+                "deptScope", ordered("type", "enum", "label", "Department", "options", scopes, "default", defaultScope,
+                        "optionLabels", DEPT_SCOPE_LABELS),
+                multipleDepts ? "deptIds" : "deptId", ordered("type", "deptPicker", "label", multipleDepts ? "Departments" : "Department",
+                        "multiple", multipleDepts, "depends", Map.of("deptScope", "SPECIFIC_DEPT")),
+                "deptVariable", ordered("type", "variableRef", "label", "Variable holding the department id",
+                        "depends", Map.of("deptScope", "VARIABLE_DEPT")));
+    }
+
+
+    /** {@code fields}, then {@code more}, in that order. */
+    private static Map<String, Object> concat(Map<String, Object> fields, Map<String, Object> more) {
+        Map<String, Object> merged = new LinkedHashMap<>(fields);
+        merged.putAll(more);
+        return merged;
+    }
+
+    private static List<String> enumNames(Enum<?>[] values) {
+        return Stream.of(values).map(Enum::name).toList();
     }
 
     private static Map<String, Object> scriptConfigSchema() {

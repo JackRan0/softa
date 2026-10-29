@@ -37,7 +37,7 @@ class CronSchedulerStartTest {
     void setUp() {
         jdbcService = mock(JdbcService.class);
         scheduler = mock(ScheduledExecutorService.class);
-        // The scheduler caches the handle it gets back, and that cache rejects a null value
+        // A handle for every run, as a real executor hands back
         doReturn(mock(ScheduledFuture.class)).when(scheduler).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
         SchedulerPool schedulerPool = mock(SchedulerPool.class);
         when(schedulerPool.getScheduler()).thenReturn(scheduler);

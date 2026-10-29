@@ -11,20 +11,6 @@ import io.softa.starter.cron.entity.SysCron;
 public interface SysCronService extends EntityService<SysCron, Long> {
 
     /**
-     * Activate one cron job.
-     *
-     * @param cronId Cron ID
-     */
-    void activateCron(Long cronId);
-
-    /**
-     * Activate multiple cron jobs.
-     *
-     * @param cronIds Cron IDs
-     */
-    void activateCronList(List<Long> cronIds);
-
-    /**
      * Execute the specified cron job immediately
      *
      * @param cronId Cron job ID

@@ -27,7 +27,7 @@ class FlowVariableCatalogServiceTest {
     void availableVariables_collectsOnlyUpstreamOutputs() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Var Flow")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -64,7 +64,7 @@ class FlowVariableCatalogServiceTest {
     void availableVariables_withoutNodeIdReturnsTriggerAndBuiltinsOnly() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Var Flow")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(node("script1", FlowNodeType.SCRIPT,

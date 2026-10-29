@@ -238,7 +238,7 @@ class OrmFlowBundleRegistryTenantTest {
     private static CompiledFlowDefinition orderFlow(String flowName) {
         return CompiledFlowDefinition.builder()
                 .flowName(flowName)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .compiledAt(LocalDateTime.now())
                 .sync(false)
                 .trigger(new EntityChangeTrigger("Order", List.of(ChangeEvent.CREATE), null))

@@ -9,8 +9,11 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.entity.FlowDelegation;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.service.FlowDelegationService;
 
@@ -70,6 +73,19 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
                 .filter(d -> requesterId != null && requesterId.equals(d.getDelegatorId()))
                 .orElseThrow(() -> new FlowAuthorizationException(
                         "You have no delegation " + delegationId + " to cancel"));
+        delegation.setActive(false);
+        this.updateOne(delegation, false);
+    }
+
+    @Override
+    public List<FlowDelegation> listAll() {
+        return this.searchList(new FlexQuery(new Filters(), Orders.ofDesc(FlowDelegation::getCreatedTime)));
+    }
+
+    @Override
+    public void deactivate(Long delegationId) {
+        FlowDelegation delegation = this.getById(delegationId)
+                .orElseThrow(() -> new FlowActionValidationException("No delegation " + delegationId + " to cancel"));
         delegation.setActive(false);
         this.updateOne(delegation, false);
     }

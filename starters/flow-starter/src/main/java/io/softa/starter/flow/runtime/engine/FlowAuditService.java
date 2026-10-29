@@ -90,6 +90,29 @@ public class FlowAuditService {
                 .build());
     }
 
+    /**
+     * Record that a CC rule CC'd a recipient: a {@code CC} entry like a manual CC's, with no actor — no person
+     * sent it — on the node and cycle the rule fired at.
+     */
+    public void appendAutoCcAudit(FlowExecutionState state,
+                                  CompiledFlowNode node,
+                                  Integer cycleNumber,
+                                  String targetActorId,
+                                  String comment) {
+        appendApprovalAudit(state, ApprovalActionAuditEntry.builder()
+                .action(ApprovalActionType.CC)
+                .flowId(state.getFlowId())
+                .flowRevision(state.getFlowRevision())
+                .nodeId(node.getNodeId())
+                .nodeLabel(node.getLabel())
+                .cycleNumber(cycleNumber)
+                .targetActorId(targetActorId)
+                .comment(comment)
+                .statusBefore(state.getStatus())
+                .statusAfter(state.getStatus())
+                .build());
+    }
+
     public Optional<ApprovalActionAuditEntry> findCcAudit(FlowExecutionState state,
                                                           String nodeId,
                                                           Integer cycleNumber,

@@ -83,6 +83,26 @@ class InboxNotificationServiceImplTest {
         Assertions.assertNotNull(patch.getReadAt());
     }
 
+    // ========== markReadBySource Tests ==========
+
+    @Test
+    void markReadBySourceMarksTheRecipientsUnreadNoticesOfThatSourceOnly() {
+        var filterCaptor = ArgumentCaptor.forClass(Filters.class);
+        var patchCaptor = ArgumentCaptor.forClass(InboxNotification.class);
+        doReturn(2).when(service).updateByFilter(filterCaptor.capture(), patchCaptor.capture());
+
+        int marked = service.markReadBySource(42L, "FlowInstance", "inst-9");
+
+        Assertions.assertEquals(2, marked);
+        String filters = filterCaptor.getValue().toString();
+        Assertions.assertTrue(filters.contains("recipientId") && filters.contains("42"), filters);
+        Assertions.assertTrue(filters.contains("sourceModel") && filters.contains("FlowInstance"), filters);
+        Assertions.assertTrue(filters.contains("sourceId") && filters.contains("inst-9"), filters);
+        Assertions.assertTrue(filters.contains("isRead"), filters);
+        Assertions.assertTrue(patchCaptor.getValue().getIsRead());
+        Assertions.assertNotNull(patchCaptor.getValue().getReadAt());
+    }
+
     // ========== countUnread Tests ==========
 
     @Test

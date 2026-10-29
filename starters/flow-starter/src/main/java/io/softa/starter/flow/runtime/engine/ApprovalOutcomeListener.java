@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import io.softa.framework.base.context.ContextUtils;
 import io.softa.starter.flow.enums.ApprovalOutcomeType;
 import io.softa.starter.flow.runtime.spi.ApprovalOutcome;
 import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
@@ -17,19 +16,21 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
 /**
- * Writes the result of a submitted record's approval back to the record, through its model's
- * {@link ModelApprovalHandler}. The single place results reach business records: it runs inside the
- * action that produced the result — the same transaction, so a handler that throws vetoes the
- * action — with permission checks skipped, since approvers rarely hold update rights on the
- * records they decide on and the engine has already authorized them.
+ * Writes the result of a submitted record's approval back to the record, through
+ * {@link ApprovalStatusWriter}, which then hands it to its model's {@link ModelApprovalHandler}.
+ * The single place results reach business records: it runs inside the action that produced the
+ * result — the same transaction, so a handler that throws vetoes the action — with permission checks
+ * skipped, since approvers rarely hold update rights on the records they decide on and the engine has
+ * already authorized them.
  *
  * <p>Only a record's approval — the instance its submission started — is written back: other
  * instances running on the same record (automation, debug runs of the same flow) are not its
  * approval. A failed instance writes nothing; its submitter takes the record back by withdrawing it.
  *
  * <p>An instance that already has its result is saved again when someone comments on it or reads
- * a CC. Such a save starts and ends in the same status and is not handed on; handlers must still be
- * idempotent, as a save without audit entries (a resumed async step) cannot be told apart.
+ * a CC. Such a save starts and ends in the same status and is not handed on. A save without audit
+ * entries (a resumed async step) cannot be told apart, so the writer takes a result only onto a record
+ * still in approval.
  */
 @Slf4j
 @Component
@@ -37,11 +38,14 @@ public class ApprovalOutcomeListener implements FlowStateChangeListener {
 
     private final ModelApprovalHandlerRegistry handlerRegistry;
     private final ApprovalAuditReader auditReader;
+    private final ApprovalStatusWriter statusWriter;
 
     public ApprovalOutcomeListener(ModelApprovalHandlerRegistry handlerRegistry,
-                                   ApprovalAuditReader auditReader) {
+                                   ApprovalAuditReader auditReader,
+                                   ApprovalStatusWriter statusWriter) {
         this.handlerRegistry = handlerRegistry;
         this.auditReader = auditReader;
+        this.statusWriter = statusWriter;
     }
 
     @Override
@@ -51,7 +55,7 @@ public class ApprovalOutcomeListener implements FlowStateChangeListener {
                 || !StringUtils.hasText(state.getRowId()) || alreadyInThisStatus(state)) {
             return;
         }
-        Optional<ModelApprovalHandler> handler = handlerRegistry.find(state.getModelName());
+        Optional<ModelApprovalHandler<?>> handler = handlerRegistry.find(state.getModelName());
         if (handler.isEmpty()) {
             log.warn("Approval instance {} of {} {} ended {} but the model has no approval handler; "
                     + "nothing was written back", state.getInstanceId(), state.getModelName(), state.getRowId(), type);
@@ -63,7 +67,7 @@ public class ApprovalOutcomeListener implements FlowStateChangeListener {
                 ? null : deciding.getComment();
         ApprovalOutcome outcome = new ApprovalOutcome(type, state.getInstanceId(),
                 deciding == null ? null : deciding.getActorId(), comment);
-        ContextUtils.withoutPermissionChecks(() -> handler.get().onOutcome(state.getRowId(), outcome));
+        statusWriter.concluded(handler.get(), state.getRowId(), outcome);
     }
 
     /** The outcome an instance status stands for; null while it still runs or when it failed. */
@@ -98,7 +102,7 @@ public class ApprovalOutcomeListener implements FlowStateChangeListener {
             case REJECTED -> Set.of(ApprovalActionType.REJECT);
             case RETURNED -> Set.of(ApprovalActionType.RETURN);
             case WITHDRAWN -> Set.of(ApprovalActionType.WITHDRAW);
-            case CANCELLED -> Set.of();
+            case CANCELLED -> Set.of(ApprovalActionType.TERMINATE);
         };
         if (deciding.isEmpty()) {
             return null;

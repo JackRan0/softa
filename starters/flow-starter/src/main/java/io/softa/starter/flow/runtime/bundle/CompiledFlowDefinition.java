@@ -16,6 +16,8 @@ import lombok.NoArgsConstructor;
 import io.softa.starter.flow.design.FlowFormBinding;
 import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
+import io.softa.starter.flow.enums.SelfApprovalStrategy;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.enums.FlowScenario;
 
 /**
@@ -51,8 +53,11 @@ public class CompiledFlowDefinition {
     @Schema(description = "Compiled form bindings")
     private List<FlowFormBinding> forms;
 
-    @Schema(description = "Whether the initiator can withdraw the flow before approval completes")
-    private Boolean allowInitiatorWithdraw;
+    @Schema(description = "Until when the initiator may withdraw an approval in progress; Never for any other flow")
+    private WithdrawPolicy withdrawPolicy;
+
+    @Schema(description = "Whether the approval's notices are also emailed; null = on")
+    private Boolean emailNotification;
 
     @Schema(description = "Whether the flow executes synchronously within the triggering transaction")
     private Boolean sync;
@@ -63,12 +68,16 @@ public class CompiledFlowDefinition {
     @Schema(description = "Approver consolidation policy (审批人去重); null = GLOBAL at runtime")
     private ApproverDedupStrategy approverDedup;
 
+    @Schema(description = "What a step does when the record's own people are among its approvers (本人是审批人时); "
+            + "null = AutoApprove at runtime")
+    private SelfApprovalStrategy selfApproval;
+
     /**
      * Declared output variable names.
      * <ul>
      *   <li>Required for {@link FlowScenario#VALIDATION} and {@link FlowScenario#COMPUTE}
      *       flows — the caller inspects these keys from {@code FlowExecutionState.outputs}.</li>
-     *   <li>Optional for {@link FlowScenario#PROCESS} flows.</li>
+     *   <li>Optional for {@link FlowScenario#APPROVAL} and {@link FlowScenario#AUTOMATION} flows.</li>
      * </ul>
      */
     @Schema(description = "Variable names this flow promises to produce in FlowExecutionState.outputs")

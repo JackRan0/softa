@@ -10,6 +10,7 @@ import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.ApiTrigger;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.api.FlowApproveRequest;
@@ -153,7 +154,7 @@ class FlowEndToEndExecutionTest {
     private static DesignFlowDefinition returnValueFlow() {
         return DesignFlowDefinition.builder()
                 .name("E2E Return Value")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -181,8 +182,8 @@ class FlowEndToEndExecutionTest {
     private static DesignFlowDefinition parallelMixedWaitFlow() {
         return DesignFlowDefinition.builder()
                 .name("E2E Parallel Mixed Wait")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
@@ -275,7 +276,7 @@ class FlowEndToEndExecutionTest {
     private static DesignFlowDefinition failingFlow() {
         return DesignFlowDefinition.builder()
                 .name("E2E Failing")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
@@ -295,8 +296,8 @@ class FlowEndToEndExecutionTest {
     private static DesignFlowDefinition flowDefinition() {
         return DesignFlowDefinition.builder()
                 .name("E2E Approval Then Service")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),

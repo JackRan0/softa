@@ -38,25 +38,31 @@ class ApproverResolutionServiceOrgTest {
     // ── Supervisor ──────────────────────────────────────────────────────
 
     @Test
-    void supervisorResolvesDirectManager() {
-        when(orgService.getSupervisor(100L, 1))
-                .thenReturn(new ApproverInfo(200L, "Manager"));
+    void supervisorIsTheSubjectsByDefault() {
+        // HR (account 100, employee 1000) submits for employee 5000.
+        when(orgService.getSupervisorOfEmployee(5000L, 2)).thenReturn(new ApproverInfo(200L, "Subject's manager"));
 
-        CompiledFlowNode node = approvalNode(Map.of(
-                "type", "Supervisor",
-                "level", 1));
-
-        Map<String, Object> vars = varsWithInitiator("100");
-        List<String> result = service.resolveApprovers(node, vars);
+        CompiledFlowNode node = approvalNode(Map.of("type", "Supervisor", "level", 2));
+        List<String> result = service.resolveApprovers(node, varsWithSubject("100", 5000L));
 
         assertEquals(List.of("200"), result);
-        verify(orgService).getSupervisor(100L, 1);
+        verify(orgService, never()).getEmployeeIdOfUser(any());
     }
 
     @Test
-    void supervisorDefaultsToLevel1() {
-        when(orgService.getSupervisor(100L, 1))
-                .thenReturn(new ApproverInfo(200L, "Manager"));
+    void supervisorRelativeToTheInitiatorIsTheSubmittersOwn() {
+        when(orgService.getEmployeeIdOfUser(100L)).thenReturn(1000L);
+        when(orgService.getSupervisorOfEmployee(1000L, 1)).thenReturn(new ApproverInfo(300L, "HR's manager"));
+
+        CompiledFlowNode node = approvalNode(Map.of("type", "Supervisor", "relativeTo", "INITIATOR"));
+
+        assertEquals(List.of("300"), service.resolveApprovers(node, varsWithSubject("100", 5000L)));
+    }
+
+    @Test
+    void withoutARecordTheSupervisorIsTheInitiatorsAtLevel1() {
+        when(orgService.getEmployeeIdOfUser(100L)).thenReturn(1000L);
+        when(orgService.getSupervisorOfEmployee(1000L, 1)).thenReturn(new ApproverInfo(200L, "Manager"));
 
         CompiledFlowNode node = approvalNode(Map.of("type", "Supervisor"));
         List<String> result = service.resolveApprovers(node, varsWithInitiator("100"));
@@ -66,10 +72,10 @@ class ApproverResolutionServiceOrgTest {
 
     @Test
     void supervisorReturnsEmptyWhenNoManager() {
-        when(orgService.getSupervisor(100L, 1)).thenReturn(null);
+        when(orgService.getSupervisorOfEmployee(5000L, 1)).thenReturn(null);
 
         CompiledFlowNode node = approvalNode(Map.of("type", "Supervisor", "level", 1));
-        List<String> result = service.resolveApprovers(node, varsWithInitiator("100"));
+        List<String> result = service.resolveApprovers(node, varsWithSubject("100", 5000L));
 
         assertTrue(result.isEmpty());
     }
@@ -83,6 +89,7 @@ class ApproverResolutionServiceOrgTest {
 
         CompiledFlowNode node = approvalNode(Map.of(
                 "type", "DeptLeader",
+                "deptScope", "SPECIFIC_DEPT",
                 "deptId", 10));
 
         List<String> result = service.resolveApprovers(node, varsWithInitiator("100"));
@@ -92,28 +99,41 @@ class ApproverResolutionServiceOrgTest {
     }
 
     @Test
-    void deptLeaderDefaultsToInitiatorDept() {
-        when(orgService.getUserDeptId(100L)).thenReturn(10L);
+    void deptLeaderDefaultsToTheSubjectsDept() {
+        when(orgService.getDeptIdOfEmployee(5000L)).thenReturn(10L);
         when(orgService.getDeptLeader(10L))
                 .thenReturn(new ApproverInfo(300L, "Leader"));
 
         CompiledFlowNode node = approvalNode(Map.of("type", "DeptLeader"));
-        List<String> result = service.resolveApprovers(node, varsWithInitiator("100"));
+        List<String> result = service.resolveApprovers(node, varsWithSubject("100", 5000L));
 
         assertEquals(List.of("300"), result);
     }
 
-    // ── RoleQuery ───────────────────────────────────────────────────────
+    @Test
+    void deptLeaderOfTheDepartmentAVariableHolds() {
+        // A transfer's receiving department.
+        when(orgService.getDeptLeader(20L)).thenReturn(new ApproverInfo(310L, "Receiving leader"));
+
+        CompiledFlowNode node = approvalNode(Map.of("type", "DeptLeader",
+                "deptScope", "VARIABLE_DEPT", "deptVariable", "toDeptId"));
+        Map<String, Object> vars = varsWithSubject("100", 5000L);
+        vars.put("toDeptId", 20L);
+
+        assertEquals(List.of("310"), service.resolveApprovers(node, vars));
+    }
 
     @Test
-    void deptHrbpDefaultsToInitiatorDept() {
-        when(orgService.getUserDeptId(100L)).thenReturn(10L);
+    void deptHrbpDefaultsToTheSubjectsDept() {
+        when(orgService.getDeptIdOfEmployee(5000L)).thenReturn(10L);
         when(orgService.getDeptHrbp(10L)).thenReturn(new ApproverInfo(400L, "HRBP"));
 
         CompiledFlowNode node = approvalNode(Map.of("type", "DeptHrbp"));
 
-        assertEquals(List.of("400"), service.resolveApprovers(node, varsWithInitiator("100")));
+        assertEquals(List.of("400"), service.resolveApprovers(node, varsWithSubject("100", 5000L)));
     }
+
+    // ── RoleQuery ───────────────────────────────────────────────────────
 
     @Test
     void roleQueryResolvesHoldersOfRolesNamedByIdAndByCode() {
@@ -152,16 +172,30 @@ class ApproverResolutionServiceOrgTest {
                 .thenReturn(List.of(
                         new ApproverInfo(400L, "User1", 10L, "Dept1"),
                         new ApproverInfo(401L, "User2", 20L, "Dept2")));
-        when(orgService.getUserDeptId(100L)).thenReturn(10L);
+        when(orgService.getEmployeeIdOfUser(100L)).thenReturn(1000L);
+        when(orgService.getDeptIdOfEmployee(1000L)).thenReturn(10L);
 
         CompiledFlowNode node = approvalNode(Map.of(
                 "type", "RoleQuery",
                 "roleIds", List.of(1),
                 "deptScope", "INITIATOR_DEPT"));
 
-        List<String> result = service.resolveApprovers(node, varsWithInitiator("100"));
+        List<String> result = service.resolveApprovers(node, varsWithSubject("100", 5000L));
 
         assertEquals(List.of("400"), result);
+    }
+
+    @Test
+    void roleQueryNarrowedToADepartmentThatCannotBeToldResolvesNobody() {
+        when(orgService.getUsersByRoleIds(List.of(1L)))
+                .thenReturn(List.of(new ApproverInfo(400L, "User1", 10L, "Dept1")));
+
+        CompiledFlowNode node = approvalNode(Map.of(
+                "type", "RoleQuery",
+                "roleIds", List.of(1),
+                "deptScope", "SUBJECT_DEPT"));
+
+        assertTrue(service.resolveApprovers(node, varsWithSubject("100", 5000L)).isEmpty());
     }
 
     @Test
@@ -237,7 +271,8 @@ class ApproverResolutionServiceOrgTest {
 
     @Test
     void departmentUsesInitiatorDeptScope() {
-        when(orgService.getUserDeptId(100L)).thenReturn(10L);
+        when(orgService.getEmployeeIdOfUser(100L)).thenReturn(1000L);
+        when(orgService.getDeptIdOfEmployee(1000L)).thenReturn(10L);
         when(orgService.getUsersByDeptIds(List.of(10L), false))
                 .thenReturn(List.of(new ApproverInfo(600L, "Emp1")));
 
@@ -310,6 +345,13 @@ class ApproverResolutionServiceOrgTest {
                 .type(FlowNodeType.APPROVAL)
                 .parsedConfig(cfg)
                 .build();
+    }
+
+    /** A record's approval: submitted by {@code initiatorId}, about employee {@code subjectId}. */
+    private Map<String, Object> varsWithSubject(String initiatorId, Long subjectId) {
+        Map<String, Object> vars = varsWithInitiator(initiatorId);
+        vars.put(ApproverResolutionService.SUBJECT_ID_KEY, subjectId);
+        return vars;
     }
 
     private Map<String, Object> varsWithInitiator(String initiatorId) {

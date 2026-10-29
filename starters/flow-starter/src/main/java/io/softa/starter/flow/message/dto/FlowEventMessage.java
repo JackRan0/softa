@@ -23,6 +23,9 @@ public class FlowEventMessage {
     /** Trigger type string (maps to FlowTriggerType). */
     private String triggerType;
 
+    /** Identity of the event (a change log's uuid), carried so a run is started at most once per event. */
+    private String eventId;
+
     /** Source model for entity-related triggers. */
     private String sourceModel;
 

@@ -51,7 +51,7 @@ public class OrmFlowBundleRegistryTest {
 
         assertEquals("Mapper flow", entity.getFlowName());
         assertEquals(1, entity.getRevision());
-        assertEquals(FlowScenario.PROCESS, entity.getScenario());
+        assertEquals(FlowScenario.AUTOMATION, entity.getScenario());
         assertTrue(entity.getActive());
         assertNotNull(entity.getCompiledJson());
 
@@ -351,7 +351,7 @@ public class OrmFlowBundleRegistryTest {
                 + slug.substring(1).replace("-", " ").replace("_", " ");
         return CompiledFlowDefinition.builder()
                 .flowName(flowName)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .compiledAt(LocalDateTime.now())
                 .revision(revision)
                 .sync(false)
@@ -370,7 +370,6 @@ public class OrmFlowBundleRegistryTest {
                         "e2", CompiledFlowTransition.builder().edgeId("e2").source("task1").target("end").build()
                 ))
                 .capabilitySummary(CompiledFlowCapabilitySummary.builder()
-                        .hasApproval(false)
                         .hasSubflow(false)
                         .hasParallelGateway(false)
                         .hasLoop(false)

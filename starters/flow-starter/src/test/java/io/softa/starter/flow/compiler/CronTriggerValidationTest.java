@@ -1,6 +1,7 @@
 package io.softa.starter.flow.compiler;
 
 import java.util.List;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -30,14 +31,14 @@ class CronTriggerValidationTest {
     @ValueSource(strings = {"0 0 9 ? * MON-FRI", "0 */5 * * * ?", "0 0 2 1 1 ? 2099"})
     void quartzExpressionCompiles(String cronExpression) {
         assertEquals(new CronTrigger(cronExpression),
-                compiler.compile(cronFlow(FlowScenario.PROCESS, cronExpression)).getTrigger());
+                compiler.compile(cronFlow(FlowScenario.AUTOMATION, cronExpression)).getTrigger());
     }
 
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {"   "})
     void blankExpressionIsRejected(String cronExpression) {
-        assertEquals(List.of("CRON_MISSING_EXPRESSION"), codes(cronFlow(FlowScenario.PROCESS, cronExpression)));
+        assertEquals(List.of("CRON_MISSING_EXPRESSION"), codes(cronFlow(FlowScenario.AUTOMATION, cronExpression)));
     }
 
     @ParameterizedTest
@@ -49,7 +50,7 @@ class CronTriggerValidationTest {
             // Quartz takes a day of the month or a day of the week, not both
             "0 0 9 1 * MON"})
     void unparsableExpressionIsRejected(String cronExpression) {
-        DesignFlowDefinition definition = cronFlow(FlowScenario.PROCESS, cronExpression);
+        DesignFlowDefinition definition = cronFlow(FlowScenario.AUTOMATION, cronExpression);
 
         List<CompileDiagnostic> diagnostics = compiler.validate(definition);
 
@@ -60,9 +61,14 @@ class CronTriggerValidationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = FlowScenario.class, names = {"VALIDATION", "COMPUTE"})
-    void onlyProcessFlowsRunOnASchedule(FlowScenario scenario) {
-        assertEquals(List.of("CRON_WRONG_SCENARIO"), codes(cronFlow(scenario, "0 0 9 ? * MON-FRI")));
+    @EnumSource(value = FlowScenario.class, names = {"AUTOMATION", "VALIDATION", "COMPUTE"})
+    void everyFlowButAnApprovalMayRunOnASchedule(FlowScenario scenario) {
+        assertFalse(codes(cronFlow(scenario, "0 0 9 ? * MON-FRI")).contains("TRIGGER_NOT_ALLOWED"));
+    }
+
+    @Test
+    void anApprovalFlowDoesNotRunOnASchedule() {
+        assertTrue(codes(cronFlow(FlowScenario.APPROVAL, "0 0 9 ? * MON-FRI")).contains("TRIGGER_NOT_ALLOWED"));
     }
 
     private List<String> codes(DesignFlowDefinition definition) {

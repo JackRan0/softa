@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Pins the method and path of every instance and automation endpoint. The permission manifests of
+ * Pins the method and path of every instance, monitor and automation endpoint. The permission manifests of
  * the applications that embed the engine list these pairs, so a change here ships with theirs.
  */
 class FlowInstanceAndAutomationRoutesTest {
@@ -25,6 +25,9 @@ class FlowInstanceAndAutomationRoutesTest {
                         "POST /flow/instances/search",
                         "POST /flow/instances/approve",
                         "POST /flow/instances/reject",
+                        "POST /flow/instances/batch/approve",
+                        "POST /flow/instances/batch/return",
+                        "POST /flow/instances/batch/reject",
                         "POST /flow/instances/transfer",
                         "POST /flow/instances/delegate",
                         "POST /flow/instances/add-sign-before",
@@ -34,12 +37,29 @@ class FlowInstanceAndAutomationRoutesTest {
                         "POST /flow/instances/return",
                         "POST /flow/instances/withdraw",
                         "POST /flow/instances/urge",
+                        "GET /flow/instances/{instanceId}/urge",
+                        "GET /flow/instances/{instanceId}/withdraw",
                         "POST /flow/instances/comment",
                         "GET /flow/instances/{instanceId}/nodes/{nodeId}/formPermissions",
                         "GET /flow/instances/by-record",
                         "GET /flow/instances/preview",
                         "GET /flow/instances/{instanceId}/record")),
                 routes(FlowInstanceController.class));
+    }
+
+    @Test
+    void monitorEndpoints() {
+        assertEquals(new TreeSet<>(Set.of(
+                        "GET /flow/monitor/health",
+                        "POST /flow/monitor/instances/search",
+                        "POST /flow/monitor/instances/urge",
+                        "POST /flow/monitor/instances/terminate",
+                        "POST /flow/monitor/approvers/reassign/preview",
+                        "POST /flow/monitor/approvers/reassign",
+                        "POST /flow/monitor/delegations",
+                        "GET /flow/monitor/delegations",
+                        "POST /flow/monitor/delegations/{id}/cancel")),
+                routes(FlowMonitorController.class));
     }
 
     @Test

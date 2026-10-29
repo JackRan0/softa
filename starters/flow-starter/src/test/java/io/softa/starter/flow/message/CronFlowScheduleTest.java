@@ -145,7 +145,7 @@ class CronFlowScheduleTest {
         ScheduledRun runOfR1 = scheduledRuns.get(1);
 
         CompiledFlowDefinition r2 = publish("0 0 4 1 1 ?");
-        ReflectionTestUtils.invokeMethod(cronScheduler, "refreshProvidedJobs");
+        ReflectionTestUtils.invokeMethod(cronScheduler, "refresh");
 
         assertTrue(runOfR1.future().isCancelled());
         assertEquals(3, scheduledRuns.size());
@@ -165,7 +165,7 @@ class CronFlowScheduleTest {
     private CompiledFlowDefinition publish(String cronExpression) {
         CompiledFlowDefinition definition = CompiledFlowDefinition.builder()
                 .flowName("daily-report")
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .compiledAt(LocalDateTime.now())
                 .trigger(new CronTrigger(cronExpression))
                 .build();

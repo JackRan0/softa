@@ -1,5 +1,6 @@
 package io.softa.starter.flow.runtime.store;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,6 +27,14 @@ public interface FlowInstanceStore {
      */
     default Optional<FlowExecutionState> getWithTrace(String instanceId) {
         return get(instanceId);
+    }
+
+    /**
+     * The states of these instances, those that exist, in no particular order (trace not hydrated) — for
+     * a list page that shows what can be done to each of its rows. One read where the store can batch it.
+     */
+    default List<FlowExecutionState> listByInstanceIds(Collection<String> instanceIds) {
+        return instanceIds.stream().map(this::get).flatMap(Optional::stream).toList();
     }
 
     /**

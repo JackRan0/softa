@@ -12,7 +12,9 @@ import lombok.NoArgsConstructor;
 /**
  * What submitting a business record would do now, worked out without submitting it: the Submit flow
  * the record would get and the approval steps it would go through, each with the approvers who would
- * be asked or why it passes on its own. Nothing is started or written. Users come with their names.
+ * be asked or why it passes on its own. For a record whose approval is in progress, the rest of its path
+ * instead: the step it waits on now, then those after it. Nothing is started or written. Users come with
+ * their names.
  *
  * <p>The path assumes every step is approved. Nothing is guessed: a route that depends on data only
  * known once the approval runs stops the path where it is decided ({@link #undecided}), and a step
@@ -25,33 +27,40 @@ import lombok.NoArgsConstructor;
 @Schema(name = "FlowApprovalPreview")
 public class FlowApprovalPreview {
 
-    @Schema(description = "Whether submitting the record would start an approval now")
+    @Schema(description = "Whether submitting the record would start an approval now, or its approval is in progress")
     private Status status;
 
     @Schema(description = "Why no approval would start (Refused, NoFlow, SeveralFlows): the message the submission would be refused with")
     private String message;
 
-    @Schema(description = "The flow that would approve the record (Ready)")
+    @Schema(description = "The flow that would approve the record (Ready), or approves it now (InProgress)")
     private Flow flow;
 
     @Schema(description = "The flows that apply to the record, of which exactly one must (SeveralFlows)")
     private List<Flow> candidates;
 
-    @Schema(description = "The approval steps in the order the approval reaches them, every step assumed approved (Ready)")
+    @Schema(description = "The approval steps in the order the approval reaches them, every step assumed approved (Ready); "
+            + "the step it waits on now, then those after it (InProgress)")
     private List<Step> steps;
 
-    @Schema(description = "Where the route depends on data only known once the approval runs: the path shown stops there (Ready)")
+    @Schema(description = "Where the route depends on data only known once the approval runs: the path shown stops there (Ready, InProgress)")
     private List<Stop> undecided;
 
-    @Schema(description = "Where the approval would stop with an error, and why: the path shown ends there (Ready)")
+    @Schema(description = "Where the approval would stop with an error, and why: the path shown ends there (Ready, InProgress)")
     private Stop failure;
+
+    @Schema(description = "Whether the requester may withdraw the record now: its submitter, while its approval waits on a "
+            + "flow that lets them withdraw (InProgress), or after its approval failed (Refused)")
+    private Boolean withdrawable;
 
     @Getter
     @AllArgsConstructor
     public enum Status {
         /** One flow applies: {@code flow} would approve the record along {@code steps}. */
         READY("Ready"),
-        /** The record's own checks refuse a submission now, or it is already in approval. */
+        /** The record's approval is in progress: {@code steps} are the step it waits on now, then those after it. */
+        IN_PROGRESS("InProgress"),
+        /** The record is not a draft — approved, rejected, cancelled — or its own checks refuse a submission now. */
         REFUSED("Refused"),
         /** No Submit flow applies to the record. */
         NO_FLOW("NoFlow"),
@@ -88,8 +97,10 @@ public class FlowApprovalPreview {
     @Getter
     @AllArgsConstructor
     public enum AutoApprovalReason {
-        /** The submitter is one of the step's approvers. */
+        /** The submitter is one of the step's approvers, and the flow approves for them. */
         SUBMITTER("Submitter"),
+        /** The employee the record is about is one of the step's approvers, and the flow approves for them. */
+        SUBJECT("Subject"),
         /** The approver approved an earlier step, and the flow's approver dedup counts that here too. */
         EARLIER_APPROVAL("EarlierApproval");
 
@@ -134,6 +145,9 @@ public class FlowApprovalPreview {
 
         @Schema(description = "Approvers counted as having approved the step, and why")
         private List<AutoApproval> autoApprovals;
+
+        @Schema(description = "Whether the approval waits on this step now (InProgress); its approvers are those still asked")
+        private Boolean current;
     }
 
     @Data

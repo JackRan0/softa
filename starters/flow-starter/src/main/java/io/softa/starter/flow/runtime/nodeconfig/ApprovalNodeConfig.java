@@ -79,6 +79,16 @@ public class ApprovalNodeConfig {
      */
     private Boolean returnEnabled;
 
+    // ── Handling step ──────────────────────────────────────────────────────
+
+    /**
+     * A handling step: its approver fills in what the step asks for (its EDITABLE / REQUIRED fields)
+     * and submits it on, rather than judging the request. The action is still an approval — the
+     * ledger records APPROVE — but clients word it "Submit", and a handling task is never acted on in
+     * a batch. Declared, never inferred from {@code formPermissions}.
+     */
+    private Boolean handling;
+
     // ── Form field permissions ─────────────────────────────────────────────
 
     /**

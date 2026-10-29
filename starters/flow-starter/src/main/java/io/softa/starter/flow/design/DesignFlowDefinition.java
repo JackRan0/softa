@@ -12,6 +12,8 @@ import lombok.NoArgsConstructor;
 import io.softa.framework.orm.dto.DTOFieldObject;
 import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
+import io.softa.starter.flow.enums.SelfApprovalStrategy;
+import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.enums.FlowScenario;
 
 /**
@@ -50,8 +52,13 @@ public class DesignFlowDefinition implements DTOFieldObject {
     @Schema(description = "Form bindings for human-interaction nodes")
     private List<FlowFormBinding> forms;
 
-    @Schema(description = "Whether the initiator can withdraw the flow before approval completes")
-    private Boolean allowInitiatorWithdraw;
+    @Schema(description = "Approval flows only: until when the initiator may withdraw an approval in progress; "
+            + "unset = Never")
+    private WithdrawPolicy withdrawPolicy;
+
+    @Schema(description = "Approval flows only: whether its notices are also emailed (the inbox always gets them); "
+            + "unset = on")
+    private Boolean emailNotification;
 
     @Schema(description = "Whether the flow executes synchronously within the triggering transaction")
     private Boolean sync;
@@ -62,6 +69,11 @@ public class DesignFlowDefinition implements DTOFieldObject {
     @Schema(description = "Approver consolidation policy (审批人去重): auto-approve a later node for an "
             + "actor who already approved this instance. Default GLOBAL when unset.")
     private ApproverDedupStrategy approverDedup;
+
+    @Schema(description = "What a step does when the record's submitter, or the employee it is about, is one of its "
+            + "approvers (本人是审批人时): AutoApprove counts them as having approved, RequireApproval asks them like "
+            + "anyone else. Default AutoApprove when unset.")
+    private SelfApprovalStrategy selfApproval;
 
     /**
      * Declared output variable names.

@@ -1,24 +1,37 @@
 package io.softa.starter.flow.runtime.engine;
 
+import java.io.Serializable;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.enums.FormFieldPermission;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
+import io.softa.starter.flow.runtime.LeaveRequest;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
+import io.softa.starter.flow.runtime.spi.ApprovalSubmission;
+import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -26,17 +39,31 @@ import static org.mockito.Mockito.when;
 /**
  * Form-permission enforcement on approve: only fields the node marks EDITABLE or REQUIRED are
  * written back to the business row — HIDDEN, READONLY and unlisted fields are dropped, and a node
- * without form permissions writes nothing — and a missing REQUIRED field blocks the transition.
+ * without form permissions writes nothing — and a REQUIRED field the row will not hold once the edits
+ * land blocks the transition. A record's approval then routes on the record as the edits left it.
  */
 class ApprovalFormWriteServiceTest {
 
-    private ModelService<?> modelService;
+    private ModelService<Serializable> modelService;
+    @SuppressWarnings("unchecked")
+    private final ModelApprovalHandler<LeaveRequest> handler = mock(ModelApprovalHandler.class);
     private ApprovalFormWriteService service;
+    private MockedStatic<IdUtils> idUtils;
 
     @BeforeEach
+    @SuppressWarnings("unchecked")
     void setUp() {
         modelService = mock(ModelService.class);
-        service = new ApprovalFormWriteService(modelService);
+        when(handler.modelClass()).thenReturn(LeaveRequest.class);
+        service = new ApprovalFormWriteService(modelService, ModelApprovalHandlerRegistry.of(List.of(handler)));
+        idUtils = mockStatic(IdUtils.class);
+        idUtils.when(() -> IdUtils.formatId(anyString(), any(Serializable.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+    }
+
+    @AfterEach
+    void tearDown() {
+        idUtils.close();
     }
 
     private static CompiledFlowNode nodeWith(Map<String, FormFieldPermission> perms) {
@@ -127,7 +154,47 @@ class ApprovalFormWriteServiceTest {
 
         assertThrows(FlowActionValidationException.class,
                 () -> service.applyFormData(boundState(), node, formData));
-        verifyNoInteractions(modelService);
+        verify(modelService, never()).updateByFilter(anyString(), any(Filters.class), anyMap());
+    }
+
+    @Test
+    void aRequiredFieldIsCheckedOnTheRowAsTheEditsLeaveIt() {
+        CompiledFlowNode node = nodeWith(Map.of("reason", FormFieldPermission.REQUIRED));
+        when(modelService.getById(eq("LeaveRequest"), any(), eq(List.of("reason"))))
+                .thenReturn(Optional.of(Map.of("id", 7L, "reason", "covered by policy")));
+
+        // Already held: an approve without form data passes, and writes nothing.
+        service.applyFormData(boundState(), node, null);
+        verify(modelService, never()).updateByFilter(anyString(), any(Filters.class), anyMap());
+
+        // Cleared by the edits: refused, however the row stands.
+        assertThrows(FlowActionValidationException.class,
+                () -> service.applyFormData(boundState(), node, Map.of("reason", " ")));
+    }
+
+    @Test
+    void aRequiredFieldTheRowLacksBlocksAnApproveWithoutFormData() {
+        CompiledFlowNode node = nodeWith(Map.of("reason", FormFieldPermission.REQUIRED));
+        when(modelService.getById(eq("LeaveRequest"), any(), eq(List.of("reason"))))
+                .thenReturn(Optional.of(Map.of("id", 7L)));
+
+        assertThrows(FlowActionValidationException.class, () -> service.applyFormData(boundState(), node, Map.of()));
+    }
+
+    @Test
+    void editsOfARecordsApprovalRefreshTheVariablesItsFlowRoutesOn() {
+        CompiledFlowNode node = nodeWith(Map.of("days", FormFieldPermission.EDITABLE));
+        FlowExecutionState state = boundState();
+        state.setRecordApproval(true);
+        state.setVariables(new HashMap<>(Map.of("days", 3, "_subjectId", 5001L)));
+        when(modelService.getById(eq("LeaveRequest"), any()))
+                .thenReturn(Optional.of(Map.of("id", 7L, "days", 5)));
+        when(handler.submission(any())).thenAnswer(invocation ->
+                new ApprovalSubmission("Leave", Map.of("days", ((LeaveRequest) invocation.getArgument(0)).getDays())));
+
+        service.applyFormData(state, node, Map.of("days", 5));
+
+        assertEquals(Map.of("days", 5, "_subjectId", 5001L), state.getVariables());
     }
 
     @Test

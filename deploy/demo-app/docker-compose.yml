@@ -21,39 +21,38 @@ services:
     ports:
       - 127.0.0.1:6379:6379
 
-#  postgres:
-#    image: postgres:18.1-alpine
-#    networks:
-#      - shared-net
-#    ports:
-#      - 5432:5432
-#    environment:
-#      - POSTGRES_USER=admin
-#      - POSTGRES_PASSWORD=admin
-#      - POSTGRES_DB=demo
-#    volumes:
-#      - ~/data/postgres-data:/var/lib/postgresql/data
-
-  mysql:
-    image: mysql:9.6.0
-    <<: *logging
+  postgres:
+    image: postgres:18.6
     networks:
       - shared-net
     ports:
-      - 127.0.0.1:3306:3306
+      - 5432:5432
     environment:
-      # For testing environment only
-      - MYSQL_ROOT_PASSWORD=admin
-      - MYSQL_DATABASE=demo
-      - MYSQL_USER=admin
-      - MYSQL_PASSWORD=admin
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=hcm
     volumes:
-      # No initdb seed on purpose: a fresh boot self-creates everything — the
-      # boot reconciler bootstraps the sys_* catalog tables from their own
-      # annotations, and the ["*"] scanner then creates all business tables.
-      # Need a reference DDL? REGEN_BASELINE=true mvn test -pl apps/demo-app \
-      #   -Dtest=MetadataBaselineDdlGenerator
-      - ~/data/mysql/demo:/var/lib/mysql
+      - ~/data/postgres-data:/var/lib/postgresql
+#  mysql:
+#    image: mysql:9.6.0
+#    <<: *logging
+#    networks:
+#      - shared-net
+#    ports:
+#      - 127.0.0.1:3306:3306
+#    environment:
+#      # For testing environment only
+#      - MYSQL_ROOT_PASSWORD=admin
+#      - MYSQL_DATABASE=demo
+#      - MYSQL_USER=admin
+#      - MYSQL_PASSWORD=admin
+#    volumes:
+#      # No initdb seed on purpose: a fresh boot self-creates everything — the
+#      # boot reconciler bootstraps the sys_* catalog tables from their own
+#      # annotations, and the ["*"] scanner then creates all business tables.
+#      # Need a reference DDL? REGEN_BASELINE=true mvn test -pl apps/demo-app \
+#      #   -Dtest=MetadataBaselineDdlGenerator
+#      - ~/data/mysql/demo:/var/lib/mysql
 
 #  demo-app:
 #    image: ghcr.io/softa-io/demo-app:1.0.3

@@ -1,6 +1,7 @@
 package io.softa.starter.flow.runtime.store;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.context.annotation.Primary;
@@ -75,6 +76,17 @@ public class OrmFlowInstanceStore implements FlowInstanceStore {
                     hydrateTrace(state);
                     return state;
                 }));
+    }
+
+    @Override
+    public List<FlowExecutionState> listByInstanceIds(Collection<String> instanceIds) {
+        if (instanceIds == null || instanceIds.isEmpty()) {
+            return List.of();
+        }
+        return ContextUtils.withoutPermissionChecks(() -> instanceService.findByInstanceIds(instanceIds)
+                .stream()
+                .map(FlowExecutionStateMapper::toState)
+                .toList());
     }
 
     @Override

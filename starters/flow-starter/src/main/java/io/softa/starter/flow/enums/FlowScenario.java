@@ -8,21 +8,19 @@ import io.softa.framework.base.annotation.OptionItem;
 import io.softa.framework.base.annotation.OptionSet;
 
 /**
- * Execution scenario of a flow definition.
+ * Execution scenario of a flow definition, declared when the flow is created and fixed from then on.
  * <p>
- * Replaces the former {@code FlowKind × FlowPurpose} two-dimensional matrix with a
- * single, self-contained discriminator. All three values are orthogonal — no
- * compatibility matrix is required.
+ * A single, self-contained discriminator: each value decides the triggers a flow may declare, the node
+ * types it may use and how its runs behave — no compatibility matrix is required.
  *
  * <ul>
- *   <li>{@link #PROCESS} — stateful, persisted instances; covers both automation
- *       flows and human-approval flows. Whether the flow is human-centric is derived
- *       at compile time from graph contents and recorded in
- *       {@code CompiledFlowCapabilitySummary.hasApprovalNode}.</li>
+ *   <li>{@link #APPROVAL} — a record's approval: started by submitting the record (a {@code Submit}
+ *       trigger), approval steps, the outcome written back to the record. Persisted instances.</li>
+ *   <li>{@link #AUTOMATION} — started by a change, a cron, an API call or a parent flow, with no approval
+ *       steps. Persisted runs, purged once the retention period has passed.</li>
  *   <li>{@link #VALIDATION} — stateless, synchronous, returns a list of validation
  *       errors. No instance is persisted.</li>
- *   <li>{@link #COMPUTE} — stateless, synchronous, returns variable diffs.
- *       Replaces the former {@code FieldOnchange} purpose.</li>
+ *   <li>{@link #COMPUTE} — stateless, synchronous, returns variable diffs. No instance is persisted.</li>
  * </ul>
  */
 @Getter
@@ -30,8 +28,10 @@ import io.softa.framework.base.annotation.OptionSet;
 @OptionSet
 public enum FlowScenario {
 
-    @OptionItem(label = "Process Flow")
-    PROCESS("Process"),
+    @OptionItem(label = "Approval Flow")
+    APPROVAL("Approval"),
+    @OptionItem(label = "Automation Flow")
+    AUTOMATION("Automation"),
     @OptionItem(label = "Validation Flow")
     VALIDATION("Validation"),
     @OptionItem(label = "Compute Flow")
@@ -41,4 +41,8 @@ public enum FlowScenario {
     @JsonValue
     private final String type;
 
+    /** Validation and Compute flows evaluate transiently: no instance row, no trace, no event log. */
+    public boolean isTransient() {
+        return this == VALIDATION || this == COMPUTE;
+    }
 }

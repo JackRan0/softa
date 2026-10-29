@@ -3,6 +3,7 @@ package io.softa.starter.flow.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import org.springframework.validation.annotation.Validated;
@@ -15,19 +16,26 @@ import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Page;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.dto.FlowApprovalPreview;
+import io.softa.starter.flow.dto.FlowBatchActionResult;
 import io.softa.starter.flow.dto.FlowInstanceOverlay;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
+import io.softa.starter.flow.dto.FlowInstanceSummaryView;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.dto.FlowTraceEntryView;
+import io.softa.starter.flow.dto.FlowUrgeStatus;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.FormFieldPermission;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.FormPermissionService;
+import io.softa.starter.flow.runtime.engine.BatchApprovalExecutor;
+import io.softa.starter.flow.runtime.engine.UrgeThrottle;
+import io.softa.starter.flow.runtime.engine.WithdrawPolicyGuard;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.service.FlowExecutionTraceService;
 import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.FlowLaunchService;
+import io.softa.starter.flow.service.query.FlowInstanceSummaryComposer;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 
 import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
@@ -52,26 +60,39 @@ public class FlowInstanceController {
     private final FlowExecutionTraceService traceService;
     private final FlowInstanceAccessGuard accessGuard;
     private final FlowLaunchService launchService;
+    private final UrgeThrottle urgeThrottle;
+    private final WithdrawPolicyGuard withdrawPolicyGuard;
+    private final BatchApprovalExecutor batchExecutor;
+    private final FlowInstanceSummaryComposer summaryComposer;
 
     public FlowInstanceController(FlowRuntimeEngine runtimeEngine,
                                   FormPermissionService formPermissionService,
                                   FlowInstanceService instanceService,
                                   FlowExecutionTraceService traceService,
                                   FlowInstanceAccessGuard accessGuard,
-                                  FlowLaunchService launchService) {
+                                  FlowLaunchService launchService,
+                                  UrgeThrottle urgeThrottle,
+                                  WithdrawPolicyGuard withdrawPolicyGuard,
+                                  BatchApprovalExecutor batchExecutor,
+                                  FlowInstanceSummaryComposer summaryComposer) {
         this.runtimeEngine = runtimeEngine;
         this.formPermissionService = formPermissionService;
         this.instanceService = instanceService;
         this.traceService = traceService;
         this.accessGuard = accessGuard;
         this.launchService = launchService;
+        this.urgeThrottle = urgeThrottle;
+        this.withdrawPolicyGuard = withdrawPolicyGuard;
+        this.batchExecutor = batchExecutor;
+        this.summaryComposer = summaryComposer;
     }
 
     @PostMapping("/start")
-    @Operation(summary = "Start flow instance", description = "Starts a runtime flow execution from a registered bundle.")
+    @Operation(summary = "Start flow instance", description = "Starts an Automation flow whose trigger is Api, "
+            + "by its id or a pinned bundle. Any other flow is refused: its trigger names another way to start it.")
     public ApiResponse<FlowExecutionState> start(@Valid @RequestBody FlowStartRequest request) {
         request.setInitiatorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.start(request));
+        return ApiResponse.success(runtimeEngine.startAutomation(request));
     }
 
     @GetMapping("/{instanceId}")
@@ -158,17 +179,20 @@ public class FlowInstanceController {
 
     @GetMapping("/{instanceId}/record")
     @Operation(summary = "Get the record an instance approves",
-            description = "The business record the instance runs on, for its initiator and the people it gives "
-                    + "a task to: read past their own row permissions. While steps wait, the fields those steps "
-                    + "list in their field permissions (Readonly, Editable or Required); a step listing none "
-                    + "shows every field. Relations and options come as references, and masked fields are masked "
-                    + "as on every model read.")
+            description = "The business record a record's approval runs on, for its initiator and the people it "
+                    + "gives a task to: read past their own row permissions. Any other instance is refused. Every "
+                    + "field, dynamic ones included, but the sensitive ones the caller may see on no row; the field "
+                    + "permissions of the waiting steps the caller approves are laid over that — what they list as "
+                    + "Readonly, Editable or Required is shown, what they mark Hidden is not. Callers with no "
+                    + "waiting step besides the initiator also miss what any approval step hides. Relations and "
+                    + "options come as references, and masked fields are masked as on every model read.")
     @DataMask
     public ApiResponse<Map<String, Object>> getInstanceRecord(@PathVariable String instanceId) {
         return runtimeEngine.getInstance(instanceId)
                 .map(state -> {
-                    accessGuard.requireRecordGrantee(state, currentUserId());
-                    return instanceService.recordOf(state)
+                    String viewerId = currentUserId();
+                    accessGuard.requireRecordGrantee(state, viewerId);
+                    return instanceService.recordOf(state, viewerId)
                             .map(ApiResponse::success)
                             .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                                     "The record of flow instance " + instanceId + " does not exist"));
@@ -185,8 +209,8 @@ public class FlowInstanceController {
                     + "Cross-initiator monitoring lives on POST /flow/monitor/instances/search.")
     // Pinned to the caller, so row scope could only empty it: FlowInstance is granted to no business role.
     @SkipPermissionCheck
-    public ApiResponse<Page<FlowInstance>> searchInstances(@RequestBody FlowInstanceSearchRequest request) {
-        return ApiResponse.success(instanceService.searchSummaries(request, currentUserId()));
+    public ApiResponse<Page<FlowInstanceSummaryView>> searchInstances(@RequestBody FlowInstanceSearchRequest request) {
+        return ApiResponse.success(summaryComposer.summarize(instanceService.searchSummaries(request, currentUserId()), currentUserId()));
     }
 
     @PostMapping("/approve")
@@ -201,6 +225,33 @@ public class FlowInstanceController {
     public ApiResponse<FlowExecutionState> reject(@Valid @RequestBody FlowRejectRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.reject(request));
+    }
+
+    @PostMapping("/batch/approve")
+    @Operation(summary = "Approve pending tasks in a batch",
+            description = "Approves each of the caller's pending tasks named, each on its own: one refused task changes "
+                    + "nothing for the others. A task whose step is a handling step or has fields to fill in is "
+                    + "skipped. Returns each task's outcome.")
+    public ApiResponse<FlowBatchActionResult> batchApprove(@Valid @RequestBody FlowBatchActionRequest request) {
+        return ApiResponse.success(batchExecutor.execute(BatchApprovalExecutor.Action.APPROVE, request, currentUserId()));
+    }
+
+    @PostMapping("/batch/return")
+    @Operation(summary = "Return pending tasks in a batch",
+            description = "Returns each of the caller's pending tasks named to its initiator, each on its own, with one "
+                    + "comment (required). A task whose step allows no return, is a handling step or has fields to "
+                    + "fill in is skipped. Returns each task's outcome.")
+    public ApiResponse<FlowBatchActionResult> batchReturn(@Valid @RequestBody FlowBatchActionRequest request) {
+        return ApiResponse.success(batchExecutor.execute(BatchApprovalExecutor.Action.RETURN, request, currentUserId()));
+    }
+
+    @PostMapping("/batch/reject")
+    @Operation(summary = "Reject pending tasks in a batch",
+            description = "Rejects each of the caller's pending tasks named, each on its own, with one comment "
+                    + "(required). A task whose step is a handling step or has fields to fill in is skipped. Returns "
+                    + "each task's outcome.")
+    public ApiResponse<FlowBatchActionResult> batchReject(@Valid @RequestBody FlowBatchActionRequest request) {
+        return ApiResponse.success(batchExecutor.execute(BatchApprovalExecutor.Action.REJECT, request, currentUserId()));
     }
 
     @PostMapping("/transfer")
@@ -253,24 +304,65 @@ public class FlowInstanceController {
     }
 
     @PostMapping("/withdraw")
-    @Operation(summary = "Withdraw approval flow", description = "Allows the flow initiator to withdraw an approval flow before approval completes when enabled by policy.")
+    @Operation(summary = "Withdraw approval flow", description = "The initiator takes back an approval waiting on "
+            + "its approvers, within the flow's withdraw policy: Never, BeforeFirstAction (until an approver first "
+            + "acts) or UntilCompleted.")
     public ApiResponse<FlowExecutionState> withdraw(@Valid @RequestBody FlowWithdrawRequest request) {
         request.setActorId(currentUserId());
         return ApiResponse.success(runtimeEngine.withdraw(request));
     }
 
     @PostMapping("/urge")
-    @Operation(summary = "Urge pending approvers", description = "Sends an urge notification to all pending approvers of the flow instance.")
-    public ApiResponse<FlowExecutionState> urge(@Valid @RequestBody FlowUrgeRequest request) {
+    @Operation(summary = "Urge pending approvers",
+            description = "The initiator reminds the approvers the approval waits on. A step urged within the interval "
+                    + "(flow.approval.urge-interval-minutes, default 240) — by the initiator or an administrator — "
+                    + "is not urged again, and when every step is, the urge is refused. Returns when the approval "
+                    + "may be urged next.")
+    public ApiResponse<FlowUrgeStatus> urge(@Valid @RequestBody FlowUrgeRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.urge(request));
+        FlowExecutionState state = runtimeEngine.urge(request);
+        return ApiResponse.success(urgeThrottle.status(state, LocalDateTime.now()));
+    }
+
+    @GetMapping("/{instanceId}/urge")
+    @Operation(summary = "Get urge status",
+            description = "Whether the approval may be urged now, and if not, when it may be. Allowed to whoever may "
+                    + "view the instance.")
+    public ApiResponse<FlowUrgeStatus> getUrgeStatus(@PathVariable String instanceId) {
+        return runtimeEngine.getInstance(instanceId)
+                .map(state -> {
+                    accessGuard.requireInstanceViewer(state, currentUserId());
+                    return ApiResponse.success(urgeThrottle.status(state, LocalDateTime.now()));
+                })
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
+    }
+
+    @GetMapping("/{instanceId}/withdraw")
+    @Operation(summary = "Get whether the caller may withdraw",
+            description = "True when the caller is the initiator of an approval waiting on its approvers and the "
+                    + "flow's withdraw policy still permits it — exactly when a withdrawal would be accepted. "
+                    + "Allowed to whoever may view the instance.")
+    public ApiResponse<Boolean> getWithdrawable(@PathVariable String instanceId) {
+        return runtimeEngine.getInstance(instanceId)
+                .map(state -> {
+                    String userId = currentUserId();
+                    accessGuard.requireInstanceViewer(state, userId);
+                    return ApiResponse.success(withdrawPolicyGuard.withdrawable(state, userId));
+                })
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
     }
 
     @PostMapping("/comment")
-    @Operation(summary = "Add comment to flow instance", description = "Adds a comment to a flow instance without changing its status. Recorded in approval audit history.")
-    public ApiResponse<FlowExecutionState> addComment(@Valid @RequestBody FlowCommentRequest request) {
+    @Operation(summary = "Add comment to flow instance",
+            description = "Adds a comment to a running flow instance without changing its status, recorded in its "
+                    + "approval history. Only its participants comment: the initiator and the people it gives or "
+                    + "gave a task to.")
+    public ApiResponse<Boolean> addComment(@Valid @RequestBody FlowCommentRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.addComment(request));
+        runtimeEngine.addComment(request);
+        return ApiResponse.success(true);
     }
 
     @GetMapping("/{instanceId}/nodes/{nodeId}/formPermissions")

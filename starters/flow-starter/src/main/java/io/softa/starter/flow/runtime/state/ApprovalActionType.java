@@ -24,6 +24,8 @@ public enum ApprovalActionType {
     WITHDRAW("Withdraw"),
     URGE("Urge"),
     COMMENT("Comment"),
+    /** An administrator ended the approval: the instance is cancelled and its record with it. */
+    TERMINATE("Terminate"),
     ;
 
     @JsonValue

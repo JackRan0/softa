@@ -23,4 +23,11 @@ public sealed interface FlowNotificationEvent {
     record Urged(FlowExecutionState state, List<String> pendingActorIds, String urgerId, String message) implements FlowNotificationEvent {}
     record CcSent(FlowExecutionState state, String nodeId, List<String> recipientActorIds, String message) implements FlowNotificationEvent {}
     record Returned(FlowExecutionState state, PendingApproval pendingApproval, String actorId, String comment) implements FlowNotificationEvent {}
+    /** The instance failed: a step could not run (a flow configuration error, an approver who cannot be found). */
+    record FlowFailed(FlowExecutionState state, String failedNodeId, String errorMessage) implements FlowNotificationEvent {}
+    /** An administrator ended the approval; its record is cancelled. */
+    record Terminated(FlowExecutionState state, String actorId, String reason) implements FlowNotificationEvent {}
+    /** An administrator moved a step of the approval from one approver to another. */
+    record Reassigned(FlowExecutionState state, PendingApproval pendingApproval, String fromActorId, String toActorId,
+                      String reason) implements FlowNotificationEvent {}
 }

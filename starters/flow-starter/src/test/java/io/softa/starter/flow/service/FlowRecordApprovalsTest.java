@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
 import io.softa.starter.flow.design.DesignFlowDefinition;
@@ -76,6 +78,7 @@ class FlowRecordApprovalsTest {
     private final OrganizationService organization = mock(OrganizationService.class);
     @SuppressWarnings("unchecked")
     private final ModelService<Serializable> modelService = mock(ModelService.class);
+    private final PermissionService permissions = mock(PermissionService.class);
     private final FlowInstanceServiceImpl service = spy(new FlowInstanceServiceImpl());
     private final List<FlowInstance> instances = new ArrayList<>();
     private MockedStatic<ModelManager> modelManager;
@@ -90,6 +93,7 @@ class FlowRecordApprovalsTest {
         ReflectionTestUtils.setField(service, "approvalLedger", ledger);
         ReflectionTestUtils.setField(service, "userNames", new FlowUserNames(organizationProvider, modelService));
         ReflectionTestUtils.setField(service, "modelService", modelService);
+        ReflectionTestUtils.setField(service, "permissionService", permissions);
         doReturn(instances).when(service).findByModelNameAndRowId(MODEL, ROW);
         modelManager = mockStatic(ModelManager.class);
         modelManager.when(() -> ModelManager.existModel(MODEL)).thenReturn(true);
@@ -107,7 +111,7 @@ class FlowRecordApprovalsTest {
     @Test
     void historyListsTheRecordsApprovalInstancesNewestFirstWithNamedUsers() {
         CompiledFlowDefinition approval = publishService.publish("claims", flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
-        CompiledFlowDefinition automation = publishService.publish("audit", flow("Audit", new ApiTrigger(null), Map.of()));
+        CompiledFlowDefinition automation = publishService.publish("audit", automationFlow("Audit"));
         instance("old", approval, true, FlowExecutionStatus.REJECTED, LocalDateTime.of(2026, 10, 1, 9, 0), null);
         PendingApproval waiting = PendingApproval.builder().nodeId("approval").nodeLabel("Manager")
                 .approvers(List.of("2001", "2002")).approvedActors(new ArrayList<>(List.of("2001")))
@@ -167,17 +171,16 @@ class FlowRecordApprovalsTest {
     }
 
     @Test
-    void theRecordShowsOnlyTheFieldsItsWaitingStepLists() {
+    void theWaitingStepsRulesAreLaidOverEveryField() {
         CompiledFlowDefinition approval = publishService.publish("claims",
                 flow("Claims", new SubmitTrigger(MODEL, null), Map.of("bankAccount", "Hidden", "amount", "Editable")));
         when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE))).thenReturn(Optional.of(
                 new LinkedHashMap<>(Map.of("id", 7L, "amount", 120, "bankAccount", "DE89 3704", "note", "lunch"))));
-        FlowExecutionState state = waitingAt(approval);
 
-        Map<String, Object> record = service.recordOf(state).orElseThrow();
+        Map<String, Object> record = service.recordOf(waitingAt(approval), APPROVER).orElseThrow();
 
-        // Hidden is left out, and so is a field the step does not list at all.
-        assertEquals(Map.of("id", 7L, "amount", 120), record);
+        // Hidden is left out; a field the step does not list is still shown.
+        assertEquals(Map.of("id", 7L, "amount", 120, "note", "lunch"), record);
     }
 
     @Test
@@ -188,14 +191,43 @@ class FlowRecordApprovalsTest {
         when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE)))
                 .thenReturn(Optional.of(new LinkedHashMap<>(stored)));
 
-        assertEquals(stored, service.recordOf(waitingAt(approval)).orElseThrow());
+        assertEquals(stored, service.recordOf(waitingAt(approval), APPROVER).orElseThrow());
     }
+
+    @Test
+    void aSensitiveFieldTheViewerMaySeeNowhereIsShownOnlyWhereTheStepListsIt() {
+        CompiledFlowDefinition approval = publishService.publish("claims",
+                flow("Claims", new SubmitTrigger(MODEL, null), Map.of("salary", "Readonly")));
+        when(permissions.getHiddenSensitiveFields()).thenReturn(Map.of(MODEL, Set.of("salary", "bankAccount")));
+        when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE))).thenReturn(Optional.of(
+                new LinkedHashMap<>(Map.of("id", 7L, "salary", 9000, "bankAccount", "DE89 3704", "note", "raise"))));
+
+        assertEquals(Map.of("id", 7L, "salary", 9000, "note", "raise"),
+                service.recordOf(waitingAt(approval), APPROVER).orElseThrow());
+        // Someone with no step there — a CC recipient — sees neither.
+        assertEquals(Map.of("id", 7L, "note", "raise"), service.recordOf(waitingAt(approval), "3001").orElseThrow());
+    }
+
+    @Test
+    void whatAStepHidesStaysHiddenFromOthersButNotFromTheInitiator() {
+        CompiledFlowDefinition approval = publishService.publish("claims",
+                flow("Claims", new SubmitTrigger(MODEL, null), Map.of("bankAccount", "Hidden")));
+        when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE))).thenAnswer(invocation ->
+                Optional.of(new LinkedHashMap<>(Map.of("id", 7L, "bankAccount", "DE89 3704", "note", "lunch"))));
+
+        assertEquals(Map.of("id", 7L, "note", "lunch"), service.recordOf(waitingAt(approval), "3001").orElseThrow());
+        assertEquals(Map.of("id", 7L, "bankAccount", "DE89 3704", "note", "lunch"),
+                service.recordOf(waitingAt(approval), INITIATOR).orElseThrow());
+    }
+
+    private static final String APPROVER = "2001";
+    private static final String INITIATOR = "1001";
 
     private FlowExecutionState waitingAt(CompiledFlowDefinition approval) {
         return FlowExecutionState.builder()
                 .instanceId("i1").bundleId(approval.getBundleId()).modelName(MODEL).rowId(ROW)
-                .status(FlowExecutionStatus.WAITING)
-                .pendingApprovals(List.of(PendingApproval.builder().nodeId("approval").build()))
+                .status(FlowExecutionStatus.WAITING).initiatorId(INITIATOR)
+                .pendingApprovals(List.of(PendingApproval.builder().nodeId("approval").approvers(List.of(APPROVER)).build()))
                 .build();
     }
 
@@ -204,8 +236,10 @@ class FlowRecordApprovalsTest {
     void theRecordComesWithItsChildRowsInFullAndItsManyToManyAsReferences() {
         CompiledFlowDefinition approval = publishService.publish("claims",
                 flow("Claims", new SubmitTrigger(MODEL, null), Map.of()));
+        MetaField currency = field("companyCurrency", FieldType.MANY_TO_ONE);
+        when(currency.isDynamic()).thenReturn(true);
         List<MetaField> modelFields = List.of(field("amount", FieldType.BIG_DECIMAL),
-                field("lines", FieldType.ONE_TO_MANY), field("tags", FieldType.MANY_TO_MANY));
+                field("lines", FieldType.ONE_TO_MANY), field("tags", FieldType.MANY_TO_MANY), currency);
         modelManager.when(() -> ModelManager.getModelStoredFields(MODEL)).thenReturn(List.of("id", "amount"));
         modelManager.when(() -> ModelManager.getModelFields(MODEL)).thenReturn(modelFields);
         when(modelService.getById(eq(MODEL), any(), anyList(), any(), eq(ConvertType.REFERENCE)))
@@ -214,12 +248,12 @@ class FlowRecordApprovalsTest {
                 .instanceId("i1").bundleId(approval.getBundleId()).modelName(MODEL).rowId(ROW)
                 .status(FlowExecutionStatus.COMPLETED).build();
 
-        service.recordOf(state).orElseThrow();
+        service.recordOf(state, INITIATOR).orElseThrow();
 
         ArgumentCaptor<List<String>> fields = ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<SubQueries> subQueries = ArgumentCaptor.forClass(SubQueries.class);
         verify(modelService).getById(eq(MODEL), any(), fields.capture(), subQueries.capture(), eq(ConvertType.REFERENCE));
-        assertEquals(List.of("id", "amount", "lines", "tags"), fields.getValue());
+        assertEquals(List.of("id", "amount", "lines", "tags", "companyCurrency"), fields.getValue());
         assertTrue(subQueries.getValue().contains("lines"));
         assertFalse(subQueries.getValue().contains("tags"));
     }
@@ -275,10 +309,25 @@ class FlowRecordApprovalsTest {
                 .nodeLabel("Manager").build();
     }
 
+    /** An automation flow on the record: start → end, nothing to approve. */
+    private static DesignFlowDefinition automationFlow(String name) {
+        return DesignFlowDefinition.builder()
+                .name(name)
+                .scenario(FlowScenario.AUTOMATION)
+                .trigger(new ApiTrigger(null))
+                .graph(FlowGraphDocument.builder()
+                        .nodes(List.of(
+                                FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
+                                FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
+                        .edges(List.of(FlowGraphEdge.builder().id("e1").source("start").target("end").build()))
+                        .build())
+                .build();
+    }
+
     private static DesignFlowDefinition flow(String name, TriggerSource trigger, Map<String, String> formPermissions) {
         return DesignFlowDefinition.builder()
                 .name(name)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.APPROVAL)
                 .trigger(trigger)
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(

@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
  * Incoming trigger event that may cause one or more flows to start.
  * <p>
  * The {@code type} field holds the {@code TriggerSource} discriminator string
- * (e.g. {@code "EntityChange"}, {@code "Api"}, {@code "Cron"}) so it can be
+ * (e.g. {@code "EntityChange"}, {@code "FieldChange"}) so it can be
  * matched against registered flow bundles without deserialising the full
  * TriggerSource sub-type at the event level.
  */
@@ -25,10 +25,16 @@ import lombok.NoArgsConstructor;
 public class FlowTriggerEvent {
 
     @NotBlank(message = "type must not be blank")
-    @Schema(description = "Trigger type discriminator (EntityChange | Api | Subflow | FieldChange); "
-            + "Submit and Cron are refused — submitted records start their approval through record submission, "
-            + "Cron-triggered flows start on their own schedule")
+    @Schema(description = "Trigger type discriminator (EntityChange | FieldChange). Submit, Cron, Api and Subflow "
+            + "are refused: a submitted record starts its approval through record submission, a Cron flow starts "
+            + "on its own schedule, an Api flow is started explicitly by its id, and a Subflow flow runs only "
+            + "from a parent flow")
     private String type;
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    @Schema(description = "Identity of the event (a change log's uuid); with the flow, an event starts a run at "
+            + "most once, so a redelivered event does not run the flow again", accessMode = Schema.AccessMode.READ_ONLY)
+    private String eventId;
 
     @Schema(description = "Source model when the trigger is entity-related")
     private String sourceModel;

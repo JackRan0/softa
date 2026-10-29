@@ -6,31 +6,16 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.softa.framework.orm.annotation.SkipPermissionCheck;
-import io.softa.starter.flow.api.CcTaskQuery;
-import io.softa.starter.flow.api.FlowClient;
-import io.softa.starter.flow.api.FlowInstanceView;
-import io.softa.starter.flow.api.InboxQuery;
-import io.softa.starter.flow.api.MineQuery;
-import io.softa.starter.flow.api.TaskQuery;
+import io.softa.starter.flow.api.*;
 import io.softa.starter.flow.design.FlowNodeDescriptor;
-import io.softa.starter.flow.dto.FlowApprovalPreview;
-import io.softa.starter.flow.dto.FlowApprovalRecordView;
-import io.softa.starter.flow.dto.FlowApprovalTaskView;
-import io.softa.starter.flow.dto.FlowInboxView;
-import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
-import io.softa.starter.flow.dto.FlowRecordApprovalsView;
-import io.softa.starter.flow.dto.FlowSentCcView;
+import io.softa.starter.flow.dto.*;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.enums.FormFieldPermission;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.descriptor.FlowNodeDescriptorRegistry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
-import io.softa.starter.flow.service.FlowApprovalRecordQueryService;
-import io.softa.starter.flow.service.FlowApprovalTaskQueryService;
-import io.softa.starter.flow.service.FlowInboxService;
-import io.softa.starter.flow.service.FlowInstanceService;
-import io.softa.starter.flow.service.FlowLaunchService;
+import io.softa.starter.flow.service.*;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 
 import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
@@ -81,7 +66,7 @@ public class InProcessFlowClient implements FlowClient {
     @Override
     public FlowExecutionState start(FlowStartRequest r) {
         r.setInitiatorId(currentUserId());
-        return engine.start(r);
+        return engine.startAutomation(r);
     }
 
     @Override
@@ -106,6 +91,11 @@ public class InProcessFlowClient implements FlowClient {
     }
 
     @Override
+    public void cancelRecord(String modelName, String rowId) {
+        launch.cancelRecord(modelName, rowId, currentUserId());
+    }
+
+    @Override
     public FlowRecordApprovalsView recordApprovals(String modelName, String rowId) {
         String requesterId = currentUserId();
         return instances.recordApprovals(modelName, rowId,
@@ -127,9 +117,8 @@ public class InProcessFlowClient implements FlowClient {
     @SkipPermissionCheck
     public List<FlowInstanceView> myInstances(MineQuery q) {
         // The search behind POST /flow/instances/search; the port returns its first (newest) page.
-        FlowInstanceSearchRequest request = new FlowInstanceSearchRequest(
-                q == null ? null : q.flowId(), q == null ? null : q.status(),
-                null, null, null, null, null, null, null);
+        FlowInstanceSearchRequest request = FlowInstanceSearchRequest.of(
+                q == null ? null : q.flowId(), q == null ? null : q.status());
         return instances.searchSummaries(request, currentUserId()).getRows().stream()
                 .map(InProcessFlowClient::toView)
                 .toList();

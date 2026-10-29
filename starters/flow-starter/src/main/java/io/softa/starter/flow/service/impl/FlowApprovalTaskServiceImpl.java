@@ -72,8 +72,9 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         ApprovalTaskQuerySupport.requireActorId(actorId);
         Filters filters = ApprovalTaskQuerySupport.pendingApprovalFilters(actorId);
         applyOptionalFilters(filters, flowId, instanceId, nodeId);
-        FlexQuery query = new FlexQuery(filters, Orders.ofAsc(FlowApprovalTask::getStartTime)
-                .addAsc(FlowApprovalTask::getId));
+        // Newest first: what reached the approver last is what they look for.
+        FlexQuery query = new FlexQuery(filters, Orders.ofDesc(FlowApprovalTask::getStartTime)
+                .addDesc(FlowApprovalTask::getId));
         return mapPage(this.searchPage(query, Page.of(pageNumber, pageSize)), pageNumber, pageSize);
     }
 

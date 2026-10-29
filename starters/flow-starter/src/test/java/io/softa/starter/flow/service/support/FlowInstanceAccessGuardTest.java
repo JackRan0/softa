@@ -188,6 +188,7 @@ class FlowInstanceAccessGuardTest {
         FlowExecutionState state = FlowExecutionState.builder()
                 .instanceId("i1")
                 .initiatorId("initiator")
+                .recordApproval(true)
                 .pendingApprovals(List.of(PendingApproval.builder().approvers(List.of("approver")).build()))
                 .build();
 
@@ -197,8 +198,37 @@ class FlowInstanceAccessGuardTest {
     }
 
     @Test
+    void onlyARecordsApprovalLendsItsRecord() {
+        // An explicit start or a debug run names its record freely; its initiator must not read it past
+        // their own row permissions through the instance.
+        FlowExecutionState namedFreely = FlowExecutionState.builder()
+                .instanceId("i2")
+                .initiatorId("initiator")
+                .modelName("Employee")
+                .rowId("42")
+                .build();
+
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordGrantee(namedFreely, "initiator"));
+    }
+
+    @Test
     void withoutAnyOfThemTheCallerIsDenied() {
         when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("someoneElse")));
         assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "u1", false));
+    }
+
+    @Test
+    void anAdministratorIsWhoeverTheirOwnPermissionsLetReadTheInstance() {
+        when(modelService.count(eq("FlowInstance"), any(Filters.class))).thenReturn(1L);
+        assertDoesNotThrow(() -> guard.requireInstanceAdministrator("i1", "admin"));
+    }
+
+    @Test
+    void anInstanceOutsideTheCallersScopeIsNotTheirsToAdminister() {
+        // Taking part in it does not count: the console's actions are not a participant's.
+        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("u1")));
+        when(modelService.count(eq("FlowInstance"), any(Filters.class))).thenReturn(0L);
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceAdministrator("i1", "u1"));
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceAdministrator("i1", null));
     }
 }

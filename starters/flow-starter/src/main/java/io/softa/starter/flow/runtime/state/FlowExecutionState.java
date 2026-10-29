@@ -1,5 +1,6 @@
 package io.softa.starter.flow.runtime.state;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,6 +55,22 @@ public class FlowExecutionState {
     @Schema(description = "Whether the instance is the approval of its record: started by submitting the record, "
             + "so its result is written back to it. Other instances running on a record are automation or debug runs")
     private Boolean recordApproval;
+
+    @Schema(description = "A record's approval: the employee the record is about, as at submission")
+    private Long subjectId;
+
+    @Schema(description = "A record's approval: the subject's department at submission")
+    private Long subjectDeptId;
+
+    @Schema(description = "A record's approval: the date the record takes effect, when its model has one")
+    private LocalDate effectiveDate;
+
+    @Schema(description = "A record's approval: the record's own number, when its model has one")
+    private String recordCode;
+
+    @Schema(description = "Identity of the trigger event that started the instance (a change log's uuid); with "
+            + "the flow, an event starts a run at most once")
+    private String triggerEventId;
 
     @Schema(description = "Execution status")
     private FlowExecutionStatus status;

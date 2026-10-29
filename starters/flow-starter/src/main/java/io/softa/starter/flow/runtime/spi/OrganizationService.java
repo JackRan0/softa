@@ -1,13 +1,18 @@
 package io.softa.starter.flow.runtime.spi;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * SPI for resolving organizational data.
  * <p>
- * Every user id here — taken or returned — is a login account id, the id approvers act under.
- * The default {@code FlowOrgService} reads the conventional HR models; applications implement this
- * interface only to integrate a different organization system.
+ * Every user id here — taken or returned — is a login account id, the id approvers act under; an
+ * employee id is an employee record's own id, the one a supervisor, a department leader or a record's
+ * subject is stored as. Lookups relative to someone start from an employee: a record's subject is
+ * one already, and a user is bridged through {@link #getEmployeeIdOfUser}. The default
+ * {@code FlowOrgService} reads the conventional HR models; applications implement this interface
+ * only to integrate a different organization system.
  * </p>
  */
 public interface OrganizationService {
@@ -41,12 +46,23 @@ public interface OrganizationService {
     List<ApproverInfo> getUsersByPositionIds(List<Long> positionIds);
 
     /**
-     * Get the supervisor of a user.
-     *
-     * @param userId the user ID
-     * @param level  the level of supervisor (1 = direct, 2 = supervisor's supervisor, etc.)
+     * The employee whose login account is {@code userId}; null when the account has none.
      */
-    ApproverInfo getSupervisor(Long userId, int level);
+    Long getEmployeeIdOfUser(Long userId);
+
+    /**
+     * The login account of an employee; null when the employee has none.
+     */
+    Long getUserIdOfEmployee(Long employeeId);
+
+    /**
+     * The supervisor {@code level} levels above an employee, as an approver; null when the chain ends
+     * before it or that supervisor has no account.
+     *
+     * @param employeeId the employee
+     * @param level      1 = direct supervisor, 2 = the supervisor's supervisor, and so on
+     */
+    ApproverInfo getSupervisorOfEmployee(Long employeeId, int level);
 
     /**
      * Get the department leader.
@@ -54,9 +70,9 @@ public interface OrganizationService {
     ApproverInfo getDeptLeader(Long deptId);
 
     /**
-     * Get the department ID of a user.
+     * The department of an employee; null when it has none.
      */
-    Long getUserDeptId(Long userId);
+    Long getDeptIdOfEmployee(Long employeeId);
 
     /**
      * Get sub-department IDs of a department.
@@ -77,6 +93,19 @@ public interface OrganizationService {
      */
     default ApproverInfo getDeptHrbp(Long deptId) {
         return null;
+    }
+
+    /**
+     * The display names of employees, by employee id: what approval lists show a record's subject as.
+     * Employees without a name are left out. Empty unless overridden.
+     */
+    default Map<Long, String> getEmployeeNames(Collection<Long> employeeIds) {
+        return Map.of();
+    }
+
+    /** The names of departments, by department id. Empty unless overridden. */
+    default Map<Long, String> getDeptNames(Collection<Long> deptIds) {
+        return Map.of();
     }
 }
 

@@ -40,6 +40,19 @@ public class InboxNotificationServiceImpl extends EntityServiceImpl<InboxNotific
     }
 
     @Override
+    public int markReadBySource(Long recipientId, String sourceModel, String sourceId) {
+        Filters unread = new Filters()
+                .eq(InboxNotification::getRecipientId, recipientId)
+                .eq(InboxNotification::getSourceModel, sourceModel)
+                .eq(InboxNotification::getSourceId, sourceId)
+                .eq(InboxNotification::getIsRead, false);
+        InboxNotification patch = new InboxNotification();
+        patch.setIsRead(true);
+        patch.setReadAt(LocalDateTime.now());
+        return updateByFilter(unread, patch);
+    }
+
+    @Override
     public int countUnread(Long recipientId) {
         return (int) count(new Filters()
                 .eq(InboxNotification::getRecipientId, recipientId)

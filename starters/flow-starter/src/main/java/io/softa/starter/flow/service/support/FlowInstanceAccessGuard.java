@@ -1,16 +1,22 @@
 package io.softa.starter.flow.service.support;
 
 import java.io.Serializable;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.PermissionException;
+import io.softa.framework.base.utils.LambdaUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
@@ -18,9 +24,8 @@ import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
-import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
+import io.softa.starter.flow.runtime.engine.FlowParticipants;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
-import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.flow.service.FlowInstanceService;
 
 /**
@@ -43,6 +48,8 @@ import io.softa.starter.flow.service.FlowInstanceService;
 public class FlowInstanceAccessGuard {
 
     private static final String FLOW_INSTANCE_MODEL = FlowInstance.class.getSimpleName();
+
+    private static final String INSTANCE_ID_FIELD = LambdaUtils.getAttributeName(FlowInstance::getInstanceId);
 
     private final FlowInstanceService instanceService;
 
@@ -136,11 +143,17 @@ public class FlowInstanceAccessGuard {
 
     /**
      * Authorizes a caller to read the record an instance approves past their own row permissions:
-     * the initiator and the people the instance gives a task to.
+     * the initiator and the people the instance gives a task to. Only a record's approval grants it —
+     * its record was submitted, checked with the submitter's own permissions; any other start names
+     * its record freely, and must not become a way to read past row permissions.
      */
     public void requireRecordGrantee(FlowExecutionState state, String requesterId) {
         String instanceId = state == null ? null : state.getInstanceId();
         requireAuthenticated(requesterId, "read the record of instance " + instanceId);
+        if (state != null && !state.isApprovalOfRecord()) {
+            throw new FlowAuthorizationException("Flow instance " + instanceId
+                    + " is not a record's approval; its record is read through the record's own permissions");
+        }
         if (state != null && isTaskHolder(state, requesterId)) {
             return;
         }
@@ -154,11 +167,24 @@ public class FlowInstanceAccessGuard {
         }
     }
 
+    /**
+     * Authorizes an administrator's action on an instance — what the monitoring console does to it: the
+     * caller's own permissions let them read its {@code FlowInstance} row, with the data scope of their
+     * roles. Taking part in the instance is not enough; the console's actions are not a participant's.
+     *
+     * @throws FlowAuthorizationException if their permissions do not reach the instance
+     */
+    public void requireInstanceAdministrator(String instanceId, String requesterId) {
+        requireAuthenticated(requesterId, "administer instance " + instanceId);
+        if (canReadInstance(instanceId)) {
+            return;
+        }
+        throw new FlowAuthorizationException("User may not administer flow instance " + instanceId);
+    }
+
     /** The default grants: the initiator, and whoever the instance gives or gave a task to. */
     private boolean isTaskHolder(FlowExecutionState state, String requesterId) {
-        return requesterId.equals(state.getInitiatorId())
-                || pendingApprovalParticipant(state.getPendingApprovals(), requesterId)
-                || auditHistoryParticipant(auditReader.fullHistory(state), requesterId);
+        return FlowParticipants.isParticipant(state, auditReader.fullHistory(state), requesterId);
     }
 
     /**
@@ -168,6 +194,26 @@ public class FlowInstanceAccessGuard {
     private boolean permittedByRoles(String instanceId, Boolean recordApproval, String modelName, String rowId) {
         return canReadInstance(instanceId)
                 || (Boolean.TRUE.equals(recordApproval) && canReadRecord(modelName, rowId));
+    }
+
+    /**
+     * Of these instances, the ones the caller may administer: those whose FlowInstance row their own permissions
+     * read — the monitoring console's data scope. One query however many.
+     */
+    public Set<String> administrableInstanceIds(Collection<String> instanceIds) {
+        if (instanceIds == null || instanceIds.isEmpty()) {
+            return Set.of();
+        }
+        FlexQuery query = new FlexQuery(new Filters().in(FlowInstance::getInstanceId, List.copyOf(instanceIds)));
+        query.setFields(List.of(INSTANCE_ID_FIELD));
+        try {
+            return modelService.searchList(FLOW_INSTANCE_MODEL, query).stream()
+                    .map(row -> Objects.toString(row.get(INSTANCE_ID_FIELD), null))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+        } catch (PermissionException e) {
+            return Set.of();
+        }
     }
 
     private boolean canReadInstance(String instanceId) {
@@ -214,32 +260,5 @@ public class FlowInstanceAccessGuard {
 
     private static boolean isActor(FlowRecordApprovalsView.Actor actor, String requesterId) {
         return actor != null && requesterId.equals(actor.getId());
-    }
-
-    private static boolean pendingApprovalParticipant(List<PendingApproval> approvals, String requesterId) {
-        if (approvals == null) {
-            return false;
-        }
-        return approvals.stream().anyMatch(approval -> approval != null
-                && (contains(approval.getApprovers(), requesterId)
-                || contains(approval.getApprovedActors(), requesterId)
-                || contains(approval.getRejectedActors(), requesterId)
-                || requesterId.equals(approval.getBlockedActorId())
-                || requesterId.equals(approval.getPrerequisiteActorId())));
-    }
-
-    private static boolean auditHistoryParticipant(List<ApprovalActionAuditEntry> history, String requesterId) {
-        if (history == null) {
-            return false;
-        }
-        return history.stream().anyMatch(entry -> entry != null
-                && (requesterId.equals(entry.getActorId())
-                || requesterId.equals(entry.getTargetActorId())
-                || contains(entry.getApprovedActors(), requesterId)
-                || contains(entry.getRejectedActors(), requesterId)));
-    }
-
-    private static boolean contains(List<String> actors, String requesterId) {
-        return actors != null && actors.contains(requesterId);
     }
 }

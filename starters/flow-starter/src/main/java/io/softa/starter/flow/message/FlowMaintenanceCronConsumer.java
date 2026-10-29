@@ -15,6 +15,7 @@ import io.softa.starter.cron.message.dto.CronTaskMessage;
 import io.softa.starter.flow.runtime.engine.ApprovalTimeoutScheduler;
 import io.softa.starter.flow.runtime.engine.DelegationExpiryScheduler;
 import io.softa.starter.flow.runtime.monitor.FlowMonitorService;
+import io.softa.starter.flow.service.impl.FlowAutomationPurgeService;
 import io.softa.starter.flow.service.impl.FlowDebugPurgeService;
 
 /**
@@ -36,10 +37,13 @@ public class FlowMaintenanceCronConsumer {
     static final String TIMER_SWEEP = "flow_timer_sweep";
     static final String INSTANCE_STUCK_SCAN = "flow_instance_stuck_scan";
     static final String DEBUG_BUNDLE_PURGE = "flow_debug_bundle_purge";
+    static final String AUTOMATION_PURGE = "flow_automation_purge";
 
     private static final int TIMER_SWEEP_BATCH = 200;
     private static final int STUCK_SCAN_BATCH = 200;
     private static final int DEBUG_PURGE_BATCH = 100;
+    private static final int AUTOMATION_PURGE_BATCH = 500;
+    private static final int AUTOMATION_PURGE_MAX_BATCHES = 20;
     private static final Duration STUCK_THRESHOLD = Duration.ofHours(24);
 
     @Autowired
@@ -53,6 +57,9 @@ public class FlowMaintenanceCronConsumer {
 
     @Autowired(required = false)
     private FlowDebugPurgeService debugPurgeService;
+
+    @Autowired(required = false)
+    private FlowAutomationPurgeService automationPurgeService;
 
     @PulsarListener(
             topics = "${mq.topics.cron-task.topic}",
@@ -93,6 +100,11 @@ public class FlowMaintenanceCronConsumer {
                 case DEBUG_BUNDLE_PURGE -> {
                     if (debugPurgeService != null) {
                         debugPurgeService.purgeExpiredDebugBundles(DEBUG_PURGE_BATCH);
+                    }
+                }
+                case AUTOMATION_PURGE -> {
+                    if (automationPurgeService != null) {
+                        automationPurgeService.purgeExpiredRuns(AUTOMATION_PURGE_BATCH, AUTOMATION_PURGE_MAX_BATCHES);
                     }
                 }
                 default -> { /* not a maintenance cron — ignore */ }

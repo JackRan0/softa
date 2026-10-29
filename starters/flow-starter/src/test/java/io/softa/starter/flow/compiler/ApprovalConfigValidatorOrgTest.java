@@ -10,7 +10,7 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
-import io.softa.starter.flow.design.trigger.ApiTrigger;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 
@@ -109,10 +109,45 @@ class ApprovalConfigValidatorOrgTest {
     void shouldRejectDepartmentWithNoDeptIdsAndNoInitiatorScope() {
         DesignFlowDefinition definition = flowWithApproverSource(Map.of(
                 "type", "Department",
-                "deptScope", "SPECIFIC"));
+                "deptScope", "SPECIFIC_DEPT"));
 
         FlowCompileException ex = assertThrows(FlowCompileException.class, () -> compiler.compile(definition));
         assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "MISSING_DEPT_IDS".equals(d.code())));
+    }
+
+    @Test
+    void shouldRejectADeptScopeTheSourceDoesNotTake() {
+        // ALL belongs to role queries; SPECIFIC was Department's spelling before the scopes were unified.
+        for (Map<String, Object> source : List.<Map<String, Object>>of(
+                Map.of("type", "DeptLeader", "deptScope", "ALL"),
+                Map.of("type", "Department", "deptScope", "SPECIFIC", "deptIds", List.of(10)))) {
+            FlowCompileException ex = assertThrows(FlowCompileException.class,
+                    () -> compiler.compile(flowWithApproverSource(source)));
+            assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "INVALID_DEPT_SCOPE".equals(d.code())), source.toString());
+        }
+    }
+
+    @Test
+    void shouldRequireTheDepartmentAScopeNames() {
+        FlowCompileException specific = assertThrows(FlowCompileException.class, () -> compiler.compile(
+                flowWithApproverSource(Map.of("type", "DeptHrbp", "deptScope", "SPECIFIC_DEPT"))));
+        FlowCompileException variable = assertThrows(FlowCompileException.class, () -> compiler.compile(
+                flowWithApproverSource(Map.of("type", "RoleQuery", "roleCodes", List.of("HR"), "deptScope", "VARIABLE_DEPT"))));
+
+        assertTrue(specific.getDiagnostics().stream().anyMatch(d -> "MISSING_DEPT_IDS".equals(d.code())));
+        assertTrue(variable.getDiagnostics().stream().anyMatch(d -> "MISSING_DEPT_VARIABLE".equals(d.code())));
+        assertDoesNotThrow(() -> compiler.compile(flowWithApproverSource(
+                Map.of("type", "DeptLeader", "deptScope", "VARIABLE_DEPT", "deptVariable", "toDeptId"))));
+    }
+
+    @Test
+    void shouldRejectAnUnknownSupervisorRelativeTo() {
+        FlowCompileException ex = assertThrows(FlowCompileException.class, () -> compiler.compile(
+                flowWithApproverSource(Map.of("type", "Supervisor", "relativeTo", "MANAGER"))));
+
+        assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "INVALID_RELATIVE_TO".equals(d.code())));
+        assertDoesNotThrow(() -> compiler.compile(
+                flowWithApproverSource(Map.of("type", "Supervisor", "relativeTo", "INITIATOR"))));
     }
 
     @Test
@@ -129,8 +164,8 @@ class ApprovalConfigValidatorOrgTest {
     private DesignFlowDefinition flowWithApproverSource(Map<String, Object> approverSource) {
         return DesignFlowDefinition.builder()
                 .name("Org Approval Test")
-                .scenario(FlowScenario.PROCESS)
-                .trigger(new ApiTrigger(null))
+                .scenario(FlowScenario.APPROVAL)
+                .trigger(new SubmitTrigger("LeaveRequest", null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),

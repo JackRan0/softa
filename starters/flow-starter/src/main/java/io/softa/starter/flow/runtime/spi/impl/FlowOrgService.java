@@ -110,11 +110,29 @@ public class FlowOrgService implements OrganizationService {
     }
 
     @Override
-    public ApproverInfo getSupervisor(Long userId, int level) {
-        if (userId == null || level < 1) {
+    public Long getEmployeeIdOfUser(Long userId) {
+        if (userId == null) {
             return null;
         }
         Map<String, Object> employee = employeeOfAccount(userId);
+        return employee == null ? null : toLong(employee.get(ModelConstant.ID));
+    }
+
+    @Override
+    public Long getUserIdOfEmployee(Long employeeId) {
+        if (employeeId == null) {
+            return null;
+        }
+        Map<String, Object> employee = employeeById(employeeId);
+        return employee == null ? null : toLong(employee.get(props.getAccountIdField()));
+    }
+
+    @Override
+    public ApproverInfo getSupervisorOfEmployee(Long employeeId, int level) {
+        if (employeeId == null || level < 1) {
+            return null;
+        }
+        Map<String, Object> employee = employeeById(employeeId);
         for (int i = 0; i < level && employee != null; i++) {
             Long supervisorId = toLong(employee.get(props.getSupervisorIdField()));
             employee = supervisorId == null ? null : employeeById(supervisorId);
@@ -133,11 +151,38 @@ public class FlowOrgService implements OrganizationService {
     }
 
     @Override
-    public Long getUserDeptId(Long userId) {
-        if (userId == null) {
+    public Map<Long, String> getEmployeeNames(Collection<Long> employeeIds) {
+        return namesOf(props.getEmployeeModel(), props.getNameField(), employeeIds);
+    }
+
+    @Override
+    public Map<Long, String> getDeptNames(Collection<Long> deptIds) {
+        return namesOf(props.getDepartmentModel(), props.getDeptNameField(), deptIds);
+    }
+
+    /** One read of a model's rows by id: their names, the rows without one left out. */
+    private Map<Long, String> namesOf(String model, String nameField, Collection<Long> ids) {
+        List<Long> distinct = ids == null ? List.of() : ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> names = new HashMap<>();
+        for (Map<String, Object> row : read(() -> modelService.getByIds(model, distinct, List.of(ModelConstant.ID, nameField)))) {
+            Long id = toLong(row.get(ModelConstant.ID));
+            Object name = row.get(nameField);
+            if (id != null && name != null && !name.toString().isBlank()) {
+                names.put(id, name.toString());
+            }
+        }
+        return names;
+    }
+
+    @Override
+    public Long getDeptIdOfEmployee(Long employeeId) {
+        if (employeeId == null) {
             return null;
         }
-        Map<String, Object> employee = employeeOfAccount(userId);
+        Map<String, Object> employee = employeeById(employeeId);
         return employee == null ? null : toLong(employee.get(props.getDeptIdField()));
     }
 

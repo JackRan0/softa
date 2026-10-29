@@ -32,6 +32,10 @@ public class DefaultApprovalNotificationService implements ApprovalNotificationS
                     + ", recipients=" + e.recipientActorIds();
             case FlowNotificationEvent.Returned        e -> "returned to initiator: node=" + e.pendingApproval().getNodeId()
                     + ", by=" + e.actorId();
+            case FlowNotificationEvent.Terminated      e -> "terminated: by=" + e.actorId();
+            case FlowNotificationEvent.FlowFailed      e -> "failed: node=" + e.failedNodeId() + ", error=" + e.errorMessage();
+            case FlowNotificationEvent.Reassigned      e -> "reassigned: node=" + e.pendingApproval().getNodeId()
+                    + ", from=" + e.fromActorId() + ", to=" + e.toActorId();
         };
         log.info("[Notification] instance={}, {}",
                 event.state() == null ? null : event.state().getInstanceId(),

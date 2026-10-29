@@ -8,7 +8,6 @@ import org.springframework.util.StringUtils;
 import io.softa.starter.flow.compiler.DefaultFlowCompiler;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.dto.FlowBundleSummaryView;
-import io.softa.starter.flow.entity.FlowDesign;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleMapper;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
@@ -43,8 +42,9 @@ public class FlowPublishServiceImpl implements FlowPublishService {
         if (designService == null) {
             throw new FlowRuntimeException("FlowDesignService is not available; cannot load draft for publish");
         }
+        // The design's scenario column is the source of truth: compile the document aligned to it.
         DesignFlowDefinition definition = designService.getById(flowId)
-                .map(FlowDesign::getDesignJson)
+                .map(design -> FlowDesignServiceImpl.alignedDefinition(design.getDesignJson(), design))
                 .orElseThrow(() -> new FlowRuntimeException("FlowDesign not found: " + flowId));
         CompiledFlowDefinition compiled = publish(flowId, definition);
         if (bundleService != null && StringUtils.hasText(changeDescription)) {

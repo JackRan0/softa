@@ -33,6 +33,9 @@ public class ApprovalConfigValidator implements FlowValidator {
     private static final String MISSING_ROLE_IDS             = "MISSING_ROLE_IDS";
     private static final String MISSING_POSITION_IDS         = "MISSING_POSITION_IDS";
     private static final String MISSING_DEPT_IDS             = "MISSING_DEPT_IDS";
+    private static final String INVALID_RELATIVE_TO          = "INVALID_RELATIVE_TO";
+    private static final String INVALID_DEPT_SCOPE           = "INVALID_DEPT_SCOPE";
+    private static final String MISSING_DEPT_VARIABLE        = "MISSING_DEPT_VARIABLE";
     private static final String INVALID_TIMEOUT_HOURS        = "INVALID_TIMEOUT_HOURS";
     private static final String INVALID_REMIND_INTERVAL      = "INVALID_REMIND_INTERVAL";
     private static final String MISSING_ESCALATE_TARGET      = "MISSING_ESCALATE_TARGET";
@@ -123,13 +126,22 @@ public class ApprovalConfigValidator implements FlowValidator {
                                 "Approval node '" + nodeId + "' supervisor level must be >= 1"));
                     }
                 }
+                try {
+                    ApproverRelativeTo.of(source.get("relativeTo"), ApproverRelativeTo.SUBJECT);
+                } catch (IllegalArgumentException e) {
+                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.relativeTo",
+                            INVALID_RELATIVE_TO, "Approval node '" + nodeId + "' supervisor relativeTo must be one of "
+                                    + Arrays.toString(ApproverRelativeTo.values())));
+                }
             }
+            case "DeptLeader", "DeptHrbp" -> validateDeptScope(nodeId, type, source, ApproverDeptScope.SUBJECT_DEPT, d);
             case "RoleQuery" -> {
                 if (isEmptyCollection(source.get("roleCodes")) && isEmptyCollection(source.get("roleIds"))) {
                     d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.roleCodes",
                             MISSING_ROLE_IDS,
                             "Approval node '" + nodeId + "' RoleQuery requires non-empty roleCodes or roleIds"));
                 }
+                validateDeptScope(nodeId, type, source, ApproverDeptScope.ALL, d);
             }
             case "Position" -> {
                 if (isEmptyCollection(source.get("positionIds"))) {
@@ -138,17 +150,48 @@ public class ApprovalConfigValidator implements FlowValidator {
                             "Approval node '" + nodeId + "' Position requires non-empty positionIds"));
                 }
             }
-            case "Department" -> {
-                Object deptScope = source.get("deptScope");
-                boolean isInitiatorDept = deptScope != null && "INITIATOR_DEPT".equals(deptScope.toString());
-                if (!isInitiatorDept && isEmptyCollection(source.get("deptIds"))) {
-                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.deptIds",
-                            MISSING_DEPT_IDS,
-                            "Approval node '" + nodeId + "' Department requires deptIds or deptScope=INITIATOR_DEPT"));
-                }
-            }
-            default -> { /* VariableList, Expression, InitiatorManager, Role, DeptLeader, DeptHrbp: no extra validation */ }
+            case "Department" -> validateDeptScope(nodeId, type, source, ApproverDeptScope.SPECIFIC_DEPT, d);
+            default -> { /* VariableList, Expression, InitiatorManager, Role: no extra validation */ }
         }
+    }
+
+    /**
+     * A department-based source's {@code deptScope} — {@code fallback} when it names none — and what that
+     * scope needs: {@code ALL} only for a role query (whose fallback it is), the department(s) for
+     * {@code SPECIFIC_DEPT} ({@code deptIds} for department members, {@code deptId} otherwise), the
+     * variable for {@code VARIABLE_DEPT}.
+     */
+    private static void validateDeptScope(String nodeId, String type, Map<String, Object> source,
+                                          ApproverDeptScope fallback, List<CompileDiagnostic> d) {
+        ApproverDeptScope scope;
+        try {
+            scope = ApproverDeptScope.of(source.get("deptScope"), fallback);
+        } catch (IllegalArgumentException e) {
+            scope = null;
+        }
+        if (scope == null || (scope == ApproverDeptScope.ALL && fallback != ApproverDeptScope.ALL)) {
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.deptScope",
+                    INVALID_DEPT_SCOPE, "Approval node '" + nodeId + "' " + type + " has an unsupported deptScope: "
+                            + source.get("deptScope")));
+            return;
+        }
+        boolean multiple = "Department".equals(type);
+        if (scope == ApproverDeptScope.SPECIFIC_DEPT
+                && (multiple ? isEmptyCollection(source.get("deptIds")) : !StringUtils.hasText(asText(source.get("deptId"))))) {
+            String field = multiple ? "deptIds" : "deptId";
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource." + field,
+                    MISSING_DEPT_IDS, "Approval node '" + nodeId + "' " + type + " requires " + field
+                            + " for deptScope SPECIFIC_DEPT"));
+        }
+        if (scope == ApproverDeptScope.VARIABLE_DEPT && !StringUtils.hasText(asText(source.get("deptVariable")))) {
+            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, "config.approverSource.deptVariable",
+                    MISSING_DEPT_VARIABLE, "Approval node '" + nodeId + "' " + type
+                            + " requires deptVariable for deptScope VARIABLE_DEPT"));
+        }
+    }
+
+    private static String asText(Object value) {
+        return value == null ? null : value.toString();
     }
 
     private static int parseIntSafe(Object val) {

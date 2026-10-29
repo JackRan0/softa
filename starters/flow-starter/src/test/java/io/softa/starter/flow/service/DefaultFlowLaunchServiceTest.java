@@ -59,7 +59,7 @@ class DefaultFlowLaunchServiceTest {
     // Record submission's and its preview's collaborators stay null: these tests cover publish-and-start only.
     private final FlowLaunchServiceImpl launchService =
             new FlowLaunchServiceImpl(publishService, runtimeEngine, bundleRegistry, new DefaultFlowCompiler(),
-                    null, null, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null, null);
 
     @Test
     void shouldPublishAndStartExactRevision() {
@@ -81,7 +81,7 @@ class DefaultFlowLaunchServiceTest {
     private static DesignFlowDefinition flowDefinition(String code, String routeValue) {
         return DesignFlowDefinition.builder()
                 .name(routeValue)
-                .scenario(FlowScenario.PROCESS)
+                .scenario(FlowScenario.AUTOMATION)
                 .trigger(new ApiTrigger(null))
                 .graph(FlowGraphDocument.builder()
                         .nodes(List.of(

@@ -1,6 +1,7 @@
 package io.softa.starter.flow.entity;
 
 import java.io.Serial;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -11,6 +12,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
 /**
@@ -29,8 +31,10 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 @Index(indexName = "idx_tenant_status_fire", fields = {"tenantId", "status", "nextFireAt"})
 @Index(indexName = "idx_tenant_initiator_status", fields = {"tenantId", "initiatorId", "status"})
 @Index(indexName = "idx_tenant_model_row", fields = {"tenantId", "modelName", "rowId"})
+@Index(indexName = "idx_flow_instance_subject_dept", fields = {"tenantId", "subjectDeptId"})
 @Index(indexName = "uk_flow_instance_open_record", fields = {"tenantId", "modelName", "openRecordId"}, unique = true,
        message = "This record is already in approval.")
+@Index(indexName = "uk_flow_instance_trigger_event", fields = {"tenantId", "flowId", "triggerEventId"}, unique = true)
 @EqualsAndHashCode(callSuper = true)
 public class FlowInstance extends AuditableModel {
 
@@ -59,6 +63,10 @@ public class FlowInstance extends AuditableModel {
     @Field(cascadedField = "flowId.flowName", dynamic = true, readonly = true)
     private String flowName;
 
+    @Field(cascadedField = "flowId.scenario", dynamic = true, readonly = true,
+           description = "The flow's scenario; fixed when the flow is created, so every instance of it shares it")
+    private FlowScenario scenario;
+
     @Field(description = "Published flow revision")
     private Integer flowRevision;
 
@@ -78,9 +86,31 @@ public class FlowInstance extends AuditableModel {
             + "result is written back to it")
     private Boolean recordApproval;
 
+    @Field(label = "Subject ID", description = "A record's approval: the employee the record is about, as at "
+            + "submission — whose supervisor and department its approvers are found from")
+    private Long subjectId;
+
+    @Field(label = "Subject Department ID", description = "A record's approval: the subject's department at "
+            + "submission, which the approval lists filter on and department data scopes narrow by")
+    private Long subjectDeptId;
+
+    @Field(description = "A record's approval: the date the record takes effect, when its model has one")
+    private LocalDate effectiveDate;
+
+    @Field(description = "A record's approval: the record's own number, as at submission")
+    private String recordCode;
+
+    @Field(defaultValue = "false", description = "A record's approval that a later submission of the same record "
+            + "replaced: an approval returned and not superseded is still waiting for its record to be edited")
+    private Boolean superseded;
+
     @Field(label = "Open Record ID", description = "The record's id while this record approval is unfinished, empty "
             + "otherwise. Unique with the model in a tenant: a record has at most one approval in progress")
     private String openRecordId;
+
+    @Field(label = "Trigger Event ID", description = "Identity of the event that started the run (a change log's "
+            + "uuid), empty for other starts. Unique with the flow in a tenant: an event starts a flow at most once")
+    private String triggerEventId;
 
     @Field(required = true, description = "Execution status")
     private FlowExecutionStatus status;

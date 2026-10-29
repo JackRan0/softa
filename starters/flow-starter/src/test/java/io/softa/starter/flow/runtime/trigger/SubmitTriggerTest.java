@@ -11,6 +11,7 @@ import io.softa.starter.flow.compiler.validation.TriggerConsistencyValidator;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.runtime.LeaveRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
@@ -24,7 +25,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * The submit trigger is chosen per record — by model and condition — and never by a generic
- * trigger event; the REST trigger refuses it and the compiler keeps it on Process flows.
+ * trigger event; the REST trigger refuses it and the compiler keeps it on Approval flows.
  */
 class SubmitTriggerTest {
 
@@ -84,15 +85,15 @@ class SubmitTriggerTest {
     }
 
     @Test
-    void theCompilerKeepsSubmitTriggersOnProcessFlowsThatNameTheirModel() {
+    void theCompilerKeepsSubmitTriggersOnApprovalFlowsThatNameTheirModel() {
         TriggerConsistencyValidator validator = new TriggerConsistencyValidator();
 
         List<CompileDiagnostic> wrongScenario = validator.validate(DesignFlowDefinition.builder()
                 .scenario(FlowScenario.VALIDATION).trigger(new SubmitTrigger("LeaveRequest", null)).build(), null);
         List<CompileDiagnostic> noModel = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.PROCESS).trigger(new SubmitTrigger(" ", null)).build(), null);
+                .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger(" ", null)).build(), null);
         List<CompileDiagnostic> valid = validator.validate(DesignFlowDefinition.builder()
-                .scenario(FlowScenario.PROCESS).trigger(new SubmitTrigger("LeaveRequest", "days > 1")).build(), null);
+                .scenario(FlowScenario.APPROVAL).trigger(new SubmitTrigger("LeaveRequest", "days > 1")).build(), null);
 
         assertEquals(1, wrongScenario.size());
         assertEquals(1, noModel.size());
@@ -100,11 +101,12 @@ class SubmitTriggerTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     void twoHandlersForOneModelAreRefused() {
-        ModelApprovalHandler first = mock(ModelApprovalHandler.class);
-        ModelApprovalHandler second = mock(ModelApprovalHandler.class);
-        when(first.modelName()).thenReturn("LeaveRequest");
-        when(second.modelName()).thenReturn("LeaveRequest");
+        ModelApprovalHandler<LeaveRequest> first = mock(ModelApprovalHandler.class);
+        ModelApprovalHandler<LeaveRequest> second = mock(ModelApprovalHandler.class);
+        when(first.modelClass()).thenReturn(LeaveRequest.class);
+        when(second.modelClass()).thenReturn(LeaveRequest.class);
 
         ModelApprovalHandlerRegistry registry = ModelApprovalHandlerRegistry.of(List.of(first, second));
 
