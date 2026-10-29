@@ -216,4 +216,19 @@ class FlowInstanceAccessGuardTest {
         when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("someoneElse")));
         assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "u1", false));
     }
+
+    @Test
+    void anAdministratorIsWhoeverTheirOwnPermissionsLetReadTheInstance() {
+        when(modelService.count(eq("FlowInstance"), any(Filters.class))).thenReturn(1L);
+        assertDoesNotThrow(() -> guard.requireInstanceAdministrator("i1", "admin"));
+    }
+
+    @Test
+    void anInstanceOutsideTheCallersScopeIsNotTheirsToAdminister() {
+        // Taking part in it does not count: the console's actions are not a participant's.
+        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("u1")));
+        when(modelService.count(eq("FlowInstance"), any(Filters.class))).thenReturn(0L);
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceAdministrator("i1", "u1"));
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceAdministrator("i1", null));
+    }
 }

@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Pins the method and path of every instance and automation endpoint. The permission manifests of
+ * Pins the method and path of every instance, monitor and automation endpoint. The permission manifests of
  * the applications that embed the engine list these pairs, so a change here ships with theirs.
  */
 class FlowInstanceAndAutomationRoutesTest {
@@ -34,12 +34,22 @@ class FlowInstanceAndAutomationRoutesTest {
                         "POST /flow/instances/return",
                         "POST /flow/instances/withdraw",
                         "POST /flow/instances/urge",
+                        "GET /flow/instances/{instanceId}/urge",
                         "POST /flow/instances/comment",
                         "GET /flow/instances/{instanceId}/nodes/{nodeId}/formPermissions",
                         "GET /flow/instances/by-record",
                         "GET /flow/instances/preview",
                         "GET /flow/instances/{instanceId}/record")),
                 routes(FlowInstanceController.class));
+    }
+
+    @Test
+    void monitorEndpoints() {
+        assertEquals(new TreeSet<>(Set.of(
+                        "GET /flow/monitor/health",
+                        "POST /flow/monitor/instances/search",
+                        "POST /flow/monitor/instances/urge")),
+                routes(FlowMonitorController.class));
     }
 
     @Test

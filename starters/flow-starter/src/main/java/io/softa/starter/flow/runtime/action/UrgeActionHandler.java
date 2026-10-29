@@ -8,15 +8,21 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.softa.starter.flow.runtime.api.FlowUrgeRequest;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
+import io.softa.starter.flow.runtime.engine.UrgeThrottle;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
+import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.spi.ApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.FlowNotificationEvent;
 import io.softa.starter.flow.runtime.state.*;
 
 /**
- * Handles urge (催办) actions — sends a reminder notification to all pending approvers.
+ * Handles urge (催办) actions — reminds the approvers an approval waits on. Its initiator urges it, and an
+ * administrator may, authorized by the monitoring console. Either way a step is urged at most once per
+ * interval ({@link UrgeThrottle}): each step urged gets its own {@code URGE} entry in the approval history,
+ * which the interval is measured from, and steps still inside it are left out.
  */
 @Component
 public class UrgeActionHandler implements FlowActionHandler<FlowUrgeRequest> {
@@ -24,71 +30,82 @@ public class UrgeActionHandler implements FlowActionHandler<FlowUrgeRequest> {
     private final FlowActionContextService contextService;
     private final FlowAuditService auditService;
     private final ApprovalNotificationService notificationService;
+    private final UrgeThrottle throttle;
 
     public UrgeActionHandler(FlowActionContextService contextService,
                              FlowAuditService auditService,
-                             ApprovalNotificationService notificationService) {
+                             ApprovalNotificationService notificationService,
+                             UrgeThrottle throttle) {
         this.contextService = contextService;
         this.auditService = auditService;
         this.notificationService = notificationService;
+        this.throttle = throttle;
     }
 
+    /** The initiator urges the approval. */
     @Override
     public FlowExecutionState handle(FlowUrgeRequest request) {
-        if (request == null || !StringUtils.hasText(request.getInstanceId())) {
-            throw new FlowActionValidationException("instanceId is required to urge pending approvers");
+        return handle(request, false);
+    }
+
+    /**
+     * Urges the approval as its initiator, or — {@code administrator} — as someone the caller has already
+     * authorized to administer the instance.
+     */
+    public FlowExecutionState handle(FlowUrgeRequest request, boolean administrator) {
+        if (request == null || !StringUtils.hasText(request.getInstanceId()) || !StringUtils.hasText(request.getActorId())) {
+            throw new FlowActionValidationException("instanceId and actorId are required to urge pending approvers");
         }
 
         FlowExecutionState state = contextService.requireState(request.getInstanceId());
         contextService.requireWaitingApproval(state, request.getInstanceId(), "urged");
-
-        // Collect all pending approver actor IDs
-        List<String> pendingActorIds = new ArrayList<>();
-        for (PendingApproval pending : state.getPendingApprovals()) {
-            if (pending.getApprovers() != null) {
-                for (String approver : pending.getApprovers()) {
-                    if (!pendingActorIds.contains(approver)
-                            && (pending.getApprovedActors() == null || !pending.getApprovedActors().contains(approver))
-                            && (pending.getRejectedActors() == null || !pending.getRejectedActors().contains(approver))) {
-                        pendingActorIds.add(approver);
-                    }
-                }
-            }
+        if (!administrator && !request.getActorId().equals(state.getInitiatorId())) {
+            throw new FlowAuthorizationException("Only the initiator can urge the approvers of flow instance: "
+                    + request.getInstanceId());
         }
 
-        if (pendingActorIds.isEmpty()) {
-            throw new FlowActionValidationException("No pending approvers to urge for instance: " + request.getInstanceId());
+        LocalDateTime now = LocalDateTime.now();
+        List<PendingApproval> steps = throttle.urgeable(state, now);
+        if (steps.isEmpty()) {
+            LocalDateTime next = throttle.status(state, now).nextUrgeAt();
+            throw new FlowActionValidationException(next == null
+                    ? "No pending approvers to urge for instance: " + request.getInstanceId()
+                    : "The pending approvers of instance " + request.getInstanceId()
+                            + " were urged recently and may be urged again after " + next);
         }
 
         String message = StringUtils.hasText(request.getMessage())
                 ? request.getMessage()
                 : "Please process as soon as possible";
 
-        // Add trace
+        CompiledFlowDefinition definition = contextService.resolveDefinition(state.getBundleId());
+        List<String> urgedActorIds = new ArrayList<>();
+        for (PendingApproval step : steps) {
+            auditService.appendApprovalAudit(state, auditService.baseEntry(definition,
+                            contextService.requiredNode(definition, step.getNodeId()), step,
+                            state.getStatus(), state.getStatus()).toBuilder()
+                    .action(ApprovalActionType.URGE)
+                    .actorId(request.getActorId())
+                    .comment(message)
+                    .build());
+            for (String actorId : UrgeThrottle.stillToAct(step)) {
+                if (!urgedActorIds.contains(actorId)) {
+                    urgedActorIds.add(actorId);
+                }
+            }
+        }
+
         state.getTrace().add(FlowExecutionTraceEntry.builder()
                 .flowId(state.getFlowId())
                 .eventType(FlowTraceEventType.FLOW_URGED)
-                .eventTime(LocalDateTime.now())
-                .message("Urge sent by " + request.getActorId() + " to " + pendingActorIds + ": " + message)
-                .build());
-
-        // Add audit entry
-        auditService.appendApprovalAudit(state, ApprovalActionAuditEntry.builder()
-                .action(ApprovalActionType.URGE)
-                .flowId(state.getFlowId())
-                .flowRevision(state.getFlowRevision())
-                .actorId(request.getActorId())
-                .comment(message)
-                .statusBefore(state.getStatus())
-                .statusAfter(state.getStatus())
+                .eventTime(now)
+                .message("Urge sent by " + request.getActorId() + " to " + urgedActorIds + ": " + message)
                 .build());
 
         contextService.persistState(state);
 
-        // Send notification
-        notificationService.notify(new FlowNotificationEvent.Urged(state, pendingActorIds, request.getActorId(), message));
+        notificationService.notify(new FlowNotificationEvent.Urged(state, urgedActorIds, request.getActorId(), message));
 
         return state;
     }
 }
-

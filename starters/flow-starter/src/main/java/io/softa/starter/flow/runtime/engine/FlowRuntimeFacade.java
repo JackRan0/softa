@@ -10,6 +10,7 @@ import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.action.*;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -114,7 +115,16 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
             throw e;
         }
         contextService.persistState(state);
-        autoCcService.processCc(state, null, CcTiming.ON_SUBMIT);
+        // Submitting happens at the flow's start node; an approval every step of which passed on its own
+        // completes right there.
+        List<String> entryNodeIds = definition.getEntryNodeIds();
+        if (entryNodeIds != null && !entryNodeIds.isEmpty()) {
+            CompiledFlowNode startNode = contextService.requiredNode(definition, entryNodeIds.getFirst());
+            autoCcService.processCc(state, startNode, CcTiming.ON_SUBMIT);
+            if (FlowExecutionStatus.COMPLETED.equals(state.getStatus())) {
+                autoCcService.processCc(state, startNode, CcTiming.ON_COMPLETE);
+            }
+        }
         return state;
     }
 
@@ -191,15 +201,24 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     @Override
     public FlowExecutionState approve(FlowApproveRequest request) {
         FlowExecutionState state = approveHandler.handle(request);
-        autoCcService.processCc(state, null, CcTiming.ON_APPROVE);
+        CompiledFlowNode step = actedStep(state, request.getNodeId());
+        autoCcService.processCc(state, step, CcTiming.ON_APPROVE);
+        if (FlowExecutionStatus.COMPLETED.equals(state.getStatus())) {
+            autoCcService.processCc(state, step, CcTiming.ON_COMPLETE);
+        }
         return state;
     }
 
     @Override
     public FlowExecutionState reject(FlowRejectRequest request) {
         FlowExecutionState state = rejectHandler.handle(request);
-        autoCcService.processCc(state, null, CcTiming.ON_REJECT);
+        autoCcService.processCc(state, actedStep(state, request.getNodeId()), CcTiming.ON_REJECT);
         return state;
+    }
+
+    /** The step an approval action was taken on: its CC rules apply, and the CCs are recorded on it. */
+    private CompiledFlowNode actedStep(FlowExecutionState state, String nodeId) {
+        return contextService.requiredNode(contextService.resolveDefinition(state.getBundleId()), nodeId);
     }
 
     @Override
@@ -250,6 +269,11 @@ public class FlowRuntimeFacade implements FlowRuntimeEngine {
     @Override
     public FlowExecutionState urge(FlowUrgeRequest request) {
         return urgeHandler.handle(request);
+    }
+
+    @Override
+    public FlowExecutionState urgeAsAdministrator(FlowUrgeRequest request) {
+        return urgeHandler.handle(request, true);
     }
 
     @Override

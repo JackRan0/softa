@@ -55,9 +55,6 @@ public class FlowCcConfig extends AuditableModel {
     @Field(label = "CC Condition", length = 1000, description = "Optional condition expression that must evaluate to true for CC to fire")
     private String ccCondition;
 
-    @Field(description = "Whether to create CC read tasks for recipients")
-    private Boolean createReadTask;
-
     @Field(description = "Whether to send notification to recipients")
     private Boolean sendNotification;
 

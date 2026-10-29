@@ -65,6 +65,13 @@ public interface FlowRuntimeEngine {
 
     FlowExecutionState urge(FlowUrgeRequest request);
 
+    /**
+     * Urges an approval as an administrator, who need not be its initiator — authorized by the caller
+     * beforehand (the monitoring console's permission and data scope). The same interval applies as to the
+     * initiator's urges.
+     */
+    FlowExecutionState urgeAsAdministrator(FlowUrgeRequest request);
+
     FlowExecutionState addComment(FlowCommentRequest request);
 
     /**

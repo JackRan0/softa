@@ -3,6 +3,7 @@ package io.softa.starter.flow.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import org.springframework.validation.annotation.Validated;
@@ -19,11 +20,13 @@ import io.softa.starter.flow.dto.FlowInstanceOverlay;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.dto.FlowTraceEntryView;
+import io.softa.starter.flow.dto.FlowUrgeStatus;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.FormFieldPermission;
 import io.softa.starter.flow.runtime.api.*;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.FormPermissionService;
+import io.softa.starter.flow.runtime.engine.UrgeThrottle;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.service.FlowExecutionTraceService;
 import io.softa.starter.flow.service.FlowInstanceService;
@@ -52,19 +55,22 @@ public class FlowInstanceController {
     private final FlowExecutionTraceService traceService;
     private final FlowInstanceAccessGuard accessGuard;
     private final FlowLaunchService launchService;
+    private final UrgeThrottle urgeThrottle;
 
     public FlowInstanceController(FlowRuntimeEngine runtimeEngine,
                                   FormPermissionService formPermissionService,
                                   FlowInstanceService instanceService,
                                   FlowExecutionTraceService traceService,
                                   FlowInstanceAccessGuard accessGuard,
-                                  FlowLaunchService launchService) {
+                                  FlowLaunchService launchService,
+                                  UrgeThrottle urgeThrottle) {
         this.runtimeEngine = runtimeEngine;
         this.formPermissionService = formPermissionService;
         this.instanceService = instanceService;
         this.traceService = traceService;
         this.accessGuard = accessGuard;
         this.launchService = launchService;
+        this.urgeThrottle = urgeThrottle;
     }
 
     @PostMapping("/start")
@@ -264,17 +270,40 @@ public class FlowInstanceController {
     }
 
     @PostMapping("/urge")
-    @Operation(summary = "Urge pending approvers", description = "Sends an urge notification to all pending approvers of the flow instance.")
-    public ApiResponse<FlowExecutionState> urge(@Valid @RequestBody FlowUrgeRequest request) {
+    @Operation(summary = "Urge pending approvers",
+            description = "The initiator reminds the approvers the approval waits on. A step urged within the interval "
+                    + "(flow.approval.urge-interval-minutes, default 240) — by the initiator or an administrator — "
+                    + "is not urged again, and when every step is, the urge is refused. Returns when the approval "
+                    + "may be urged next.")
+    public ApiResponse<FlowUrgeStatus> urge(@Valid @RequestBody FlowUrgeRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.urge(request));
+        FlowExecutionState state = runtimeEngine.urge(request);
+        return ApiResponse.success(urgeThrottle.status(state, LocalDateTime.now()));
+    }
+
+    @GetMapping("/{instanceId}/urge")
+    @Operation(summary = "Get urge status",
+            description = "Whether the approval may be urged now, and if not, when it may be. Allowed to whoever may "
+                    + "view the instance.")
+    public ApiResponse<FlowUrgeStatus> getUrgeStatus(@PathVariable String instanceId) {
+        return runtimeEngine.getInstance(instanceId)
+                .map(state -> {
+                    accessGuard.requireInstanceViewer(state, currentUserId());
+                    return ApiResponse.success(urgeThrottle.status(state, LocalDateTime.now()));
+                })
+                .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
+                        "Flow instance not found: " + instanceId));
     }
 
     @PostMapping("/comment")
-    @Operation(summary = "Add comment to flow instance", description = "Adds a comment to a flow instance without changing its status. Recorded in approval audit history.")
-    public ApiResponse<FlowExecutionState> addComment(@Valid @RequestBody FlowCommentRequest request) {
+    @Operation(summary = "Add comment to flow instance",
+            description = "Adds a comment to a running flow instance without changing its status, recorded in its "
+                    + "approval history. Only its participants comment: the initiator and the people it gives or "
+                    + "gave a task to.")
+    public ApiResponse<Boolean> addComment(@Valid @RequestBody FlowCommentRequest request) {
         request.setActorId(currentUserId());
-        return ApiResponse.success(runtimeEngine.addComment(request));
+        runtimeEngine.addComment(request);
+        return ApiResponse.success(true);
     }
 
     @GetMapping("/{instanceId}/nodes/{nodeId}/formPermissions")

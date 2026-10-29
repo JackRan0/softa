@@ -1,5 +1,6 @@
 package io.softa.starter.flow.runtime;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +12,7 @@ import io.softa.starter.flow.design.FlowGraphDocument;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
+import io.softa.starter.flow.dto.FlowUrgeStatus;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.api.FlowApproveRequest;
@@ -19,11 +21,17 @@ import io.softa.starter.flow.runtime.api.FlowDelegateRequest;
 import io.softa.starter.flow.runtime.api.FlowRejectRequest;
 import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.api.FlowTransferRequest;
+import io.softa.starter.flow.runtime.api.FlowUrgeRequest;
+import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
+import io.softa.starter.flow.runtime.engine.UrgeThrottle;
 import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
+import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
+import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
+import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.state.PendingApproval;
@@ -36,13 +44,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Action-handler scenarios over a single-approver flow (START → Approval → END):
- * approve / reject / transfer / delegate / comment, plus actor-validation errors.
+ * approve / reject / transfer / delegate / comment / urge, plus actor-validation errors.
  * Covers the approval state machine transitions that the single end-to-end test
  * (approve only) left untested.
  */
 class FlowActionScenarioTest {
 
     private static final String FLOW_ID = "9100";
+    private static final String INITIATOR = "initiator-1";
     private static final String APPROVER = "manager-1";
     private static final String OTHER = "manager-2";
 
@@ -57,6 +66,9 @@ class FlowActionScenarioTest {
             new DefaultNodeHandlerRegistry(List.of(approvalHandler, new PassThroughNodeExecutionHandler())),
             approvalHandler);
 
+    /** The engine's interval (240 minutes), reading the same approval history it writes. */
+    private final UrgeThrottle throttle = new UrgeThrottle(new ApprovalAuditReader(new NoopApprovalActionLedger()), 240);
+
     @BeforeEach
     void publishFlow() {
         publishService.publish(FLOW_ID, flowDefinition());
@@ -65,7 +77,7 @@ class FlowActionScenarioTest {
     private FlowExecutionState startAndExpectPending() {
         FlowStartRequest start = new FlowStartRequest();
         start.setFlowId(FLOW_ID);
-        start.setInitiatorId("initiator-1");
+        start.setInitiatorId(INITIATOR);
         FlowExecutionState state = engine.start(start);
         assertEquals(FlowExecutionStatus.WAITING, state.getStatus());
         assertFalse(state.getPendingApprovals().isEmpty());
@@ -145,6 +157,67 @@ class FlowActionScenarioTest {
     }
 
     @Test
+    void onlyTheInstancesParticipantsComment() {
+        FlowExecutionState started = startAndExpectPending();
+        FlowCommentRequest stranger = comment(started, "stranger");
+        assertThrows(FlowAuthorizationException.class, () -> engine.addComment(stranger));
+
+        FlowExecutionState afterComment = engine.addComment(comment(started, INITIATOR));
+        assertEquals(1, entries(afterComment, ApprovalActionType.COMMENT).size());
+    }
+
+    @Test
+    void onlyTheInitiatorUrgesTheApproversAndEachStepIsUrgedOnItsOwn() {
+        FlowExecutionState started = startAndExpectPending();
+        assertThrows(FlowAuthorizationException.class, () -> engine.urge(urge(started, APPROVER)));
+
+        FlowExecutionState afterUrge = engine.urge(urge(started, INITIATOR));
+        List<ApprovalActionAuditEntry> urges = entries(afterUrge, ApprovalActionType.URGE);
+        assertEquals(1, urges.size());
+        assertEquals("approval", urges.getFirst().getNodeId());
+        assertEquals(INITIATOR, urges.getFirst().getActorId());
+    }
+
+    @Test
+    void aStepUrgedWithinTheIntervalIsUrgedByNobodyUntilItPasses() {
+        FlowExecutionState started = startAndExpectPending();
+        LocalDateTime urgedAt = LocalDateTime.now();
+        FlowExecutionState afterUrge = engine.urge(urge(started, INITIATOR));
+
+        FlowUrgeStatus status = throttle.status(afterUrge, LocalDateTime.now());
+        assertFalse(status.urgeable());
+        assertFalse(status.nextUrgeAt().isBefore(urgedAt.plusMinutes(240)));
+        assertThrows(FlowActionValidationException.class, () -> engine.urge(urge(started, INITIATOR)));
+        assertThrows(FlowActionValidationException.class, () -> engine.urgeAsAdministrator(urge(started, "admin")));
+
+        // The interval has passed since the step was urged.
+        entries(afterUrge, ApprovalActionType.URGE)
+                .forEach(entry -> entry.setEventTime(entry.getEventTime().minusMinutes(241)));
+        assertTrue(throttle.status(afterUrge, LocalDateTime.now()).urgeable());
+        assertEquals(2, entries(engine.urge(urge(started, INITIATOR)), ApprovalActionType.URGE).size());
+    }
+
+    @Test
+    void anAdministratorUrgesWithoutBeingTheInitiator() {
+        FlowExecutionState started = startAndExpectPending();
+        FlowExecutionState afterUrge = engine.urgeAsAdministrator(urge(started, "admin"));
+        assertEquals("admin", entries(afterUrge, ApprovalActionType.URGE).getFirst().getActorId());
+    }
+
+    @Test
+    void anApprovalThatHasEndedIsNotUrged() {
+        FlowExecutionState started = startAndExpectPending();
+        FlowApproveRequest approve = new FlowApproveRequest();
+        approve.setInstanceId(started.getInstanceId());
+        approve.setNodeId("approval");
+        approve.setActorId(APPROVER);
+        FlowExecutionState completed = engine.approve(approve);
+
+        assertFalse(throttle.status(completed, LocalDateTime.now()).urgeable());
+        assertThrows(FlowActionValidationException.class, () -> engine.urge(urge(started, INITIATOR)));
+    }
+
+    @Test
     void aRejectionWithoutACommentIsRefusedAndChangesNothing() {
         FlowExecutionState started = startAndExpectPending();
         FlowRejectRequest req = new FlowRejectRequest();
@@ -177,6 +250,27 @@ class FlowActionScenarioTest {
         transfer.setActorId(APPROVER);
         transfer.setTargetActorId(APPROVER);
         assertThrows(FlowActionValidationException.class, () -> engine.transfer(transfer));
+    }
+
+    private static FlowCommentRequest comment(FlowExecutionState state, String actorId) {
+        FlowCommentRequest comment = new FlowCommentRequest();
+        comment.setInstanceId(state.getInstanceId());
+        comment.setActorId(actorId);
+        comment.setComment("please clarify");
+        return comment;
+    }
+
+    private static FlowUrgeRequest urge(FlowExecutionState state, String actorId) {
+        FlowUrgeRequest urge = new FlowUrgeRequest();
+        urge.setInstanceId(state.getInstanceId());
+        urge.setActorId(actorId);
+        return urge;
+    }
+
+    private static List<ApprovalActionAuditEntry> entries(FlowExecutionState state, ApprovalActionType action) {
+        return state.getApprovalAuditDelta().stream()
+                .filter(entry -> action.equals(entry.getAction()))
+                .toList();
     }
 
     private static DesignFlowDefinition flowDefinition() {

@@ -18,9 +18,8 @@ import io.softa.starter.flow.dto.FlowRecordApprovalsView;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
-import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
+import io.softa.starter.flow.runtime.engine.FlowParticipants;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
-import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.flow.service.FlowInstanceService;
 
 /**
@@ -160,11 +159,24 @@ public class FlowInstanceAccessGuard {
         }
     }
 
+    /**
+     * Authorizes an administrator's action on an instance — what the monitoring console does to it: the
+     * caller's own permissions let them read its {@code FlowInstance} row, with the data scope of their
+     * roles. Taking part in the instance is not enough; the console's actions are not a participant's.
+     *
+     * @throws FlowAuthorizationException if their permissions do not reach the instance
+     */
+    public void requireInstanceAdministrator(String instanceId, String requesterId) {
+        requireAuthenticated(requesterId, "administer instance " + instanceId);
+        if (canReadInstance(instanceId)) {
+            return;
+        }
+        throw new FlowAuthorizationException("User may not administer flow instance " + instanceId);
+    }
+
     /** The default grants: the initiator, and whoever the instance gives or gave a task to. */
     private boolean isTaskHolder(FlowExecutionState state, String requesterId) {
-        return requesterId.equals(state.getInitiatorId())
-                || pendingApprovalParticipant(state.getPendingApprovals(), requesterId)
-                || auditHistoryParticipant(auditReader.fullHistory(state), requesterId);
+        return FlowParticipants.isParticipant(state, auditReader.fullHistory(state), requesterId);
     }
 
     /**
@@ -220,32 +232,5 @@ public class FlowInstanceAccessGuard {
 
     private static boolean isActor(FlowRecordApprovalsView.Actor actor, String requesterId) {
         return actor != null && requesterId.equals(actor.getId());
-    }
-
-    private static boolean pendingApprovalParticipant(List<PendingApproval> approvals, String requesterId) {
-        if (approvals == null) {
-            return false;
-        }
-        return approvals.stream().anyMatch(approval -> approval != null
-                && (contains(approval.getApprovers(), requesterId)
-                || contains(approval.getApprovedActors(), requesterId)
-                || contains(approval.getRejectedActors(), requesterId)
-                || requesterId.equals(approval.getBlockedActorId())
-                || requesterId.equals(approval.getPrerequisiteActorId())));
-    }
-
-    private static boolean auditHistoryParticipant(List<ApprovalActionAuditEntry> history, String requesterId) {
-        if (history == null) {
-            return false;
-        }
-        return history.stream().anyMatch(entry -> entry != null
-                && (requesterId.equals(entry.getActorId())
-                || requesterId.equals(entry.getTargetActorId())
-                || contains(entry.getApprovedActors(), requesterId)
-                || contains(entry.getRejectedActors(), requesterId)));
-    }
-
-    private static boolean contains(List<String> actors, String requesterId) {
-        return actors != null && actors.contains(requesterId);
     }
 }

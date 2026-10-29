@@ -189,8 +189,9 @@ Base path: `/flow/instances` — launch, reads and approval actions on runtime i
 | `POST` | `/flow/instances/cc/read` | Mark a CC as read |
 | `POST` | `/flow/instances/return` | Return a pending approval to the initiator, ending the instance as `Returned`. Only the step's approver, with a comment saying what to change |
 | `POST` | `/flow/instances/withdraw` | Withdraw an Approval instance (its initiator, when the flow allows it) |
-| `POST` | `/flow/instances/urge` | Urge pending approvers |
-| `POST` | `/flow/instances/comment` | Add a comment audit entry while the instance runs; an instance that has ended takes no more comments |
+| `POST` | `/flow/instances/urge` | Remind the approvers the approval waits on — its initiator only. Each waiting step is urged at most once per `flow.approval.urge-interval-minutes` (default 240), by the initiator or an administrator alike; each step urged gets its own `URGE` history entry, and when every step is still inside the interval the urge is refused. Returns `FlowUrgeStatus`, not the instance |
+| `GET` | `/flow/instances/{instanceId}/urge` | Whether the approval may be urged now, and if not, when (`FlowUrgeStatus`). Allowed to whoever may view the instance |
+| `POST` | `/flow/instances/comment` | Add a comment audit entry while the instance runs — its participants only: the initiator and the people it gives or gave a task to. An instance that has ended takes no more comments. Returns `true`, not the instance |
 | `GET` | `/flow/instances/{instanceId}/nodes/{nodeId}/formPermissions` | Get field-level form permissions |
 | `GET` | `/flow/instances/by-record?modelName=&rowId=` | A business record's approval history: its approval instances newest first, with the steps still waiting, the approvers yet to act and the approval actions, every user named (names are resolved only once the caller is allowed); a failed instance says where and why it stopped (`failure`). Allowed to whoever took part in its approvals or can read the record |
 | `GET` | `/flow/instances/preview?modelName=&rowId=` | What submitting the record would do now, without submitting it: the Submit flow it would get and its approval steps, each with the approvers who would be asked or why it passes on its own; a refusal, no applicable flow or several are reported, a route decided only once the approval runs is reported as undecided. For a record in approval, the rest of its path (`InProgress`): the step it waits on now, then those after it. Nothing is started or written. Allowed to whoever can read the record (see [Previewing a record's approval](#previewing-a-records-approval)) |
@@ -267,6 +268,28 @@ Base path: `/flow/ccConfigs`
 | `GET` | `/flow/ccConfigs?flowId=` | List CC rules by `flowId` |
 | `POST` | `/flow/ccConfigs/{id}/deactivate` | Deactivate a CC rule |
 
+A rule (`FlowCcConfig`) CCs its recipients at its timing:
+
+- `OnSubmit`: when the flow starts.
+- `OnApprove` / `OnReject`: after an approver approves or rejects a step.
+- `OnComplete`: when the approval completes approved.
+
+A rule without a `nodeId` is flow-level and fires at every such moment. A rule naming a step fires at
+`OnApprove` / `OnReject` of that step only. `recipientType` `INITIATOR` CCs the initiator; any other type reads
+`recipientConfig` as comma-separated user ids. An optional `ccCondition` is evaluated over the instance
+variables.
+
+An automatic CC is recorded like a manual one: one `CC` entry per recipient in the approval history. The entry
+has no actor, since no person sent it. It sits on the node the rule fired at — the step acted on, or the start
+node at `OnSubmit` (and at `OnComplete` when every step passed on its own) — in that node's current cycle. So the
+recipient:
+
+- has a CC task in the inbox, which they mark read;
+- is a participant of the instance: they open it and comment on it.
+
+A recipient already CC'd on the same node and cycle, by a rule or by hand, is not CC'd again, so a step that
+several approvers approve CCs once. `sendNotification` additionally notifies the recipients CC'd that time.
+
 ### Delegation
 
 Base path: `/flow/delegations`
@@ -286,6 +309,7 @@ Base path: `/flow/monitor` — operator-facing; the search endpoint requires the
 |---|---|---|
 | `GET` | `/flow/monitor/health` | Flow runtime health snapshot (per-status instance counts, overdue timers) |
 | `POST` | `/flow/monitor/instances/search` | Cross-initiator paged instance summaries; honors the request's `initiatorId` filter when present |
+| `POST` | `/flow/monitor/instances/urge` | Urge an approval as an administrator rather than its initiator: whoever may read the instance's `FlowInstance` row with their own permissions (the console's grant and data scope; taking part in the instance is not enough). The initiator's interval applies — a step urged within it, by anyone, is not urged again. Returns `FlowUrgeStatus` |
 
 ### Event Logs
 
