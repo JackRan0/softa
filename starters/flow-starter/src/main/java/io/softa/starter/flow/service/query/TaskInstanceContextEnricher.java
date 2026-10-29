@@ -96,8 +96,8 @@ public class TaskInstanceContextEnricher {
                 view.setSubject(new FlowRecordApprovalsView.Actor(instance.getSubjectId().toString(), null));
                 subjects.add(view.getSubject());
             }
-            if (instance.getSubjectDeptId() != null) {
-                view.setSubjectDept(new FlowInstanceSummaryView.Department(instance.getSubjectDeptId()));
+            if (instance.getDepartmentId() != null) {
+                view.setSubjectDept(new FlowInstanceSummaryView.Department(instance.getDepartmentId()));
                 departments.add(view.getSubjectDept());
             }
             if (instance.getBundleId() != null) {

@@ -38,8 +38,13 @@ import java.util.concurrent.ConcurrentMap;
  *       Returns {@code "employeeId.departmentId"}.</li>
  *   <li><b>Empty</b> — anything else. The HR contributors throw
  *       {@code IllegalStateException} — by-design fail-loud surfacing of
- *       a metadata gap.</li>
+ *       a metadata gap — unless the model has a department-id column (below).</li>
  * </ol>
+ *
+ * <p>{@link #resolveIdColumn}: a {@code departmentId} that is a plain number column — no relation, physically
+ * stored — is a department-id column: the model holds the id of the department it belongs to but cannot relate
+ * to Department (a framework model such as {@code FlowInstance}). Same fixed name as the relation anchor, so the
+ * scopes that apply to a model ({@code DataScopeType.applicableFields}) are found the same way.
  *
  * <p>We intentionally do NOT recurse via a general BFS — that would let
  * field-iteration order silently pick {@code additionalDepartmentId} or
@@ -59,6 +64,8 @@ public class DefaultDepartmentCascadePathResolver implements DepartmentCascadePa
     private static final String SELF_PATH = DepartmentCascadePathResolver.SELF_PATH;
 
     private final ConcurrentMap<String, Optional<String>> cache = new ConcurrentHashMap<>();
+
+    private final ConcurrentMap<String, Optional<String>> idColumns = new ConcurrentHashMap<>();
 
     @Override
     public Optional<String> resolve(String modelName) {
@@ -92,6 +99,18 @@ public class DefaultDepartmentCascadePathResolver implements DepartmentCascadePa
         }
         log.debug("DepartmentCascadePathResolver — no path to Department for model {}", modelName);
         return Optional.empty();
+    }
+
+    @Override
+    public Optional<String> resolveIdColumn(String modelName) {
+        if (modelName == null || modelName.isEmpty()) return Optional.empty();
+        return idColumns.computeIfAbsent(modelName, model -> {
+            MetaField dept = ModelManager.getModelFieldOrNull(model, DEPT_FIELD);
+            boolean idColumn = dept != null
+                    && FieldType.NUMERIC_TYPES.contains(dept.getFieldType())
+                    && !dept.isDynamic();
+            return idColumn ? Optional.of(DEPT_FIELD) : Optional.empty();
+        });
     }
 
     private boolean hasToOneTo(String modelName, String fieldName, String expectedRelatedModel) {

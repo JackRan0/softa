@@ -243,8 +243,8 @@ public class FlowInstanceSummaryComposer {
         view.setRecordApproval(instance.getRecordApproval());
         view.setSubject(instance.getSubjectId() == null ? null
                 : new FlowRecordApprovalsView.Actor(instance.getSubjectId().toString(), null));
-        view.setSubjectDept(instance.getSubjectDeptId() == null ? null
-                : new FlowInstanceSummaryView.Department(instance.getSubjectDeptId()));
+        view.setSubjectDept(instance.getDepartmentId() == null ? null
+                : new FlowInstanceSummaryView.Department(instance.getDepartmentId()));
         view.setEffectiveDate(instance.getEffectiveDate());
         view.setRecordCode(instance.getRecordCode());
         view.setStatus(instance.getStatus());

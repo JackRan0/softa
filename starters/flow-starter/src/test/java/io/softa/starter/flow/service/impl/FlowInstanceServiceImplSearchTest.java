@@ -107,7 +107,7 @@ class FlowInstanceServiceImplSearchTest {
         assertTrue(fields.containsAll(List.of("id", "instanceId", "bundleId", "flowId", "flowName", "scenario",
                 "flowRevision", "title", "modelName", "rowId", "initiatorId", "recordApproval", "status",
                 "failedNodeId", "nextFireAt", "createdTime", "updatedTime",
-                "subjectId", "subjectDeptId", "effectiveDate", "recordCode", "superseded")));
+                "subjectId", "departmentId", "effectiveDate", "recordCode", "superseded")));
         assertFalse(fields.contains("variables"));
         assertFalse(fields.contains("inputPayload"));
         assertFalse(fields.contains("pendingApprovals"));

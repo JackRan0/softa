@@ -60,7 +60,7 @@ public class FlowExecutionState {
     private Long subjectId;
 
     @Schema(description = "A record's approval: the subject's department at submission")
-    private Long subjectDeptId;
+    private Long departmentId;
 
     @Schema(description = "A record's approval: the date the record takes effect, when its model has one")
     private LocalDate effectiveDate;

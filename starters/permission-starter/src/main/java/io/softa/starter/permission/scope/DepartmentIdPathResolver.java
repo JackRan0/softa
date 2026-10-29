@@ -108,6 +108,28 @@ public class DepartmentIdPathResolver {
         return out;
     }
 
+    /**
+     * The ids of every department in the subtrees rooted at {@code rootPaths} — the roots and all their
+     * descendants — picked from the cached tree, no query of its own. For a model that holds a department id
+     * directly instead of relating to Department ({@link DepartmentCascadePathResolver#resolveIdColumn}). A
+     * descendant matches on whole segments: {@code 1/12} is not under {@code 1/1}.
+     */
+    public Set<Long> subtreeIdsOf(Collection<String> rootPaths) {
+        if (rootPaths == null || rootPaths.isEmpty()) return Set.of();
+        Set<Long> ids = new HashSet<>();
+        for (Map.Entry<Long, String> dept : tenantTree().entrySet()) {
+            String idPath = dept.getValue();
+            if (idPath == null || idPath.isEmpty()) continue;
+            for (String root : rootPaths) {
+                if (idPath.equals(root) || idPath.startsWith(root + IdPath.SEPARATOR)) {
+                    ids.add(dept.getKey());
+                    break;
+                }
+            }
+        }
+        return ids;
+    }
+
     /** Drop the cached department tree for a tenant; the next lookup reloads it.
      *  Public so the domain's event adapter (the HR app's {@code DepartmentChangedEvent}
      *  listener) can evict on any structural change. {@link #CACHE_TTL_SECONDS} is

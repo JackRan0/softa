@@ -86,7 +86,7 @@ class TaskInstanceContextEnricherTest {
         instance.setInitiatorId("hr-1");
         instance.setCreatedTime(LocalDateTime.of(2026, 10, 29, 9, 30));
         instance.setSubjectId(42L);
-        instance.setSubjectDeptId(7L);
+        instance.setDepartmentId(7L);
         instance.setEffectiveDate(LocalDate.of(2026, 11, 1));
         instance.setRecordCode("TR-0001");
         when(instanceService.findByInstanceIds(argThat(ids -> ids.contains("i1")))).thenReturn(List.of(instance));

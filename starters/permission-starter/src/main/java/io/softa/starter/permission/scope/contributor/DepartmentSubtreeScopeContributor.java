@@ -12,7 +12,9 @@ import io.softa.starter.permission.spi.ScopeContributor;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * {@link ScopeType#DEPT_SUBTREE} — rows under a department root and every
@@ -27,7 +29,9 @@ import java.util.Optional;
  * the split matters because idPath segments have no trailing separator, so
  * {@code LIKE 'idPath%'} alone would also match unrelated siblings whose
  * path shares the same numeric prefix (e.g. {@code 1/12} matching
- * {@code 1/120}).
+ * {@code 1/120}). A model that holds a department id directly instead of relating
+ * to Department ({@link DepartmentCascadePathResolver#resolveIdColumn}) is filtered
+ * by the ids of the subtree's departments instead.
  */
 @Component
 public class DepartmentSubtreeScopeContributor implements ScopeContributor {
@@ -63,23 +67,35 @@ public class DepartmentSubtreeScopeContributor implements ScopeContributor {
         if (rootId == null) return new Filters();
 
         Optional<String> path = cascadePath.resolve(modelName);
-        if (path.isEmpty()) {
+        Optional<String> idColumn = path.isPresent() ? Optional.empty() : cascadePath.resolveIdColumn(modelName);
+        if (path.isEmpty() && idColumn.isEmpty()) {
             throw new IllegalStateException(
                     "DEPT_SUBTREE on model '" + modelName + "' but DepartmentCascadePathResolver "
                             + "returned no path. Declare the model's dept anchor as a "
-                            + "ToOne to Department in metadata, or remove DEPT_SUBTREE "
-                            + "from this model's scope rules.");
+                            + "ToOne to Department in metadata (or, on a model that cannot "
+                            + "relate to Department, a plain department-id column), or remove "
+                            + "DEPT_SUBTREE from this model's scope rules.");
         }
 
-        // Resolve deptId → idPath in the application layer (DB lookup with
-        // room for a Redis cache in DepartmentIdPathResolver later). Empty
+        // Resolve deptId → idPath from the cached department tree. Empty
         // Optional = unknown / soft-deleted / cross-tenant dept → fail-closed.
         Optional<String> rootPathOpt = idPathResolver.idPathOf(rootId);
         if (rootPathOpt.isEmpty()) return new Filters();
         String rootPath = rootPathOpt.get();
+        if (idColumn.isPresent()) {
+            return idsIn(idColumn.get(), idPathResolver.subtreeIdsOf(List.of(rootPath)));
+        }
         String field = DepartmentCascadePathResolver.idPathField(path.get());
 
         return IdPath.subtreeOf(field, rootPath);
+    }
+
+    /**
+     * A department-id column restricted to these departments; empty — the enclosing rule fail-closed — when
+     * there are none.
+     */
+    static Filters idsIn(String idColumn, Set<Long> deptIds) {
+        return deptIds.isEmpty() ? new Filters() : new Filters().in(idColumn, List.copyOf(deptIds));
     }
 
     /** Admin-fixed root from {@code scopeExpr.deptId}, or null when absent —

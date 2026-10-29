@@ -36,7 +36,7 @@ final class FlowExecutionStateMapper {
         entity.setInitiatorId(state.getInitiatorId());
         entity.setRecordApproval(state.getRecordApproval());
         entity.setSubjectId(state.getSubjectId());
-        entity.setSubjectDeptId(state.getSubjectDeptId());
+        entity.setDepartmentId(state.getDepartmentId());
         entity.setEffectiveDate(state.getEffectiveDate());
         entity.setRecordCode(state.getRecordCode());
         entity.setTriggerEventId(state.getTriggerEventId());
@@ -76,7 +76,7 @@ final class FlowExecutionStateMapper {
                 .initiatorId(entity.getInitiatorId())
                 .recordApproval(entity.getRecordApproval())
                 .subjectId(entity.getSubjectId())
-                .subjectDeptId(entity.getSubjectDeptId())
+                .departmentId(entity.getDepartmentId())
                 .effectiveDate(entity.getEffectiveDate())
                 .recordCode(entity.getRecordCode())
                 .triggerEventId(entity.getTriggerEventId())

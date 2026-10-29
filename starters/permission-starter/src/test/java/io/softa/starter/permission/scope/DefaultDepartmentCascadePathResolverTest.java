@@ -120,4 +120,41 @@ class DefaultDepartmentCascadePathResolverTest {
         assertThat(DepartmentCascadePathResolver.idPathField("employeeId.departmentId"))
                 .isEqualTo("employeeId.departmentId.idPath");
     }
+
+    /** A plain number field; {@code dynamic} = a derived field with no column of its own. */
+    private static MetaField plainLong(boolean dynamic) {
+        MetaField f = mock(MetaField.class);
+        when(f.getFieldType()).thenReturn(FieldType.LONG);
+        when(f.isDynamic()).thenReturn(dynamic);
+        return f;
+    }
+
+    /**
+     * A framework model holding the id of the department it belongs to — it cannot relate to Department — has no
+     * path to it, but a department-id column the scopes filter by id.
+     */
+    @Test
+    void plainDepartmentIdColumn_isAnIdColumnNotAPath() {
+        MetaField dept = plainLong(false);
+        try (MockedStatic<ModelManager> mm = mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.getModelFieldOrNull("FlowInstance", "departmentId")).thenReturn(dept);
+
+            assertThat(resolver.resolve("FlowInstance")).isEmpty();
+            assertThat(resolver.resolveIdColumn("FlowInstance")).contains("departmentId");
+        }
+    }
+
+    @Test
+    void relationDerivedOrMissingDepartmentId_isNoIdColumn() {
+        MetaField relation = toOne("Department", false, null);
+        MetaField derived = plainLong(true);
+        try (MockedStatic<ModelManager> mm = mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.getModelFieldOrNull("DirectDeptModel", "departmentId")).thenReturn(relation);
+            mm.when(() -> ModelManager.getModelFieldOrNull("DerivedDeptModel", "departmentId")).thenReturn(derived);
+
+            assertThat(resolver.resolveIdColumn("DirectDeptModel")).isEmpty();
+            assertThat(resolver.resolveIdColumn("DerivedDeptModel")).isEmpty();
+            assertThat(resolver.resolveIdColumn("NoDeptModel")).isEmpty();
+        }
+    }
 }

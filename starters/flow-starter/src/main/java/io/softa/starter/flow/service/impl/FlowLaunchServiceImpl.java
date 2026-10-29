@@ -210,7 +210,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         instanceService.markSuperseded(modelName, rowId);
         FlowStartRequest request = submitStartRequest(definition, modelName, rowId, initiatorId,
                 submission.subjectId(), submission.approval());
-        request.setSubjectDeptId(subjectDeptOf(submission.subjectId()));
+        request.setDepartmentId(subjectDeptOf(submission.subjectId()));
         // Started as the record's approval: its result is written back, and the unique open-record
         // key refuses a second approval of the record, a concurrent submission included.
         return flowRuntimeEngine.startRecordApproval(request);

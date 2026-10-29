@@ -31,7 +31,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 @Index(indexName = "idx_tenant_status_fire", fields = {"tenantId", "status", "nextFireAt"})
 @Index(indexName = "idx_tenant_initiator_status", fields = {"tenantId", "initiatorId", "status"})
 @Index(indexName = "idx_tenant_model_row", fields = {"tenantId", "modelName", "rowId"})
-@Index(indexName = "idx_flow_instance_subject_dept", fields = {"tenantId", "subjectDeptId"})
+@Index(indexName = "idx_flow_instance_dept", fields = {"tenantId", "departmentId"})
 @Index(indexName = "uk_flow_instance_open_record", fields = {"tenantId", "modelName", "openRecordId"}, unique = true,
        message = "This record is already in approval.")
 @Index(indexName = "uk_flow_instance_trigger_event", fields = {"tenantId", "flowId", "triggerEventId"}, unique = true)
@@ -90,9 +90,14 @@ public class FlowInstance extends AuditableModel {
             + "submission — whose supervisor and department its approvers are found from")
     private Long subjectId;
 
-    @Field(label = "Subject Department ID", description = "A record's approval: the subject's department at "
-            + "submission, which the approval lists filter on and department data scopes narrow by")
-    private Long subjectDeptId;
+    /**
+     * The department the approval belongs to: its subject's, as at submission. A plain id — the framework knows no
+     * department model — under the name department data scopes anchor on, so a role scoped to the departments it
+     * manages sees their approvals; an instance without a subject (an automation run) is in no department.
+     */
+    @Field(label = "Department ID", description = "A record's approval: the subject's department at submission, "
+            + "which the approval lists filter on and department data scopes narrow by")
+    private Long departmentId;
 
     @Field(description = "A record's approval: the date the record takes effect, when its model has one")
     private LocalDate effectiveDate;

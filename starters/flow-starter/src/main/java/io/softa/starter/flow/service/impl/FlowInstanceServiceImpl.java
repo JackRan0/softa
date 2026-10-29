@@ -80,7 +80,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             LambdaUtils.getAttributeName(FlowInstance::getInitiatorId),
             LambdaUtils.getAttributeName(FlowInstance::getRecordApproval),
             LambdaUtils.getAttributeName(FlowInstance::getSubjectId),
-            LambdaUtils.getAttributeName(FlowInstance::getSubjectDeptId),
+            LambdaUtils.getAttributeName(FlowInstance::getDepartmentId),
             LambdaUtils.getAttributeName(FlowInstance::getEffectiveDate),
             LambdaUtils.getAttributeName(FlowInstance::getRecordCode),
             LambdaUtils.getAttributeName(FlowInstance::getSuperseded),
@@ -239,7 +239,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
             filters.eq(FlowInstance::getSubjectId, request.subjectId());
         }
         if (request.subjectDeptId() != null) {
-            filters.eq(FlowInstance::getSubjectDeptId, request.subjectDeptId());
+            filters.eq(FlowInstance::getDepartmentId, request.subjectDeptId());
         }
         if (request.effectiveDateFrom() != null) {
             filters.ge(FlowInstance::getEffectiveDate, request.effectiveDateFrom());
