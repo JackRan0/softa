@@ -57,10 +57,18 @@ public interface FlowClient {
 
     /**
      * Withdraws the record from approval as the current user, its submitter — or, when its approval
-     * failed, takes the record back. Refused when the record has no approval in progress. Joins the
-     * caller's transaction.
+     * failed, takes the record back. The record is a draft again. Refused when the record has no
+     * approval in progress, or its flow does not let its submitter withdraw. Joins the caller's
+     * transaction.
      */
     FlowExecutionState withdrawRecord(String modelName, String rowId, String comment);
+
+    /**
+     * Cancels the draft for good as the current user, its applicant: refused unless the record is a
+     * draft the user can read and its handler's {@code validateCancel} passes. Joins the caller's
+     * transaction.
+     */
+    void cancelRecord(String modelName, String rowId);
 
     /**
      * The record's approval history — its approval instances newest first, with steps, approvers

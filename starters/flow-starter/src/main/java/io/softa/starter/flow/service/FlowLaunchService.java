@@ -25,12 +25,12 @@ public interface FlowLaunchService {
 
     /**
      * Submits a business record for approval, in the caller's transaction: the submitter must read the
-     * record with their own permissions and it must be neither in approval nor approved; its model's
+     * record with their own permissions and it must be a draft; its model's
      * {@code ModelApprovalHandler} checks it and supplies the title and routing variables, the flow
      * is chosen by the flows' submit triggers (exactly one active flow of the tenant must match the
      * model and the record), the record becomes {@code Pending} and the record's approval starts.
      * Every submission starts a new approval from the beginning — a record returned to its
-     * submitter included — and a record has at most one approval in progress.
+     * submitter, a draft again, included — and a record has at most one approval in progress.
      *
      * @param modelName   the record's model
      * @param rowId       the record
@@ -42,7 +42,9 @@ public interface FlowLaunchService {
     /**
      * What submitting the record would do now, worked out without submitting it: the same checks and
      * the same choice of flow as {@link #submitRecord}, then the approval path that flow would take —
-     * its steps in order, each with the approvers who would be asked or why it passes on its own.
+     * its steps in order, each with the approvers who would be asked or why it passes on its own. For a
+     * record whose approval is in progress, the rest of that approval's path ({@code InProgress}): the
+     * step it waits on now, then those after it, from the instance's own variables.
      * The handler's {@code validate} runs with the requester's own permissions; {@code afterSubmitted}
      * is never called, and nothing is started or written. A refusal, no applicable flow or several are
      * reported, not thrown.
@@ -58,10 +60,10 @@ public interface FlowLaunchService {
 
     /**
      * Withdraws a record's approval while it waits for approvers, in the caller's transaction. The
-     * engine checks that the actor is the submitter and that the flow allows withdrawal; the
-     * record's handler then writes "withdrawn" back like any other result. When the record's
-     * approval failed, its submitter takes the record back the same way — the handler is told it was
-     * withdrawn — while the failed instance stays as it is for flow monitoring.
+     * engine checks that the actor is the submitter and that the flow allows withdrawal; the record
+     * is then written back as a draft like any other withdrawal and handed to its handler. When the
+     * record's approval failed, its submitter takes the record back the same way — the handler is told
+     * it was withdrawn — while the failed instance stays as it is for flow monitoring.
      *
      * @param modelName the record's model
      * @param rowId     the record
@@ -72,4 +74,17 @@ public interface FlowLaunchService {
      *         progress
      */
     FlowExecutionState withdrawRecord(String modelName, String rowId, String actorId, String comment);
+
+    /**
+     * Cancels a draft for good, in the caller's transaction: the actor must read the record with their
+     * own permissions, it must be a draft, and its handler's {@code validateCancel} must pass. The record
+     * becomes {@code Cancelled} and its handler is handed a {@code CANCELLED} result with no instance.
+     *
+     * @param modelName the record's model
+     * @param rowId     the record
+     * @param actorId   the cancelling applicant
+     * @throws io.softa.framework.base.exception.BusinessException when the record is not a draft, or its
+     *         handler refuses
+     */
+    void cancelRecord(String modelName, String rowId, String actorId);
 }

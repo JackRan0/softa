@@ -36,17 +36,18 @@ import io.softa.starter.flow.entity.ApprovalModel;
 import io.softa.starter.flow.enums.ApprovalStatus;
 
 /**
- * Freezes a record while it is in approval and once it is approved, and keeps its approval fields the
- * framework's — for every model with a {@code ModelApprovalHandler}, and for the records it owns: those
- * of a model whose to-one field onto it deletes with it ({@code onDelete = CASCADE}), like an expense
- * claim's lines.
+ * Freezes a record once it is no longer a draft — in approval, approved, rejected or cancelled — and keeps
+ * its approval fields the framework's — for every model with a {@code ModelApprovalHandler}, and for the
+ * records it owns: those of a model whose to-one field onto it deletes with it ({@code onDelete = CASCADE}),
+ * like an expense claim's lines.
  *
  * <p>Held here, where every write lane meets — the record's form, the generic batch endpoints, a line
  * written on its own, an import, a flow's write node:
  * <ul>
  *   <li>A record in approval waits for its result or a withdrawal, so an approver never decides on
- *       something other than what they read; an approved one is settled for everyone. Neither is changed
- *       or deleted, and nothing it owns is filed, changed or deleted.</li>
+ *       something other than what they read; one approved, rejected or cancelled is settled for everyone.
+ *       None is changed or deleted, and nothing it owns is filed, changed or deleted. Only a draft is
+ *       edited — a new one, or one returned or withdrawn.</li>
  *   <li>Its approval fields ({@link ApprovalModel#APPROVAL_FIELDS}) are the framework's alone: a new
  *       record is a draft, never submitted, and nobody edits them. Sending back the stored value is not
  *       an edit.</li>
@@ -64,9 +65,13 @@ public class ApprovalLockValidator implements ModelWriteValidator {
 
     private static final String IN_APPROVAL = "This record is in approval and cannot be changed. Withdraw it first to edit it.";
     private static final String APPROVED = "This record is approved and cannot be changed.";
+    private static final String REJECTED = "This record was rejected and cannot be changed.";
+    private static final String CANCELLED = "This record was cancelled and cannot be changed.";
     private static final String OWNER_IN_APPROVAL = "The record this belongs to is in approval and cannot be changed. "
             + "Withdraw it first to edit it.";
     private static final String OWNER_APPROVED = "The record this belongs to is approved and cannot be changed.";
+    private static final String OWNER_REJECTED = "The record this belongs to was rejected and cannot be changed.";
+    private static final String OWNER_CANCELLED = "The record this belongs to was cancelled and cannot be changed.";
     private static final String SET_BY_APPROVAL = "This field is set by the approval and cannot be edited.";
 
     private final ModelApprovalHandlerRegistry handlerRegistry;
@@ -116,7 +121,7 @@ public class ApprovalLockValidator implements ModelWriteValidator {
         if (isApproved(ctx.modelName())) {
             ApprovalStatus status = ApprovalStatus.from(original.get(ApprovalModel.APPROVAL_STATUS));
             if (status != null && status.isLocked()) {
-                ctx.fail(status == ApprovalStatus.PENDING ? IN_APPROVAL : APPROVED);
+                ctx.fail(lockedMessage(status));
             }
             for (String field : ApprovalModel.APPROVAL_FIELDS) {
                 if (changes(ctx, original, field)) {
@@ -142,9 +147,13 @@ public class ApprovalLockValidator implements ModelWriteValidator {
         if (isApproved(modelName)) {
             for (ApprovalStatus status : statuses(modelName, ids).values()) {
                 if (status.isLocked()) {
-                    throw new WriteValidationException(status == ApprovalStatus.PENDING
-                            ? "A record in approval cannot be deleted. Withdraw it first."
-                            : "An approved record cannot be deleted.");
+                    throw new WriteValidationException(switch (status) {
+                        case PENDING -> "A record in approval cannot be deleted. Withdraw it first.";
+                        case APPROVED -> "An approved record cannot be deleted.";
+                        case REJECTED -> "A rejected record cannot be deleted.";
+                        case CANCELLED -> "A cancelled record cannot be deleted.";
+                        case DRAFT -> throw new IllegalStateException("A draft is not frozen");
+                    });
                 }
             }
         }
@@ -161,7 +170,7 @@ public class ApprovalLockValidator implements ModelWriteValidator {
             List<Object> ownerIds = rows.stream().map(row -> row.get(link.getFieldName())).filter(Objects::nonNull).toList();
             for (ApprovalStatus status : statuses(link.getRelatedModel(), ownerIds).values()) {
                 if (status.isLocked()) {
-                    throw new WriteValidationException(status == ApprovalStatus.PENDING ? OWNER_IN_APPROVAL : OWNER_APPROVED);
+                    throw new WriteValidationException(ownerLockedMessage(status));
                 }
             }
         }
@@ -194,8 +203,30 @@ public class ApprovalLockValidator implements ModelWriteValidator {
         ApprovalStatus status = (ApprovalStatus) ctx.scratch().computeIfAbsent(ownerModel + ":" + ownerId,
                 key -> statuses(ownerModel, List.of(ownerValue)).get(ownerId));
         if (status != null && status.isLocked()) {
-            ctx.fail(status == ApprovalStatus.PENDING ? OWNER_IN_APPROVAL : OWNER_APPROVED);
+            ctx.fail(ownerLockedMessage(status));
         }
+    }
+
+    /** Why a frozen record cannot be changed. */
+    private static String lockedMessage(ApprovalStatus status) {
+        return switch (status) {
+            case PENDING -> IN_APPROVAL;
+            case APPROVED -> APPROVED;
+            case REJECTED -> REJECTED;
+            case CANCELLED -> CANCELLED;
+            case DRAFT -> throw new IllegalStateException("A draft is not frozen");
+        };
+    }
+
+    /** Why nothing a frozen record owns can be filed, changed or deleted. */
+    private static String ownerLockedMessage(ApprovalStatus status) {
+        return switch (status) {
+            case PENDING -> OWNER_IN_APPROVAL;
+            case APPROVED -> OWNER_APPROVED;
+            case REJECTED -> OWNER_REJECTED;
+            case CANCELLED -> OWNER_CANCELLED;
+            case DRAFT -> throw new IllegalStateException("A draft is not frozen");
+        };
     }
 
     /**

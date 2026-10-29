@@ -119,6 +119,15 @@ public class FlowOrgService implements OrganizationService {
     }
 
     @Override
+    public Long getUserIdOfEmployee(Long employeeId) {
+        if (employeeId == null) {
+            return null;
+        }
+        Map<String, Object> employee = employeeById(employeeId);
+        return employee == null ? null : toLong(employee.get(props.getAccountIdField()));
+    }
+
+    @Override
     public ApproverInfo getSupervisorOfEmployee(Long employeeId, int level) {
         if (employeeId == null || level < 1) {
             return null;

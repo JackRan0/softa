@@ -9,10 +9,11 @@ import io.softa.starter.flow.entity.ApprovalModel;
  * each flow's submit trigger names its model and, optionally, the records it applies to.
  *
  * <p>The framework keeps the approval state, the same for every model: the record's
- * {@link ApprovalModel#getApprovalStatus() approvalStatus}, its submitter and submission time, which
- * states a record may be submitted from, the freeze while it is in approval and once it is approved, and
- * the write of each result — once. A handler holds what only the business knows: the checks a submission
- * must pass, what its flow routes on, and what follows a submission or a result.
+ * {@link ApprovalModel#getApprovalStatus() approvalStatus}, its submitter and submission time, the one
+ * state machine every record follows — only a draft is edited, submitted or cancelled, a return or a
+ * withdrawal makes it a draft again, everything else freezes it — and the write of each result, once. A
+ * handler holds what only the business knows: the checks a submission or a cancellation must pass, what
+ * its flow routes on, and what follows a submission or a result.
  *
  * <p>Every record has a subject: the employee it is about, whom approvers are found relative to —
  * their supervisor, their department's leader — whoever submits it. It is the model's
@@ -43,13 +44,22 @@ public interface ModelApprovalHandler<T extends ApprovalModel> {
      * preview reports it, so a Submit button can say why before anyone presses it.
      * <p>
      * Runs as the submitter, with their own permissions, on the whole record. The framework has already
-     * made the checks every model shares: the submitter can read the record, it is neither in approval nor
-     * approved, and no approval of it is in progress. Called on every submission and every preview: change
-     * nothing here.
+     * made the checks every model shares: the submitter can read the record, it is a draft, and no approval
+     * of it is in progress. Called on every submission and every preview: change nothing here.
      *
      * @param record the record to submit
      */
     default void validate(T record) {}
+
+    /**
+     * Who may cancel the draft, beyond seeing it: throw a {@code BusinessException} to refuse, such as an
+     * expense claim cancelled only by its claimant. Runs as the applicant, with their own permissions; the
+     * framework has already checked they can read the record and that it is a draft. Change nothing here:
+     * what a cancellation releases goes in {@link #afterOutcome}.
+     *
+     * @param record the draft to cancel
+     */
+    default void validateCancel(T record) {}
 
     /**
      * The approval instance's title and the routing variables its flow decides on — amounts, durations,
@@ -73,9 +83,11 @@ public interface ModelApprovalHandler<T extends ApprovalModel> {
 
     /**
      * The approval reached a result, already written to the record's {@code approvalStatus}: run the
-     * follow-up business actions, such as deducting a leave balance or registering a new salary. Runs
-     * inside the action that produced the result — the same transaction, with permission checks skipped —
-     * so throwing vetoes the action, which rolls back and reports the error to whoever acted.
+     * follow-up business actions, such as deducting a leave balance or registering a new salary. A return
+     * or a withdrawal arrives with the record a {@code Draft} again; a draft its applicant cancelled arrives
+     * as {@code CANCELLED} with no instance. Runs inside the action that produced the result — the same
+     * transaction, with permission checks skipped — so throwing vetoes the action, which rolls back and
+     * reports the error to whoever acted.
      * <p>
      * Called once per result: the framework writes a result only onto a record still in approval, and
      * calls this only when it did. Keep to writes in this database that belong with the result. Anything

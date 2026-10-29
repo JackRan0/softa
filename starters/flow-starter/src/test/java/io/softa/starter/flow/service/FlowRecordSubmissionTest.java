@@ -12,6 +12,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.MockedStatic;
@@ -235,6 +237,59 @@ class FlowRecordSubmissionTest {
         verify(handler, never()).validate(any());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"Rejected", "Cancelled"})
+    void aRejectedOrCancelledRecordIsFinal(String status) {
+        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        record.put("approvalStatus", status);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+
+        assertTrue(error.getMessage().contains(status.toLowerCase()), error.getMessage());
+        verify(handler, never()).validate(any());
+        assertEquals(status, record.get("approvalStatus"));
+    }
+
+    @Test
+    void aDraftIsCancelledForGood() {
+        launchService.cancelRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals("Cancelled", record.get("approvalStatus"));
+        InOrder order = inOrder(handler);
+        order.verify(handler).validateCancel(any());
+        order.verify(handler).afterOutcome(argThat(leave -> leave.getApprovalStatus() == ApprovalStatus.CANCELLED),
+                eq(new ApprovalOutcome(ApprovalOutcomeType.CANCELLED, null, SUBMITTER, null)));
+        publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
+        assertThrows(BusinessException.class, () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Pending", "Approved", "Rejected", "Cancelled"})
+    void onlyADraftIsCancelled(String status) {
+        record.put("approvalStatus", status);
+
+        assertThrows(BusinessException.class, () -> launchService.cancelRecord(MODEL, ROW, SUBMITTER));
+
+        assertEquals(status, record.get("approvalStatus"));
+        verify(handler, never()).validateCancel(any());
+        verify(handler, never()).afterOutcome(any(), any());
+    }
+
+    @Test
+    void theHandlerOrTheApplicantsOwnPermissionsRefuseACancellation() {
+        doThrow(new BusinessException("Only the claimant can cancel this claim.")).when(handler).validateCancel(any());
+
+        BusinessException refused = assertThrows(BusinessException.class,
+                () -> launchService.cancelRecord(MODEL, ROW, MANAGER));
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
+        assertThrows(BusinessException.class, () -> launchService.cancelRecord(MODEL, ROW, SUBMITTER));
+
+        assertTrue(refused.getMessage().contains("claimant"), refused.getMessage());
+        assertEquals("Draft", record.get("approvalStatus"));
+        verify(handler, never()).afterOutcome(any(), any());
+    }
+
     @Test
     void submitIsRefusedWhenNoFlowApplies() {
         publishService.publish("sick", approvalFlow("Sick leave", "leaveType == 'Sick'", List.of(MANAGER)));
@@ -347,7 +402,7 @@ class FlowRecordSubmissionTest {
         assertEquals(FlowExecutionStatus.RETURNED, returned.getStatus());
         assertEquals(new ApprovalOutcome(ApprovalOutcomeType.RETURNED, started.getInstanceId(), MANAGER, "fix the dates"),
                 capturedOutcome());
-        assertEquals("Returned", record.get("approvalStatus"));
+        assertEquals("Draft", record.get("approvalStatus"), "a returned record is a draft again");
 
         when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 2)));
         FlowExecutionState submittedAgain = launchService.submitRecord(MODEL, ROW, SUBMITTER);
@@ -375,7 +430,7 @@ class FlowRecordSubmissionTest {
     }
 
     @Test
-    void withdrawalWritesWithdrawnBack() {
+    void withdrawalMakesTheRecordADraftAgain() {
         publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
         FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
 
@@ -384,7 +439,7 @@ class FlowRecordSubmissionTest {
         assertEquals(FlowExecutionStatus.WITHDRAWN, withdrawn.getStatus());
         assertEquals(new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, started.getInstanceId(), SUBMITTER, "not needed"),
                 capturedOutcome());
-        assertEquals("Withdrawn", record.get("approvalStatus"));
+        assertEquals("Draft", record.get("approvalStatus"));
     }
 
     @Test
@@ -412,7 +467,7 @@ class FlowRecordSubmissionTest {
         assertEquals(FlowExecutionStatus.FAILED, state.getStatus(), "the failed instance stays as it is");
         verify(handler).afterOutcome(any(), eq(new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, "failed-1", SUBMITTER,
                 "try again later")));
-        assertEquals("Withdrawn", record.get("approvalStatus"));
+        assertEquals("Draft", record.get("approvalStatus"));
     }
 
     @Test
@@ -483,7 +538,7 @@ class FlowRecordSubmissionTest {
     }
 
     @Test
-    void aCommentOnAFinishedInstanceIsNotWrittenBackAgain() {
+    void aFinishedApprovalTakesNoMoreComments() {
         publishService.publish("annual", approvalFlow("Annual leave", null, List.of(MANAGER)));
         FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
         engine.approve(nodeRequest(new FlowApproveRequest(), started.getInstanceId(), MANAGER, null));
@@ -492,7 +547,7 @@ class FlowRecordSubmissionTest {
         comment.setInstanceId(started.getInstanceId());
         comment.setActorId(SUBMITTER);
         comment.setComment("thanks");
-        engine.addComment(comment);
+        assertThrows(FlowActionValidationException.class, () -> engine.addComment(comment));
 
         verify(handler, times(1)).afterOutcome(any(), any());
     }

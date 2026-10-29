@@ -16,6 +16,7 @@ import lombok.NoArgsConstructor;
 import io.softa.starter.flow.design.FlowFormBinding;
 import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
+import io.softa.starter.flow.enums.SelfApprovalStrategy;
 import io.softa.starter.flow.enums.FlowScenario;
 
 /**
@@ -62,6 +63,10 @@ public class CompiledFlowDefinition {
 
     @Schema(description = "Approver consolidation policy (审批人去重); null = GLOBAL at runtime")
     private ApproverDedupStrategy approverDedup;
+
+    @Schema(description = "What a step does when the record's own people are among its approvers (本人是审批人时); "
+            + "null = AutoApprove at runtime")
+    private SelfApprovalStrategy selfApproval;
 
     /**
      * Declared output variable names.

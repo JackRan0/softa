@@ -89,19 +89,17 @@ class ApprovalLockValidatorTest {
     }
 
     @Test
-    void aRequestInApprovalOrApprovedCannotBeChanged() {
-        WriteValidationException pending = assertThrows(WriteValidationException.class,
-                () -> asUser(() -> validator.validateUpdate(update(REQUEST, Map.of("days", 2), stored("Pending")))));
-        WriteValidationException approved = assertThrows(WriteValidationException.class,
-                () -> asUser(() -> validator.validateUpdate(update(REQUEST, Map.of("days", 2), stored("Approved")))));
-
-        assertTrue(pending.getMessage().contains("in approval"), pending.getMessage());
-        assertTrue(approved.getMessage().contains("approved"), approved.getMessage());
-        for (String editable : List.of("Draft", "Returned", "Rejected", "Withdrawn", "Cancelled")) {
-            WriteContext ctx = update(REQUEST, Map.of("days", 2), stored(editable));
-            asUser(() -> validator.validateUpdate(ctx));
-            assertFalse(ctx.hasErrors(), editable);
-        }
+    void onlyADraftCanBeChanged() {
+        Map<String, String> frozen = Map.of("Pending", "in approval", "Approved", "approved",
+                "Rejected", "rejected", "Cancelled", "cancelled");
+        frozen.forEach((status, reason) -> {
+            WriteValidationException refused = assertThrows(WriteValidationException.class,
+                    () -> asUser(() -> validator.validateUpdate(update(REQUEST, Map.of("days", 2), stored(status)))));
+            assertTrue(refused.getMessage().contains(reason), refused.getMessage());
+        });
+        WriteContext draft = update(REQUEST, Map.of("days", 2), stored("Draft"));
+        asUser(() -> validator.validateUpdate(draft));
+        assertFalse(draft.hasErrors());
     }
 
     @Test
@@ -165,9 +163,24 @@ class ApprovalLockValidatorTest {
                 () -> asUser(() -> validator.validateDelete(DAY, List.of(7L))));
 
         assertTrue(day.getMessage().contains("belongs to"), day.getMessage());
-        requests.put(42L, "Withdrawn");
+        // Withdrawn: a draft again, and its days with it.
+        requests.put(42L, "Draft");
         asUser(() -> validator.validateDelete(REQUEST, List.of(42L)));
         asUser(() -> validator.validateDelete(DAY, List.of(7L)));
+    }
+
+    @Test
+    void aRejectedOrCancelledRequestAndItsDaysAreNotDeleted() {
+        when(modelService.searchList(eq(DAY), any(FlexQuery.class))).thenReturn(List.of(Map.of("id", 7L, "leaveRequestId", 42L)));
+        for (String status : List.of("Rejected", "Cancelled")) {
+            requests.put(42L, status);
+            WriteValidationException request = assertThrows(WriteValidationException.class,
+                    () -> asUser(() -> validator.validateDelete(REQUEST, List.of(42L))));
+            WriteValidationException day = assertThrows(WriteValidationException.class,
+                    () -> asUser(() -> validator.validateDelete(DAY, List.of(7L))));
+            assertTrue(request.getMessage().contains(status.toLowerCase()), request.getMessage());
+            assertTrue(day.getMessage().contains(status.toLowerCase()), day.getMessage());
+        }
     }
 
     @Test

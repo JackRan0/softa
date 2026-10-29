@@ -95,6 +95,7 @@ public class DefaultFlowCompiler {
                 .sync(Boolean.TRUE.equals(definition.getSync()))
                 .rollbackOnFail(Boolean.TRUE.equals(definition.getRollbackOnFail()))
                 .approverDedup(definition.getApproverDedup())
+                .selfApproval(definition.getSelfApproval())
                 .declaredOutputs(defaultList(definition.getDeclaredOutputs()))
                 .entryNodeIds(entryNodeIds)
                 .terminalNodeIds(terminalNodeIds)

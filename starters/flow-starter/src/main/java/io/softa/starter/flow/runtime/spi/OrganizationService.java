@@ -49,6 +49,11 @@ public interface OrganizationService {
     Long getEmployeeIdOfUser(Long userId);
 
     /**
+     * The login account of an employee; null when the employee has none.
+     */
+    Long getUserIdOfEmployee(Long employeeId);
+
+    /**
      * The supervisor {@code level} levels above an employee, as an approver; null when the chain ends
      * before it or that supervisor has no account.
      *

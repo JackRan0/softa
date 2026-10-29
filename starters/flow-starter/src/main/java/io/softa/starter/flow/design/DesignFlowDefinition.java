@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 import io.softa.framework.orm.dto.DTOFieldObject;
 import io.softa.starter.flow.design.trigger.TriggerSource;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
+import io.softa.starter.flow.enums.SelfApprovalStrategy;
 import io.softa.starter.flow.enums.FlowScenario;
 
 /**
@@ -62,6 +63,11 @@ public class DesignFlowDefinition implements DTOFieldObject {
     @Schema(description = "Approver consolidation policy (审批人去重): auto-approve a later node for an "
             + "actor who already approved this instance. Default GLOBAL when unset.")
     private ApproverDedupStrategy approverDedup;
+
+    @Schema(description = "What a step does when the record's submitter, or the employee it is about, is one of its "
+            + "approvers (本人是审批人时): AutoApprove counts them as having approved, RequireApproval asks them like "
+            + "anyone else. Default AutoApprove when unset.")
+    private SelfApprovalStrategy selfApproval;
 
     /**
      * Declared output variable names.

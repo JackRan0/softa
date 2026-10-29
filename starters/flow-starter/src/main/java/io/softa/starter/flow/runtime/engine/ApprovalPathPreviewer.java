@@ -69,14 +69,65 @@ public class ApprovalPathPreviewer {
      * {@code definition}. Users come as ids; the caller names them.
      */
     public FlowApprovalPreview preview(CompiledFlowDefinition definition, FlowStartRequest request) {
-        Walk walk = new Walk(definition, FlowRuntimeFacade.initialState(definition, request, true, null));
-        walk.run();
+        Walk walk = new Walk(definition, FlowRuntimeFacade.initialState(definition, request, true, null), SET_ON_START);
+        walk.run(definition.getEntryNodeIds());
         return FlowApprovalPreview.builder()
                 .status(FlowApprovalPreview.Status.READY)
                 .flow(new FlowApprovalPreview.Flow(definition.getFlowId(), definition.getFlowName()))
                 .steps(walk.steps)
                 .undecided(walk.undecided)
                 .failure(walk.failure)
+                .build();
+    }
+
+    /**
+     * The rest of a running approval's path: the steps it waits on now, as they stand — who approved, who
+     * is still asked — then the steps after them, worked out as a submission's path is, from the instance's
+     * own variables and approvals. Every step still waiting is assumed approved. The instance is read, never
+     * changed: the walk runs on a copy of it. Users come as ids; the caller names them.
+     */
+    public FlowApprovalPreview previewRemaining(CompiledFlowDefinition definition, FlowExecutionState live) {
+        Walk walk = new Walk(definition, copyOf(live), Set.of());
+        List<String> after = new ArrayList<>();
+        for (PendingApproval pending : live.getPendingApprovals() == null ? List.<PendingApproval>of() : live.getPendingApprovals()) {
+            CompiledFlowNode node = definition.getNodeIndex().get(pending.getNodeId());
+            if (node != null) {
+                walk.waiting(node, pending);
+                after.addAll(gatewayRouter.resolveNextNodeIds(definition, node, walk::decide));
+            }
+        }
+        walk.run(after);
+        return FlowApprovalPreview.builder()
+                .status(FlowApprovalPreview.Status.IN_PROGRESS)
+                .flow(new FlowApprovalPreview.Flow(definition.getFlowId(), definition.getFlowName()))
+                .steps(walk.steps)
+                .undecided(walk.undecided)
+                .failure(walk.failure)
+                .build();
+    }
+
+    /** A copy of a running instance to walk on: what the walk records lands on the copy alone. */
+    private static FlowExecutionState copyOf(FlowExecutionState live) {
+        return FlowExecutionState.builder()
+                .instanceId(live.getInstanceId())
+                .bundleId(live.getBundleId())
+                .flowId(live.getFlowId())
+                .flowName(live.getFlowName())
+                .flowRevision(live.getFlowRevision())
+                .title(live.getTitle())
+                .modelName(live.getModelName())
+                .rowId(live.getRowId())
+                .initiatorId(live.getInitiatorId())
+                .recordApproval(live.getRecordApproval())
+                .status(live.getStatus())
+                .variables(new LinkedHashMap<>(live.getVariables() == null ? Map.of() : live.getVariables()))
+                .completedNodeIds(new ArrayList<>(live.getCompletedNodeIds() == null ? List.of() : live.getCompletedNodeIds()))
+                .pendingApprovals(new ArrayList<>())
+                .approvalAuditDelta(new ArrayList<>(live.getApprovalAuditDelta() == null ? List.of() : live.getApprovalAuditDelta()))
+                .persistedAuditCount(live.getPersistedAuditCount())
+                .auditSequenceBase(live.getAuditSequenceBase())
+                .joinArrivalCounts(new HashMap<>(live.getJoinArrivalCounts() == null ? Map.of() : live.getJoinArrivalCounts()))
+                .trace(new ArrayList<>())
                 .build();
     }
 
@@ -93,12 +144,13 @@ public class ApprovalPathPreviewer {
 
         private final CompiledFlowDefinition definition;
         /**
-         * The state the submission would start from. The approvals the walk assumes are recorded on it,
-         * so that later steps' dedup sees them, as on a running instance.
+         * The state the walk starts from — the one a submission would start from, or a copy of a running
+         * instance. The approvals the walk assumes are recorded on it, so that later steps' dedup sees
+         * them, as on a running instance.
          */
         private final FlowExecutionState state;
         /** Variables whose values are not known before the approval runs. */
-        private final Set<String> unknownVariables = new HashSet<>(SET_ON_START);
+        private final Set<String> unknownVariables;
         /** A node passed may have written any variable: its outputs are not declared. */
         private boolean anyVariableUnknown;
         /** A node passed may have written variables: approvers resolved from them are not known. */
@@ -112,13 +164,29 @@ public class ApprovalPathPreviewer {
         private final List<Stop> undecided = new ArrayList<>();
         private Stop failure;
 
-        Walk(CompiledFlowDefinition definition, FlowExecutionState state) {
+        Walk(CompiledFlowDefinition definition, FlowExecutionState state, Set<String> unknownAtStart) {
             this.definition = definition;
             this.state = state;
+            this.unknownVariables = new HashSet<>(unknownAtStart);
         }
 
-        void run() {
-            Deque<String> queue = new ArrayDeque<>(definition.getEntryNodeIds());
+        /**
+         * A step the running approval waits on now, as it stands: the approvers still asked. Who already
+         * approved it is the approval history's to show. Its approval is assumed, as every later step's is.
+         */
+        void waiting(CompiledFlowNode node, PendingApproval pending) {
+            List<String> remaining = pending.getApprovers().stream()
+                    .filter(approver -> !pending.getApprovedActors().contains(approver))
+                    .toList();
+            int required = Math.max(0, pending.getRequiredApprovalCount() - pending.getApprovedActors().size());
+            Step step = step(node, StepOutcome.WAITING, remaining, required, List.of());
+            step.setCurrent(true);
+            steps.add(step);
+            assumeApproved(node, remaining, required);
+        }
+
+        void run(Collection<String> from) {
+            Deque<String> queue = new ArrayDeque<>(from);
             while (!queue.isEmpty() && failure == null) {
                 String nodeId = queue.removeFirst();
                 CompiledFlowNode node = definition.getNodeIndex().get(nodeId);
@@ -220,6 +288,11 @@ public class ApprovalPathPreviewer {
             int required = pending.getRequiredApprovalCount() - pending.getApprovedActors().size();
             StepOutcome outcome = mayHaveApprovedEarlier(node, remaining) ? StepOutcome.UNDETERMINED : StepOutcome.WAITING;
             steps.add(step(node, outcome, remaining, required, autoApprovals));
+            assumeApproved(node, remaining, required);
+        }
+
+        /** Records the step's assumed approval, as later steps' dedup will see it. */
+        private void assumeApproved(CompiledFlowNode node, List<String> remaining, int required) {
             if (required >= remaining.size()) {
                 // The step passes only once each of them has approved it.
                 remaining.forEach(approver -> recordApproval(node, approver));
@@ -280,12 +353,14 @@ public class ApprovalPathPreviewer {
 
         /** The automatic approvals {@link ApproverDedupService} recorded on a step, and why each. */
         private List<AutoApproval> autoApprovals(List<ApprovalActionAuditEntry> entries) {
+            Map<String, ApproverDedupService.SelfRole> self = approverDedupService.selfApprovers(definition, state);
             return entries.stream()
                     .filter(entry -> ApprovalActionType.AUTO_APPROVE.equals(entry.getAction()) && entry.getActorId() != null)
-                    .map(entry -> new AutoApproval(actor(entry.getActorId()),
-                            entry.getActorId().equals(state.getInitiatorId())
-                                    ? AutoApprovalReason.SUBMITTER
-                                    : AutoApprovalReason.EARLIER_APPROVAL))
+                    .map(entry -> new AutoApproval(actor(entry.getActorId()), switch (self.get(entry.getActorId())) {
+                        case SUBMITTER -> AutoApprovalReason.SUBMITTER;
+                        case SUBJECT -> AutoApprovalReason.SUBJECT;
+                        case null -> AutoApprovalReason.EARLIER_APPROVAL;
+                    }))
                     .toList();
         }
 

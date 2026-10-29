@@ -14,12 +14,18 @@ import io.softa.framework.orm.vo.OptionReference;
 
 /**
  * Where a record stands in its approval: the {@code approvalStatus} of an {@code ApprovalModel}. The
- * framework writes it, the same way for every model: {@link #PENDING} when the record is submitted, the
- * result when its approval ends. No person writes it, and no handler does.
- *
- * <p>Two values freeze the record ({@link #isLocked()}): a record in approval waits for its result or a
- * withdrawal, and an approved one is settled. From any other value its submitter edits it and submits it
- * again, which starts a new approval from the beginning.
+ * framework writes it, the same way for every model, along one state machine:
+ * <ul>
+ *   <li>{@link #DRAFT}: the only status a record is edited and submitted from, and the only one its
+ *       applicant cancels it from.</li>
+ *   <li>{@link #PENDING}: submitted, its approval in progress. An approval returned to its submitter, or
+ *       withdrawn by them, puts the record back to {@link #DRAFT}, to be edited and submitted again as a new
+ *       approval.</li>
+ *   <li>{@link #APPROVED}, {@link #REJECTED}, {@link #CANCELLED}: final. Nothing moves the record on.</li>
+ * </ul>
+ * No person writes it, and no handler does. Every status but {@link #DRAFT} freezes the record
+ * ({@link #isLocked()}). A return or a withdrawal is not a status the record stays in: its approval history
+ * keeps it.
  *
  * <p>What happens to a record after its approval — paid, in effect, voided — is not an approval status: it
  * goes in the model's own status.
@@ -42,15 +48,7 @@ public enum ApprovalStatus {
     @OptionItem(itemTone = OptionItemTone.ERROR)
     REJECTED("Rejected"),
 
-    /** An approver sent it back to its submitter to edit. */
-    @OptionItem(itemTone = OptionItemTone.WARNING)
-    RETURNED("Returned"),
-
-    /** Its submitter took it back while it waited, or after its approval failed. */
-    @OptionItem(itemTone = OptionItemTone.NEUTRAL)
-    WITHDRAWN("Withdrawn"),
-
-    /** Its approval instance was cancelled. */
+    /** Its applicant cancelled the draft, or its approval instance was cancelled. */
     @OptionItem(itemTone = OptionItemTone.NEUTRAL)
     CANCELLED("Cancelled"),
     ;
@@ -58,18 +56,20 @@ public enum ApprovalStatus {
     @JsonValue
     private final String code;
 
-    /** Whether the record is frozen: in approval, or approved. */
+    /** Whether the record is frozen: anything but a draft — in approval, or its approval over for good. */
     public boolean isLocked() {
-        return this == PENDING || this == APPROVED;
+        return this != DRAFT;
     }
 
-    /** The status an approval's result leaves its record in. */
+    /**
+     * The status an approval's result leaves its record in: a return or a withdrawal hands the record back
+     * as a draft, every other result is final.
+     */
     public static ApprovalStatus resultOf(ApprovalOutcomeType outcome) {
         return switch (outcome) {
             case APPROVED -> APPROVED;
             case REJECTED -> REJECTED;
-            case RETURNED -> RETURNED;
-            case WITHDRAWN -> WITHDRAWN;
+            case RETURNED, WITHDRAWN -> DRAFT;
             case CANCELLED -> CANCELLED;
         };
     }

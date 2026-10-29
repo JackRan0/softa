@@ -121,9 +121,10 @@ public class GraphStructureValidator implements FlowValidator {
             return;
         }
         if (!FlowScenario.APPROVAL.equals(scenario)
-                && (Boolean.TRUE.equals(definition.getAllowInitiatorWithdraw()) || definition.getApproverDedup() != null)) {
+                && (Boolean.TRUE.equals(definition.getAllowInitiatorWithdraw()) || definition.getApproverDedup() != null
+                    || definition.getSelfApproval() != null)) {
             d.add(CompileDiagnostic.flowLevel(APPROVAL_SETTING_OUTSIDE_APPROVAL,
-                    "allowInitiatorWithdraw and approverDedup apply only to Approval flows"));
+                    "allowInitiatorWithdraw, approverDedup and selfApproval apply only to Approval flows"));
         }
         boolean sync = Boolean.TRUE.equals(definition.getSync());
         if (!FlowScenario.AUTOMATION.equals(scenario) && (sync || Boolean.TRUE.equals(definition.getRollbackOnFail()))) {

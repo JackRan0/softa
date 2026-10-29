@@ -91,6 +91,11 @@ public class InProcessFlowClient implements FlowClient {
     }
 
     @Override
+    public void cancelRecord(String modelName, String rowId) {
+        launch.cancelRecord(modelName, rowId, currentUserId());
+    }
+
+    @Override
     public FlowRecordApprovalsView recordApprovals(String modelName, String rowId) {
         String requesterId = currentUserId();
         return instances.recordApprovals(modelName, rowId,

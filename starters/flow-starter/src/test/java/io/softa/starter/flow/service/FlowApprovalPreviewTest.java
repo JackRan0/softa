@@ -2,6 +2,7 @@ package io.softa.starter.flow.service;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,13 +39,16 @@ import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.runtime.LeaveRequest;
 import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
+import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.engine.*;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 import io.softa.starter.flow.runtime.spi.ApprovalSubmission;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.ModelApprovalHandler;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
+import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
+import io.softa.starter.flow.runtime.state.PendingApproval;
 import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
 import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
 import io.softa.starter.flow.service.impl.FlowLaunchServiceImpl;
@@ -166,6 +170,52 @@ class FlowApprovalPreviewTest {
         assertEquals(List.of(), step.getAutoApprovals());
         assertEquals(List.of(), preview.getUndecided());
         assertNull(preview.getFailure());
+    }
+
+    @Test
+    void anApprovalInProgressShowsTheStepItWaitsOnThenTheRest() {
+        DesignFlowDefinition design = chain("Annual leave", null,
+                approval("manager", "Manager", Map.of("approvers", List.of(MANAGER))),
+                approval("hr", "HR", Map.of("approvers", List.of(HR))));
+        design.setAllowInitiatorWithdraw(true);
+        CompiledFlowDefinition flow = publishService.publish("annual", design);
+        record.put("approvalStatus", "Pending");
+        FlowInstance running = new FlowInstance();
+        running.setInstanceId("run-1");
+        running.setStatus(FlowExecutionStatus.WAITING);
+        running.setRecordApproval(true);
+        instances.add(running);
+        FlowExecutionState state = FlowExecutionState.builder()
+                .instanceId("run-1").bundleId(flow.getBundleId()).flowId("annual")
+                .initiatorId(SUBMITTER).recordApproval(true).modelName(MODEL).rowId(ROW)
+                .status(FlowExecutionStatus.WAITING)
+                .variables(new LinkedHashMap<>(Map.of("days", 3, "_subjectId", 5001L)))
+                .completedNodeIds(new ArrayList<>(List.of("start")))
+                .pendingApprovals(new ArrayList<>(List.of(PendingApproval.builder()
+                        .nodeId("manager").approvers(new ArrayList<>(List.of(MANAGER)))
+                        .approvedActors(new ArrayList<>()).rejectedActors(new ArrayList<>())
+                        .requiredApprovalCount(1).build())))
+                .approvalAuditDelta(new ArrayList<>())
+                .joinArrivalCounts(new HashMap<>())
+                .build();
+        when(engine.getInstance("run-1")).thenReturn(Optional.of(state));
+
+        FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
+
+        assertEquals(Status.IN_PROGRESS, preview.getStatus());
+        assertEquals(new FlowApprovalPreview.Flow("annual", "Annual leave"), preview.getFlow());
+        assertEquals(List.of("manager", "hr"), preview.getSteps().stream().map(Step::getNodeId).toList());
+        Step current = preview.getSteps().getFirst();
+        assertEquals(Boolean.TRUE, current.getCurrent());
+        assertEquals(List.of(new Actor(MANAGER, "Bob")), current.getApprovers());
+        Step next = preview.getSteps().get(1);
+        assertNull(next.getCurrent());
+        assertEquals(StepOutcome.WAITING, next.getOutcome());
+        assertEquals(List.of(new Actor(HR, "Carol")), next.getApprovers());
+        assertTrue(state.getApprovalAuditDelta().isEmpty(), "the running instance is never changed");
+        verify(handler, never()).validate(any());
+        assertEquals(Boolean.TRUE, preview.getWithdrawable(), "its submitter, on a flow that lets them");
+        assertEquals(Boolean.FALSE, launchService.previewRecord(MODEL, ROW, MANAGER).getWithdrawable());
     }
 
     @Test

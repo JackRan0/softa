@@ -74,6 +74,10 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     // A submission is refused with these, and its preview reports them.
     private static final String ALREADY_IN_APPROVAL = "This record is already in approval.";
     private static final String ALREADY_APPROVED = "This record is approved and cannot be submitted again.";
+    private static final String ALREADY_REJECTED = "This record was rejected and cannot be submitted again. Raise a new one.";
+    private static final String ALREADY_CANCELLED = "This record was cancelled and cannot be submitted again. Raise a new one.";
+    private static final String ONLY_DRAFT_CANCELLED = "Only a draft can be cancelled; this record is {0}.";
+    private static final String CANCEL_IN_APPROVAL = "This record is in approval. Withdraw it first, then cancel the draft.";
     private static final String NO_SUCH_RECORD = "The {0} record {1} does not exist.";
     private static final String NO_SUBJECT = "This record names no employee in {0}, so its approvers cannot be found.";
     private static final String NO_SUBMIT_FLOW = "No approval flow is configured for this {0} record. "
@@ -185,7 +189,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
 
     private <T extends ApprovalModel> FlowExecutionState submit(ModelApprovalHandler<T> handler, String modelName,
                                                                 String rowId, String initiatorId) {
-        Submission<T> submission = checkSubmission(handler, modelName, rowId);
+        Submission<T> submission = checkSubmission(handler, modelName, rowId, latestApproval(modelName, rowId));
         // Every submission starts a new approval from the beginning — after a return too — with the
         // flow chosen again for the record as it is now.
         CompiledFlowDefinition definition = chooseSubmitFlow(modelName, submission.row());
@@ -200,18 +204,24 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
 
     /**
      * The checks a submission makes before its flow is chosen — first those every model shares, on the
-     * record's approval status and its approvals, then its handler's — and what they worked out. Throws
-     * the refusal, which the preview reports instead.
+     * record's approval status and its approvals, then its handler's — and what they worked out. Only a
+     * draft is submitted. Throws the refusal, which the preview reports instead.
      */
     private <T extends ApprovalModel> Submission<T> checkSubmission(ModelApprovalHandler<T> handler,
-                                                                    String modelName, String rowId) {
+                                                                    String modelName, String rowId,
+                                                                    FlowInstance latest) {
         Map<String, Object> row = readRecord(modelName, rowId);
         ApprovalStatus status = ApprovalStatus.from(row.get(ApprovalModel.APPROVAL_STATUS));
-        if (status == ApprovalStatus.PENDING || inProgress(latestApproval(modelName, rowId))) {
+        if (status == ApprovalStatus.PENDING || inProgress(latest)) {
             throw new BusinessException(ALREADY_IN_APPROVAL);
         }
-        if (status == ApprovalStatus.APPROVED) {
-            throw new BusinessException(ALREADY_APPROVED);
+        switch (status) {
+            case APPROVED -> throw new BusinessException(ALREADY_APPROVED);
+            case REJECTED -> throw new BusinessException(ALREADY_REJECTED);
+            case CANCELLED -> throw new BusinessException(ALREADY_CANCELLED);
+            case null, default -> {
+                // A draft — or a record that never had a status, which is one.
+            }
         }
         String subjectField = ModelApprovalHandlerRegistry.subjectFieldOf(handler);
         Long subjectId = longOf(row.get(subjectField));
@@ -252,13 +262,24 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         return preview;
     }
 
-    /** {@link #submitRecord} up to the start of the approval, whose path is worked out instead. */
+    /**
+     * {@link #submitRecord} up to the start of the approval, whose path is worked out instead — or, for a
+     * record whose approval is in progress, the rest of that approval's path.
+     */
     private FlowApprovalPreview previewSubmission(String modelName, String rowId, String submitterId) {
+        FlowInstance latest = latestApproval(modelName, rowId);
+        if (inProgress(latest)) {
+            return previewInProgress(latest, submitterId);
+        }
         Submission<?> submission;
         try {
-            submission = checkSubmission(handlerRegistry.require(modelName), modelName, rowId);
+            submission = checkSubmission(handlerRegistry.require(modelName), modelName, rowId, latest);
         } catch (BusinessException refusal) {
-            return notReady(FlowApprovalPreview.Status.REFUSED, refusal.getMessage());
+            FlowApprovalPreview refused = notReady(FlowApprovalPreview.Status.REFUSED, refusal.getMessage());
+            // A failed approval leaves its record in approval: its submitter takes it back by withdrawing it.
+            refused.setWithdrawable(latest != null && FlowExecutionStatus.FAILED.equals(latest.getStatus())
+                    && Objects.equals(submitterId, latest.getInitiatorId()));
+            return refused;
         }
         List<CompiledFlowDefinition> flows = triggerRegistry.findSubmitFlows(modelName, submission.row());
         if (flows.isEmpty()) {
@@ -275,6 +296,25 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         CompiledFlowDefinition definition = flows.getFirst();
         return pathPreviewer.preview(definition, submitStartRequest(definition, modelName, rowId, submitterId,
                 submission.subjectId(), submission.approval()));
+    }
+
+    /**
+     * The rest of an approval in progress: the step it waits on now, then those after it — and whether the
+     * requester may withdraw it: its submitter, on a flow that lets them.
+     */
+    private FlowApprovalPreview previewInProgress(FlowInstance approval, String requesterId) {
+        FlowExecutionState state = ContextUtils.withoutPermissionChecks(
+                () -> flowRuntimeEngine.getInstance(approval.getInstanceId())).orElse(null);
+        CompiledFlowDefinition definition = state == null ? null
+                : flowBundleRegistry.getByBundleId(state.getBundleId()).orElse(null);
+        if (definition == null) {
+            return notReady(FlowApprovalPreview.Status.REFUSED, I18n.get(ALREADY_IN_APPROVAL));
+        }
+        FlowApprovalPreview preview = pathPreviewer.previewRemaining(definition, state);
+        preview.setWithdrawable(Boolean.TRUE.equals(definition.getAllowInitiatorWithdraw())
+                && FlowExecutionStatus.WAITING.equals(state.getStatus())
+                && Objects.equals(requesterId, state.getInitiatorId()));
+        return preview;
     }
 
     private static FlowApprovalPreview notReady(FlowApprovalPreview.Status status, String message) {
@@ -309,8 +349,35 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         request.setInstanceId(latest.getInstanceId());
         request.setActorId(actorId);
         request.setComment(comment);
-        // The outcome listener writes "withdrawn" back to the record in this transaction.
+        // The outcome listener writes the record back as a draft in this transaction.
         return flowRuntimeEngine.withdraw(request);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelRecord(String modelName, String rowId, String actorId) {
+        requireRecordKey(modelName, rowId, "cancel");
+        ModelApprovalHandler<?> handler = handlerRegistry.require(modelName);
+        // Nothing moves for a record the applicant cannot reach with their own permissions.
+        if (modelService.getById(modelName, IdUtils.formatId(modelName, rowId), List.of(ModelConstant.ID)).isEmpty()) {
+            throw new BusinessException(NO_SUCH_RECORD, modelName, rowId);
+        }
+        cancel(handler, modelName, rowId, actorId);
+    }
+
+    private <T extends ApprovalModel> void cancel(ModelApprovalHandler<T> handler, String modelName, String rowId,
+                                                  String actorId) {
+        Map<String, Object> row = readRecord(modelName, rowId);
+        ApprovalStatus status = ApprovalStatus.from(row.get(ApprovalModel.APPROVAL_STATUS));
+        if (status == ApprovalStatus.PENDING || inProgress(latestApproval(modelName, rowId))) {
+            throw new BusinessException(CANCEL_IN_APPROVAL);
+        }
+        if (status != null && status != ApprovalStatus.DRAFT) {
+            throw new BusinessException(ONLY_DRAFT_CANCELLED, status.getCode());
+        }
+        T record = BeanTool.mapToObject(row, handler.modelClass());
+        handler.validateCancel(record);
+        statusWriter.cancelled(handler, rowId, record, actorId);
     }
 
     private static void requireRecordKey(String modelName, String rowId, String action) {
@@ -339,7 +406,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
 
     /**
      * An approval that failed leaves its record in approval with nobody to act on it, so its submitter
-     * takes the record back: it is written back as withdrawn. The failed instance stays as it is, for
+     * takes the record back: it is written back as a draft, as withdrawn. The failed instance stays as it is, for
      * flow monitoring.
      */
     private FlowExecutionState takeBackFailed(ModelApprovalHandler<?> handler, FlowInstance failed, String rowId,
