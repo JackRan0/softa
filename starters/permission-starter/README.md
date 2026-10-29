@@ -220,6 +220,15 @@ Scope **types are data**; their compilation is **code only where it must be**.
   idPath via `DepartmentIdPathResolver`, build a subtree prefix filter) and `Custom`
   (evaluate an admin-authored `scopeExpr`). These read `Employee` / `Department` by
   model name via `ModelService`; `ModelManager.existModel` lets a non-HR app degrade.
+  The department anchor is the field named `departmentId`: a ToOne to `Department`
+  (or reached as `employeeId.departmentId`) is filtered on its `idPath` through the
+  join; a **plain department-id column** under that name — a framework model that
+  cannot relate to the application's `Department`, such as `FlowInstance` — is
+  filtered `departmentId IN (the subtree's department ids)`, the ids picked from the
+  cached department tree (`DepartmentCascadePathResolver.resolveIdColumn`,
+  `DepartmentIdPathResolver.subtreeIdsOf`). The same name is what makes the two types
+  applicable to the model (`DataScopeType.applicableFields`), so the role wizard offers
+  them either way.
 
 `ScopeRuleCompiler` dispatches each rule: `ALL` → no filter → a registered
 `ScopeContributor` → its `compile` → the `IdentityScopeCompiler` data path →

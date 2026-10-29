@@ -202,7 +202,7 @@ class FlowRecordSubmissionTest {
         assertEquals(LocalDate.of(2026, 11, 2), state.getEffectiveDate());
         assertEquals("LR-0007", state.getRecordCode());
         // No organization service here, so no department to keep.
-        assertNull(state.getSubjectDeptId());
+        assertNull(state.getDepartmentId());
     }
 
     @Test

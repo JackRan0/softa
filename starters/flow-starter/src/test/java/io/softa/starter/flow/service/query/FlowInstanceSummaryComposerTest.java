@@ -112,7 +112,7 @@ class FlowInstanceSummaryComposerTest {
     void aRecordsApprovalShowsWhatItKeptOfTheRecord() {
         FlowInstance instance = instance("i1", FlowExecutionStatus.COMPLETED);
         instance.setSubjectId(42L);
-        instance.setSubjectDeptId(7L);
+        instance.setDepartmentId(7L);
         instance.setEffectiveDate(LocalDate.of(2026, 11, 1));
         instance.setRecordCode("TR-0001");
 

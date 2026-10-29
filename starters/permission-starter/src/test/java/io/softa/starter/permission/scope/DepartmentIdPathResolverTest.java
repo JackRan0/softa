@@ -12,6 +12,7 @@ import tools.jackson.core.type.TypeReference;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -117,5 +118,17 @@ class DepartmentIdPathResolverTest {
         resolver.evict(null);
 
         verify(cacheService, never()).clear(anyString());
+    }
+
+    /** The roots and every descendant, by whole path segments: {@code 1/50} is not under {@code 1/5}. */
+    @Test
+    void subtreeIdsOf_takesTheRootsAndTheirDescendantsFromTheCachedTree() {
+        doReturn(Map.of(1L, "1", 5L, "1/5", 7L, "1/5/7", 12L, "1/12", 50L, "1/50"))
+                .when(cacheService).get(eq(KEY), any(TypeReference.class));
+
+        Set<Long> out = ContextHolder.callWith(tenantCtx(), () -> resolver.subtreeIdsOf(List.of("1/5", "1/12")));
+
+        assertThat(out).containsExactlyInAnyOrder(5L, 7L, 12L);
+        verify(modelService, never()).searchList(any(), any(FlexQuery.class));
     }
 }

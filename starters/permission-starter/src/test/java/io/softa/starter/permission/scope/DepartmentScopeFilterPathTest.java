@@ -11,8 +11,10 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -96,5 +98,66 @@ class DepartmentScopeFilterPathTest {
                 new ManagedDepartmentsScopeContributor(cascade, idPath).compile(managedRule, "Department"))) {
             assertThat(filters.toString()).contains("idPath").doesNotContain(".idPath");
         }
+    }
+
+    private static ScopeRule subtreeRule(String deptId) {
+        ObjectNode expr = JSON.objectNode();
+        expr.put("deptId", deptId);
+        ScopeRule rule = new ScopeRule();
+        rule.setScopeExpr(expr);
+        return rule;
+    }
+
+    private static ScopeRule managedRule(String deptId) {
+        ArrayNode deptIds = JSON.arrayNode();
+        deptIds.add(deptId);
+        ObjectNode expr = JSON.objectNode();
+        expr.set("deptIds", deptIds);
+        ScopeRule rule = new ScopeRule();
+        rule.setScopeExpr(expr);
+        return rule;
+    }
+
+    /**
+     * A model that holds a department id instead of relating to Department (a framework model such as
+     * FlowInstance) is filtered by the ids of the departments in range — no join to idPath it has no way to make.
+     */
+    @Test
+    void aDepartmentIdColumnIsFilteredByTheIdsOfTheDepartmentsInRange() {
+        when(cascade.resolve("FlowInstance")).thenReturn(Optional.empty());
+        when(cascade.resolveIdColumn("FlowInstance")).thenReturn(Optional.of("departmentId"));
+        when(idPath.idPathOf(5L)).thenReturn(Optional.of("1/5"));
+        when(idPath.idPathsOf(any())).thenReturn(List.of("1/5"));
+        when(idPath.subtreeIdsOf(List.of("1/5"))).thenReturn(Set.of(5L, 7L));
+
+        for (Filters filters : List.of(
+                new DepartmentSubtreeScopeContributor(cascade, idPath).compile(subtreeRule("5"), "FlowInstance"),
+                new ManagedDepartmentsScopeContributor(cascade, idPath).compile(managedRule("5"), "FlowInstance"))) {
+            assertThat(filters.toString()).contains("departmentId").contains("IN").contains("5").contains("7")
+                    .doesNotContain("idPath");
+        }
+    }
+
+    @Test
+    void noDepartmentInRangeLeavesTheRuleFailClosed() {
+        when(cascade.resolve("FlowInstance")).thenReturn(Optional.empty());
+        when(cascade.resolveIdColumn("FlowInstance")).thenReturn(Optional.of("departmentId"));
+        when(idPath.idPathOf(5L)).thenReturn(Optional.of("1/5"));
+        when(idPath.subtreeIdsOf(any())).thenReturn(Set.of());
+
+        Filters filters = new DepartmentSubtreeScopeContributor(cascade, idPath).compile(subtreeRule("5"), "FlowInstance");
+
+        assertThat(Filters.isEmpty(filters)).isTrue();
+    }
+
+    @Test
+    void aModelWithNeitherAPathNorAnIdColumnIsAConfigurationError() {
+        when(cascade.resolve("Orphan")).thenReturn(Optional.empty());
+        when(cascade.resolveIdColumn("Orphan")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> new DepartmentSubtreeScopeContributor(cascade, idPath).compile(subtreeRule("5"), "Orphan"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new ManagedDepartmentsScopeContributor(cascade, idPath).compile(managedRule("5"), "Orphan"))
+                .isInstanceOf(IllegalStateException.class);
     }
 }

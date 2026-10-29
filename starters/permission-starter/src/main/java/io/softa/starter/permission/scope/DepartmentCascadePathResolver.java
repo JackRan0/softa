@@ -88,6 +88,20 @@ public interface DepartmentCascadePathResolver {
     Optional<String> resolve(String modelName);
 
     /**
+     * The column that holds a {@code Department} id directly, on a model that cannot relate to Department — a
+     * framework model that does not know the application's department model, such as {@code FlowInstance}, whose
+     * {@code departmentId} is its subject's department at submission. The department scopes filter such a column by
+     * the ids of the departments in range ({@code IN}), where a relation would let them join to {@code idPath}.
+     * Consulted only when {@link #resolve} finds no path.
+     *
+     * @param modelName PascalCase model name being queried
+     * @return the column's field name, or {@code Optional.empty()} — the default — when the model has none
+     */
+    default Optional<String> resolveIdColumn(String modelName) {
+        return Optional.empty();
+    }
+
+    /**
      * The field a department scope filters on, given a resolved path.
      *
      * <p>A name for {@link IdPath#fieldOn} in this interface's own terms: {@link #SELF_PATH} is
