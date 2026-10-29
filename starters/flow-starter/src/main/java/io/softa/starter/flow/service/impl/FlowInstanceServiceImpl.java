@@ -24,6 +24,7 @@ import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.PermissionService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.starter.flow.dto.FlowInstanceSearchRequest;
@@ -59,6 +60,10 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
 
     @Autowired
     private FlowUserNames userNames;
+
+    /** Absent without a permission system: then no field is hidden from anyone. */
+    @Autowired(required = false)
+    private PermissionService permissionService;
 
     /** Instance search projection — the heavy JSON state columns are deliberately excluded. */
     private static final List<String> INSTANCE_SUMMARY_FIELDS = List.of(
@@ -294,7 +299,7 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     @Override
-    public Optional<Map<String, Object>> recordOf(FlowExecutionState state) {
+    public Optional<Map<String, Object>> recordOf(FlowExecutionState state, String viewerId) {
         String modelName = state.getModelName();
         if (!StringUtils.hasText(modelName) || !StringUtils.hasText(state.getRowId())
                 || !ModelManager.existModel(modelName)) {
@@ -303,10 +308,14 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
         Serializable id = IdUtils.formatId(modelName, state.getRowId());
         @SuppressWarnings("unchecked")
         ModelService<Serializable> records = (ModelService<Serializable>) (ModelService<?>) modelService;
-        RecordFields shown = recordFields(state);
-        // The record as its detail page shows it: every stored field, each one-to-many's rows in full (an
-        // expense claim's lines), a many-to-many as references. REFERENCE, as the model read API returns
-        // it: relations and options come with their display names.
+        // Asked as the viewer, before the read below sets every permission check aside.
+        Set<String> unseen = permissionService == null ? Set.of()
+                : permissionService.getHiddenSensitiveFields().getOrDefault(modelName, Set.of());
+        RecordFields shown = recordFields(state, viewerId, unseen);
+        // The record as its detail page shows it: every stored field, every dynamic one (cascaded and
+        // computed), each one-to-many's rows in full (an expense claim's lines), a many-to-many as
+        // references. REFERENCE, as the model read API returns it: relations and options come with their
+        // display names.
         List<String> fields = new ArrayList<>(ModelManager.getModelStoredFields(modelName));
         SubQueries childRows = new SubQueries();
         for (MetaField field : ModelManager.getModelFields(modelName)) {
@@ -315,6 +324,8 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
                 if (FieldType.ONE_TO_MANY.equals(field.getFieldType())) {
                     childRows.expand(field.getFieldName(), new SubQuery());
                 }
+            } else if (field.isDynamic()) {
+                fields.add(field.getFieldName());
             }
         }
         return ContextUtils.withoutPermissionChecks(
@@ -331,42 +342,61 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     /**
-     * The record fields the instance's approval steps show: those of the steps still waiting, or —
-     * once none waits — of all its approval steps. A step shows the fields its field permissions list
-     * as Readonly, Editable or Required; a step that lists none shows every field. A field any of
-     * them marks Hidden is never shown.
+     * The record fields the viewer is shown. By default, every field but the sensitive ones the viewer may
+     * see on no row ({@code unseen}). The waiting steps the viewer is an approver of lay their field
+     * permissions over that: a field they list as Readonly, Editable or Required is shown, sensitive or
+     * not — the designer granted it — and one they mark Hidden is not; with several such steps, a field
+     * any of them shows is shown. The initiator sees the default. Anyone else — a CC recipient, an earlier
+     * approver — sees the default without whatever an approval step of the flow hides.
      */
-    private RecordFields recordFields(FlowExecutionState state) {
+    private RecordFields recordFields(FlowExecutionState state, String viewerId, Set<String> unseen) {
         CompiledFlowDefinition definition = bundleRegistry.getByBundleId(state.getBundleId()).orElse(null);
         if (definition == null || definition.getNodeIndex() == null) {
-            return new RecordFields(null, Set.of());
+            return new RecordFields(null, unseen, Set.of());
         }
         List<PendingApproval> pending = state.getPendingApprovals() == null ? List.of() : state.getPendingApprovals();
-        List<CompiledFlowNode> steps = pending.isEmpty()
-                ? definition.getNodeIndex().values().stream()
-                        .filter(node -> FlowNodeType.APPROVAL.equals(node.getType()))
-                        .toList()
-                : pending.stream().map(step -> definition.getNodeIndex().get(step.getNodeId())).filter(Objects::nonNull).toList();
-        Set<String> listed = new HashSet<>();
-        Set<String> hidden = new HashSet<>();
-        boolean everyField = steps.isEmpty();
-        for (CompiledFlowNode step : steps) {
-            Map<String, FormFieldPermission> permissions = FormPermissionService.getFieldPermissions(step);
-            everyField |= permissions.isEmpty();
-            permissions.forEach((field, permission) ->
-                    (FormFieldPermission.HIDDEN.equals(permission) ? hidden : listed).add(field));
+        List<Map<String, FormFieldPermission>> ownSteps = pending.stream()
+                .filter(step -> step.getApprovers() != null && step.getApprovers().contains(viewerId))
+                .map(step -> definition.getNodeIndex().get(step.getNodeId()))
+                .filter(Objects::nonNull)
+                .map(FormPermissionService::getFieldPermissions)
+                .toList();
+        if (!ownSteps.isEmpty()) {
+            return new RecordFields(ownSteps, unseen, Set.of());
         }
-        return new RecordFields(everyField ? null : listed, hidden);
+        if (Objects.equals(viewerId, state.getInitiatorId())) {
+            return new RecordFields(null, unseen, Set.of());
+        }
+        Set<String> hidden = new HashSet<>();
+        definition.getNodeIndex().values().stream()
+                .filter(node -> FlowNodeType.APPROVAL.equals(node.getType()))
+                .forEach(node -> FormPermissionService.getFieldPermissions(node).forEach((field, permission) -> {
+                    if (FormFieldPermission.HIDDEN.equals(permission)) {
+                        hidden.add(field);
+                    }
+                }));
+        return new RecordFields(null, unseen, hidden);
     }
 
-    /** The fields of a record that are shown: the {@code listed} ones ({@code null} = all), never a {@code hidden} one. */
-    private record RecordFields(Set<String> listed, Set<String> hidden) {
+    /**
+     * The fields of a record that are shown: through the viewer's own steps' permissions
+     * ({@code ownSteps}, null for a viewer with none), else every field but the {@code unseen} and the
+     * {@code hidden}. The id always.
+     */
+    private record RecordFields(List<Map<String, FormFieldPermission>> ownSteps, Set<String> unseen,
+                                Set<String> hidden) {
 
         boolean includes(String field) {
-            if (hidden.contains(field)) {
-                return false;
+            if (ModelConstant.ID.equals(field)) {
+                return true;
             }
-            return listed == null || listed.contains(field) || ModelConstant.ID.equals(field);
+            if (ownSteps != null) {
+                return ownSteps.stream().anyMatch(permissions -> {
+                    FormFieldPermission permission = permissions.get(field);
+                    return permission == null ? !unseen.contains(field) : permission != FormFieldPermission.HIDDEN;
+                });
+            }
+            return !unseen.contains(field) && !hidden.contains(field);
         }
     }
 

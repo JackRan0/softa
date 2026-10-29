@@ -5,7 +5,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -15,7 +14,6 @@ import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -34,15 +32,15 @@ import io.softa.starter.cron.message.dto.CronTaskMessage;
 /**
  * Cron Scheduler
  * Due to the use of leader election, there is only one running scheduler in the entire scheduling system.
- * It runs the {@code SysCron} rows, read when this node starts scheduling, and the jobs of every {@link CronJobProvider},
- * re-read every {@link #PROVIDED_JOBS_REFRESH_SECONDS} while it schedules.
+ * It runs the {@code SysCron} rows and the jobs of every {@link CronJobProvider}, read when this node starts scheduling
+ * and again every {@link #REFRESH_SECONDS} while it schedules.
  */
 @Slf4j
 @Component
 public class CronScheduler {
 
-    /** How often the providers are read again, so the jobs they add or drop reach the schedule */
-    static final long PROVIDED_JOBS_REFRESH_SECONDS = 30;
+    /** How often the rows and the providers are read again, so the jobs they add, change or drop reach the schedule */
+    static final long REFRESH_SECONDS = 30;
 
     @Autowired
     private SchedulerPool schedulerPool;
@@ -59,7 +57,12 @@ public class CronScheduler {
     @Autowired(required = false)
     private List<CronJobProvider> cronJobProviders = List.of();
 
-    private final Map<Long, ScheduledFuture<?>> scheduledTasksMap = new ConcurrentHashMap<>();
+    /**
+     * The active rows on the schedule, each with the handle of its next run: null when it has none, for a row whose expression cannot be
+     * parsed or has no execution ahead, or a limited one with no execution left. A run schedules the next one only while its row is still
+     * in here, unchanged. Only read or written while holding this scheduler's lock.
+     */
+    private final Map<RowJob, ScheduledFuture<?>> rowJobs = new HashMap<>();
 
     /**
      * The provided jobs on the schedule, each with the handle of its next run: null when it has none, for a job whose expression
@@ -68,8 +71,8 @@ public class CronScheduler {
      */
     private final Map<CronJob, ScheduledFuture<?>> providedJobs = new HashMap<>();
 
-    /** The periodic read of the providers, while this node schedules */
-    private ScheduledFuture<?> providedJobsRefresh;
+    /** The periodic read of the rows and the providers, while this node schedules */
+    private ScheduledFuture<?> periodicRefresh;
 
     /** Whether this node schedules: from start() to stop(). Only read or written while holding this scheduler's lock. */
     private boolean scheduling;
@@ -84,7 +87,7 @@ public class CronScheduler {
     /**
      * Start all active cron jobs and the provided ones, replacing whatever is already registered, so calling it again never schedules a job twice.
      * A job that cannot be registered — an unparsable cron expression, most often — is logged and skipped, so the remaining jobs still get scheduled.
-     * Providers that cannot be read leave their jobs to the next refresh.
+     * Rows that cannot be read make it throw, so that this node gives the leadership back; providers that cannot be read leave their jobs to the next refresh.
      */
     @SwitchUser(SystemUser.CRON_USER)
     public void start() {
@@ -92,112 +95,22 @@ public class CronScheduler {
         List<CronJob> providedJobList = listProvidedJobs();
         synchronized (this) {
             stop();
-            for (SysCron sysCron : sysCronList) {
-                if (Boolean.FALSE.equals(sysCron.getActive())) {
-                    continue;
-                }
-                // start() runs once per leader election, so an exception escaping this loop would leave every remaining job unscheduled and cost this node its leadership.
-                try {
-                    registerCron(sysCron);
-                } catch (Exception e) {
-                    log.error("Failed to register cron job {}({}), skipped: {}", sysCron.getName(), sysCron.getCronExpression(), e.getMessage(), e);
-                }
-            }
+            applyRows(sysCronList);
             if (providedJobList != null) {
                 applyProvidedJobs(providedJobList);
             }
             scheduling = true;
-            if (!cronJobProviders.isEmpty()) {
-                providedJobsRefresh = schedulerPool.getScheduler().scheduleWithFixedDelay(this::refreshProvidedJobs,
-                        PROVIDED_JOBS_REFRESH_SECONDS, PROVIDED_JOBS_REFRESH_SECONDS, TimeUnit.SECONDS);
-            }
+            periodicRefresh = schedulerPool.getScheduler().scheduleWithFixedDelay(this::refresh,
+                    REFRESH_SECONDS, REFRESH_SECONDS, TimeUnit.SECONDS);
         }
     }
 
     /**
-     * Register a cron job.
-     * An active cron job is scheduled in limited execution times or repeatedly.
-     *
-     * @param sysCron Cron job object
-     */
-    public synchronized void registerCron(SysCron sysCron) {
-        Cron cron = CronUtils.getCron(sysCron.getName(), sysCron.getCronExpression());
-        Executions executions = new Executions(ExecutionTime.forCron(cron));
-        if (!Boolean.TRUE.equals(sysCron.getLimitExecution())) {
-            // Cron with unlimited execution times
-            scheduleRepeatedTask(sysCron, executions, generation);
-        } else if (sysCron.getRemainingCount() > 0) {
-            // Cron with limited execution times, and there are remaining execution times.
-            AtomicInteger remainingCount = new AtomicInteger(sysCron.getRemainingCount());
-            scheduleLimitedTask(sysCron, executions, remainingCount, generation);
-        }
-    }
-
-    /**
-     * Schedule a task repeatedly.
-     * Send an asynchronous execution message in the task, and then reschedule.
-     *
-     * @param sysCron Cron job object
-     * @param executions Execution times of the cron expression
-     * @param generation Generation the job was registered in
-     */
-    private void scheduleRepeatedTask(SysCron sysCron, Executions executions, long generation) {
-        Runnable task = () -> {
-            sendToMessageQueue(sysCron);
-            // Reschedule
-            scheduleRepeatedTask(sysCron, executions, generation);
-        };
-        scheduleTask(sysCron, executions, generation, task);
-    }
-
-    /**
-     * Schedule a task with limited execution times.
-     * Send an asynchronous execution message in the task, and then reschedule.
-     *
-     * @param sysCron Cron job object
-     * @param executions Execution times of the cron expression
-     * @param remainingCount Remaining execution times
-     * @param generation Generation the job was registered in
-     */
-    private void scheduleLimitedTask(SysCron sysCron, Executions executions, AtomicInteger remainingCount, long generation) {
-        Runnable task = () -> {
-            // Check the remaining execution times
-            if (remainingCount.get() <= 0) {
-                return;
-            }
-            sendToMessageQueue(sysCron);
-            remainingCount.decrementAndGet();
-            // Reschedule
-            scheduleLimitedTask(sysCron, executions, remainingCount, generation);
-        };
-        scheduleTask(sysCron, executions, generation, task);
-    }
-
-    /**
-     * Schedule a task once based on the cron expression, at its next execution time.
-     *
-     * @param sysCron Cron job object
-     * @param executions Execution times of the cron expression
-     * @param generation Generation the job was registered in
-     * @param task Scheduled task
-     */
-    private synchronized void scheduleTask(SysCron sysCron, Executions executions, long generation, Runnable task) {
-        // The job was stopped while this run was firing, so the run must not schedule the next one
-        if (generation != this.generation) {
-            return;
-        }
-        ScheduledFuture<?> scheduledTask = scheduleNextRun(executions, task);
-        if (scheduledTask != null) {
-            scheduledTasksMap.put(sysCron.getId(), scheduledTask);
-        }
-    }
-
-    /**
-     * Read the providers again and bring the provided jobs on the schedule in line with them.
-     * Does nothing unless this node schedules; a provider that cannot be read leaves the schedule as it is until the next refresh.
+     * Read the rows and the providers again and bring the schedule in line with them.
+     * Does nothing unless this node schedules; rows or a provider that cannot be read leave their jobs as they are until the next refresh.
      * Never throws: scheduleWithFixedDelay silently suppresses every later refresh once one throws.
      */
-    void refreshProvidedJobs() {
+    void refresh() {
         try {
             long registeredGeneration;
             synchronized (this) {
@@ -206,17 +119,110 @@ public class CronScheduler {
                 }
                 registeredGeneration = generation;
             }
-            // Read outside the lock, so that a slow provider does not hold up the runs that reschedule meanwhile
+            // Read outside the lock, so that a slow read does not hold up the runs that reschedule meanwhile
+            List<SysCron> sysCronList = listRows();
             List<CronJob> providedJobList = listProvidedJobs();
             synchronized (this) {
-                // Stopped, or started anew, while the providers were read
-                if (providedJobList != null && scheduling && registeredGeneration == generation) {
+                // Stopped, or started anew, while they were read
+                if (!scheduling || registeredGeneration != generation) {
+                    return;
+                }
+                if (sysCronList != null) {
+                    applyRows(sysCronList);
+                }
+                if (providedJobList != null) {
                     applyProvidedJobs(providedJobList);
                 }
             }
         } catch (Exception e) {
-            log.error("Failed to refresh the provided cron jobs, retrying in {}s: {}", PROVIDED_JOBS_REFRESH_SECONDS, e.getMessage(), e);
+            log.error("Failed to refresh the cron jobs, retrying in {}s: {}", REFRESH_SECONDS, e.getMessage(), e);
         }
+    }
+
+    /**
+     * The rows, or null when they cannot be read: the rows on the schedule then stay as they are.
+     * Never throws, so that the providers are still read.
+     */
+    private List<SysCron> listRows() {
+        try {
+            return jdbcService.selectMetaEntityList(SysCron.class, null);
+        } catch (Exception e) {
+            log.error("Failed to read the SysCron rows, the schedule is left as it is: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Make the rows on the schedule the given ones that are active, which is every row but those with {@code active = false}:
+     * a row deleted, switched off or changed is cancelled, a new or changed one is registered, and one unchanged keeps its next run
+     * and the executions it has left.
+     * Called holding this scheduler's lock.
+     */
+    private void applyRows(List<SysCron> sysCronList) {
+        Map<RowJob, SysCron> activeRows = new LinkedHashMap<>();
+        for (SysCron sysCron : sysCronList) {
+            if (!Boolean.FALSE.equals(sysCron.getActive())) {
+                activeRows.put(RowJob.of(sysCron), sysCron);
+            }
+        }
+        cancelAllBut(rowJobs, activeRows.keySet());
+        activeRows.forEach((job, sysCron) -> {
+            if (!rowJobs.containsKey(job)) {
+                registerRow(job, sysCron);
+            }
+        });
+    }
+
+    /**
+     * Register a row. One that cannot be registered is logged and kept without a run:
+     * the same row fails the same way at every refresh, and is registered again once it changes.
+     * A limited row counts the executions it has left in memory, starting from its remainingCount, which nothing writes back.
+     * Called holding this scheduler's lock.
+     */
+    private void registerRow(RowJob job, SysCron sysCron) {
+        rowJobs.put(job, null);
+        try {
+            Cron cron = CronUtils.getCron(job.name(), job.cronExpression());
+            AtomicInteger remainingCount = Boolean.TRUE.equals(job.limitExecution())
+                    ? new AtomicInteger(Objects.requireNonNullElse(job.remainingCount(), 0)) : null;
+            scheduleRowRun(job, sysCron, new Executions(ExecutionTime.forCron(cron)), remainingCount, generation);
+        } catch (Exception e) {
+            log.error("Failed to register cron job {}({}), skipped: {}", job.name(), job.cronExpression(), e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Schedule the next run of a row. A limited row with no execution left gets none, and stays registered,
+     * so that a refresh does not register it again from its remainingCount.
+     * A run that was already firing when its row was cancelled — this node stopped scheduling, or the row was changed, switched off
+     * or deleted — schedules nothing. A run whose trigger cannot be sent still schedules the next one, and does not count as an execution.
+     *
+     * @param job The row's schedule
+     * @param sysCron The row as it was registered, which its triggers carry
+     * @param executions Execution times of its cron expression
+     * @param remainingCount Executions a limited row has left; null for an unlimited one
+     * @param generation Generation the row was registered in
+     */
+    private synchronized void scheduleRowRun(RowJob job, SysCron sysCron, Executions executions, AtomicInteger remainingCount,
+                                             long generation) {
+        if (generation != this.generation || !rowJobs.containsKey(job)) {
+            return;
+        }
+        if (remainingCount != null && remainingCount.get() <= 0) {
+            rowJobs.put(job, null);
+            return;
+        }
+        rowJobs.put(job, scheduleNextRun(executions, () -> {
+            try {
+                sendToMessageQueue(sysCron);
+                if (remainingCount != null) {
+                    remainingCount.decrementAndGet();
+                }
+            } catch (Exception e) {
+                log.error("Cron job {} failed to send its trigger: {}", job.name(), e.getMessage(), e);
+            }
+            scheduleRowRun(job, sysCron, executions, remainingCount, generation);
+        }));
     }
 
     /**
@@ -244,17 +250,7 @@ public class CronScheduler {
      */
     private void applyProvidedJobs(List<CronJob> jobs) {
         Set<CronJob> provided = new LinkedHashSet<>(jobs);
-        Iterator<Map.Entry<CronJob, ScheduledFuture<?>>> scheduledJobs = providedJobs.entrySet().iterator();
-        while (scheduledJobs.hasNext()) {
-            Map.Entry<CronJob, ScheduledFuture<?>> scheduledJob = scheduledJobs.next();
-            if (!provided.contains(scheduledJob.getKey())) {
-                // Removed before it is cancelled, so that a run of it firing right now does not schedule the next one
-                scheduledJobs.remove();
-                if (scheduledJob.getValue() != null) {
-                    scheduledJob.getValue().cancel(true);
-                }
-            }
-        }
+        cancelAllBut(providedJobs, provided);
         for (CronJob job : provided) {
             if (!providedJobs.containsKey(job)) {
                 registerProvidedJob(job);
@@ -298,6 +294,27 @@ public class CronScheduler {
             }
             scheduleProvidedRun(job, executions, generation);
         }));
+    }
+
+    /**
+     * Cancel every job on the schedule but the given ones.
+     * Called holding this scheduler's lock.
+     *
+     * @param scheduledJobs The rows or the provided jobs on the schedule, each with the handle of its next run
+     * @param kept The jobs to keep
+     */
+    private static <K> void cancelAllBut(Map<K, ScheduledFuture<?>> scheduledJobs, Set<K> kept) {
+        Iterator<Map.Entry<K, ScheduledFuture<?>>> entries = scheduledJobs.entrySet().iterator();
+        while (entries.hasNext()) {
+            Map.Entry<K, ScheduledFuture<?>> scheduledJob = entries.next();
+            if (!kept.contains(scheduledJob.getKey())) {
+                // Removed before it is cancelled, so that a run of it firing right now does not schedule the next one
+                entries.remove();
+                if (scheduledJob.getValue() != null) {
+                    scheduledJob.getValue().cancel(true);
+                }
+            }
+        }
     }
 
     /**
@@ -372,54 +389,19 @@ public class CronScheduler {
     }
 
     /**
-     * Cancel a scheduling task.
-     * If the task is being scheduled, close it directly and clear the cache.
-     *
-     * @param cronId Task ID
-     */
-    public void cancelTask(Long cronId) {
-        ScheduledFuture<?> scheduledTask = scheduledTasksMap.get(cronId);
-        if (scheduledTask != null) {
-            scheduledTask.cancel(true);
-            scheduledTasksMap.remove(cronId);
-        }
-    }
-
-    /**
-     * Cancel a list of scheduling tasks.
-     *
-     * @param cronIds Task ID list
-     */
-    public void cancelTaskList(List<Long> cronIds) {
-        if (CollectionUtils.isEmpty(cronIds)) {
-            return;
-        }
-        for (Long cronId : cronIds) {
-            cancelTask(cronId);
-        }
-    }
-
-    /**
      * Cancel all scheduling tasks but keep the scheduler, so that a later start() can schedule them again.
      * Called when this node loses the leadership, which it may win back.
      */
     public synchronized void stop() {
         generation++;
         scheduling = false;
-        if (providedJobsRefresh != null) {
-            providedJobsRefresh.cancel(false);
-            providedJobsRefresh = null;
+        if (periodicRefresh != null) {
+            periodicRefresh.cancel(false);
+            periodicRefresh = null;
         }
         // Cancel all tasks
-        for (Long cronId : scheduledTasksMap.keySet()) {
-            cancelTask(cronId);
-        }
-        for (ScheduledFuture<?> scheduledJob : providedJobs.values()) {
-            if (scheduledJob != null) {
-                scheduledJob.cancel(true);
-            }
-        }
-        providedJobs.clear();
+        cancelAllBut(rowJobs, Set.of());
+        cancelAllBut(providedJobs, Set.of());
     }
 
     /**
@@ -431,6 +413,19 @@ public class CronScheduler {
         stop();
         // Shutdown the scheduler
         schedulerPool.getScheduler().shutdown();
+    }
+
+    /**
+     * A row as its schedule depends on it, which is its key on the schedule: a row is registered again when one of these fields changes,
+     * while a change to any other one — its description, say — leaves it its next run and the executions it has left.
+     */
+    private record RowJob(Long id, String name, String cronExpression, Boolean limitExecution, Integer remainingCount,
+                          TenantJobMode tenantJobMode) {
+
+        static RowJob of(SysCron sysCron) {
+            return new RowJob(sysCron.getId(), sysCron.getName(), sysCron.getCronExpression(), sysCron.getLimitExecution(),
+                    sysCron.getRemainingCount(), sysCron.getTenantJobMode());
+        }
     }
 
     /**

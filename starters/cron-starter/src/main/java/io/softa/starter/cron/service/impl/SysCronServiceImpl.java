@@ -24,37 +24,6 @@ public class SysCronServiceImpl extends EntityServiceImpl<SysCron, Long> impleme
     private CronScheduler cronScheduler;
 
     /**
-     * Activate one cron job.
-     *
-     * @param cronId Cron ID
-     */
-    @Override
-    public void activateCron(Long cronId) {
-        // Cancel the existing cron job with the same ID first (if any).
-        cronScheduler.cancelTask(cronId);
-        // Schedule the new cron job.
-        SysCron sysCron = this.getById(cronId)
-                .orElseThrow(() -> new IllegalArgumentException("The cron job with ID `{0}` does not exist", cronId));
-        cronScheduler.registerCron(sysCron);
-    }
-
-    /**
-     * Activate multiple cron jobs.
-     *
-     * @param cronIds Cron IDs
-     */
-    @Override
-    public void activateCronList(List<Long> cronIds) {
-        // Cancel the existing cron jobs with the same IDs first (if any).
-        cronScheduler.cancelTaskList(cronIds);
-        // Schedule the new cron jobs.
-        List<SysCron> sysCronList = this.getByIds(cronIds);
-        for (SysCron sysCron : sysCronList) {
-            cronScheduler.registerCron(sysCron);
-        }
-    }
-
-    /**
      * Execute the specified cron job immediately
      *
      * @param sysCron Cron job object

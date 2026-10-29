@@ -7,7 +7,7 @@ import java.util.List;
  * flows a cron trigger starts. Register an implementation as a Spring bean.
  * <p>
  * The leader asks every provider when it starts scheduling and again every
- * {@code CronScheduler.PROVIDED_JOBS_REFRESH_SECONDS}: a job a provider adds is scheduled, one it no longer returns
+ * {@code CronScheduler.REFRESH_SECONDS}: a job a provider adds is scheduled, one it no longer returns
  * is cancelled, and one it keeps returning keeps its next run. The call runs on a scheduler thread outside any
  * request, so a provider sets up the context its own reads need.
  */

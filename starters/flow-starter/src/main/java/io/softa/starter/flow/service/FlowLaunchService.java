@@ -24,10 +24,11 @@ public interface FlowLaunchService {
     FlowLaunchResponse debugRunDraft(String flowId, FlowStartRequest request);
 
     /**
-     * Submits a business record for approval, in the caller's transaction: its model's
+     * Submits a business record for approval, in the caller's transaction: the submitter must read the
+     * record with their own permissions and it must be neither in approval nor approved; its model's
      * {@code ModelApprovalHandler} checks it and supplies the title and routing variables, the flow
      * is chosen by the flows' submit triggers (exactly one active flow of the tenant must match the
-     * model and the record), the record moves to "in approval" and the record's approval starts.
+     * model and the record), the record becomes {@code Pending} and the record's approval starts.
      * Every submission starts a new approval from the beginning — a record returned to its
      * submitter included — and a record has at most one approval in progress.
      *
@@ -42,8 +43,8 @@ public interface FlowLaunchService {
      * What submitting the record would do now, worked out without submitting it: the same checks and
      * the same choice of flow as {@link #submitRecord}, then the approval path that flow would take —
      * its steps in order, each with the approvers who would be asked or why it passes on its own.
-     * The handler's {@code prepare} runs with the requester's own permissions; {@code onSubmitted} is
-     * never called, and nothing is started or written. A refusal, no applicable flow or several are
+     * The handler's {@code validate} runs with the requester's own permissions; {@code afterSubmitted}
+     * is never called, and nothing is started or written. A refusal, no applicable flow or several are
      * reported, not thrown.
      *
      * @param modelName   the record's model

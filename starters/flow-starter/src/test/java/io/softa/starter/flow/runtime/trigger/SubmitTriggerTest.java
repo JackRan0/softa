@@ -11,6 +11,7 @@ import io.softa.starter.flow.compiler.validation.TriggerConsistencyValidator;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.enums.FlowScenario;
+import io.softa.starter.flow.runtime.LeaveRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.FlowBundleRegistry;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
@@ -100,11 +101,12 @@ class SubmitTriggerTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     void twoHandlersForOneModelAreRefused() {
-        ModelApprovalHandler first = mock(ModelApprovalHandler.class);
-        ModelApprovalHandler second = mock(ModelApprovalHandler.class);
-        when(first.modelName()).thenReturn("LeaveRequest");
-        when(second.modelName()).thenReturn("LeaveRequest");
+        ModelApprovalHandler<LeaveRequest> first = mock(ModelApprovalHandler.class);
+        ModelApprovalHandler<LeaveRequest> second = mock(ModelApprovalHandler.class);
+        when(first.modelClass()).thenReturn(LeaveRequest.class);
+        when(second.modelClass()).thenReturn(LeaveRequest.class);
 
         ModelApprovalHandlerRegistry registry = ModelApprovalHandlerRegistry.of(List.of(first, second));
 

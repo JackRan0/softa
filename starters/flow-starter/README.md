@@ -194,7 +194,7 @@ Base path: `/flow/instances` — launch, reads and approval actions on runtime i
 | `GET` | `/flow/instances/{instanceId}/nodes/{nodeId}/formPermissions` | Get field-level form permissions |
 | `GET` | `/flow/instances/by-record?modelName=&rowId=` | A business record's approval history: its approval instances newest first, with the steps still waiting, the approvers yet to act and the approval actions, every user named (names are resolved only once the caller is allowed); a failed instance says where and why it stopped (`failure`). Allowed to whoever took part in its approvals or can read the record |
 | `GET` | `/flow/instances/preview?modelName=&rowId=` | What submitting the record would do now, without submitting it: the Submit flow it would get and its approval steps, each with the approvers who would be asked or why it passes on its own; a refusal, no applicable flow or several are reported, a route decided only once the approval runs is reported as undecided. Nothing is started or written. Allowed to whoever can read the record (see [Previewing a record's approval](#previewing-a-records-approval)) |
-| `GET` | `/flow/instances/{instanceId}/record` | The business record a record's approval runs on — any other instance is refused, since its record was named freely rather than submitted — for its initiator and the people it gives a task to: read past their own row permissions, limited to the fields the waiting steps list in their field permissions (`Readonly` / `Editable` / `Required`; once nothing waits, those of every approval step). A step that lists no fields shows them all; a field marked `Hidden` never shows. Read as the model read API returns a record (relations and options as references, masked fields masked), with each one-to-many's rows in full — an expense claim comes with its lines |
+| `GET` | `/flow/instances/{instanceId}/record` | The business record a record's approval runs on — any other instance is refused, since its record was named freely rather than submitted — for its initiator and the people it gives a task to: read past their own row permissions. Every field, dynamic ones included, but the sensitive ones the caller may see on no row; the field permissions of the waiting steps the caller approves are laid over that — what they list as `Readonly` / `Editable` / `Required` shows, sensitive or not, and what they mark `Hidden` does not. The initiator sees every field but those unseen sensitive ones; anyone else with no waiting step also misses what any approval step hides. Read as the model read API returns a record (relations and options as references, masked fields masked), with each one-to-many's rows in full — an expense claim comes with its lines |
 
 Who may view an instance: its initiator and the people it gives a task to (approvers pending or done, CC
 recipients, transfer, delegation and add-sign targets) by default; anyone else through the standard role and
@@ -316,9 +316,26 @@ Approval nodes support:
 Supported dynamic source types:
 
 - from start variables: `VariableList`, `Expression`, `InitiatorManager` (`initiatorManagerId`), `Role` (`roleApprovers`)
-- from the organization: `Supervisor` (the initiator's N-th level supervisor), `DeptLeader` and `DeptHrbp`
-  (of a department, by default the initiator's), `RoleQuery` (holders of the roles named by `roleIds`, by
-  `roleCodes`, or both — optionally narrowed to the initiator's or one department), `Position`, `Department`
+- from the organization: `Supervisor` (the N-th level supervisor), `DeptLeader` and `DeptHrbp` (of a
+  department), `RoleQuery` (holders of the roles named by `roleIds`, by `roleCodes`, or both — optionally
+  narrowed to a department), `Position`, `Department` (its members)
+
+The organization is read relative to the record's **subject** — the employee it is about (*Approving Business
+Records*) — so a request filed on someone's behalf goes to their approvers, not the submitter's. `Supervisor`
+takes `relativeTo`: `SUBJECT` (default) or `INITIATOR`. The department-based sources take one `deptScope`:
+
+| `deptScope` | Department | Default of |
+|---|---|---|
+| `SUBJECT_DEPT` | the subject's | `DeptLeader`, `DeptHrbp` |
+| `INITIATOR_DEPT` | the submitter's | |
+| `SPECIFIC_DEPT` | the one named in `deptId` (`deptIds` for `Department`) | `Department` |
+| `VARIABLE_DEPT` | the id(s) held by the variable named in `deptVariable` — a transfer's receiving department | |
+| `ALL` | none: every holder (`RoleQuery` only) | `RoleQuery` |
+
+A department that cannot be told — no subject department, an empty variable — resolves to nobody, never to
+every holder; the step then follows its empty-approver strategy. An instance without a record (a debug run)
+has no subject and starts from its initiator. The compiler refuses a scope a source does not take and a scope
+missing what it needs (`INVALID_DEPT_SCOPE`, `MISSING_DEPT_IDS`, `MISSING_DEPT_VARIABLE`, `INVALID_RELATIVE_TO`).
 
 Approvers are **login account ids**. The organization is read through the `OrganizationService` SPI, whose
 default `FlowOrgService` follows the HR conventions permission-starter already reads, so an application on
@@ -326,7 +343,7 @@ those models configures nothing:
 
 | Purpose | Model.field |
 |---|---|
-| Account → employee | `Employee.userId` |
+| Account → employee (the initiator's) | `Employee.userId` |
 | Name, department, position | `Employee.fullName`, `departmentId`, `jobPositionId` |
 | Supervisor (an employee id) | `Employee.piEmployeeId` |
 | Department leader, HRBP (employee ids), parent | `Department.picEmpId`, `hrbpEmpId`, `parentId` |
@@ -354,15 +371,20 @@ Once the actor is validated as the node's approver, the approval's form edits an
 run with the actor's own row scope set aside. Approving is the grant: an approver rarely holds update on
 the record they approve, and with row scope granted per action (permission-starter) that would refuse
 the approval itself. Host endpoints that apply an approval outside the engine do the same, after an
-entry check that the approver can see the request (`@RequirePermission`). A record's own write rules
-(`ModelWriteValidator`) therefore see these writes as the system's: a rule that freezes a record while it is
-in approval — no person edits it — still lets through the fields a node marks editable.
+entry check that the approver can see the request (`@RequirePermission`). A record's write rules
+(`ModelWriteValidator`) therefore see these writes as the system's: the approval lock
+(`ApprovalLockValidator`, see *Approving Business Records*), which freezes a record while it is in
+approval, still lets through the fields a node marks editable.
 
 Set aside means **every** permission check, not only row scope — sensitive-field write checks included.
 The node's form configuration (its field permissions, `formPermissions`) is the only authorization for the
 fields the approver edits. Only the fields it marks `EDITABLE` or `REQUIRED` are written back; any other key
 in the approve request's `formData` — a `HIDDEN` or `READONLY` field, or one the node does not list — is
-dropped, and a node with no `formPermissions` writes nothing. An approver whose roles hold no sensitive
+dropped, and a node with no `formPermissions` writes nothing. A `REQUIRED` field must hold a value once the
+edits land — the one sent, or else the one the record stores — so an approve that sends nothing is still
+refused when the record lacks it. After the write, a record's approval works its handler's `submission` out
+again from the edited record and its variables replace the ones the flow started with: a later route sees what
+the approver changed. An approver whose roles hold no sensitive
 field set covering a field can therefore still write it if the node's form exposes it as editable. Flow
 designers must not make a sensitive field (pay, bank details, identity numbers, …) editable on an approval
 form unless every approver that node can resolve to is meant to edit it; show it read-only, or leave it
@@ -452,13 +474,39 @@ Current module notes:
 ## Approving Business Records
 
 A business record — a leave request, an expense claim — is approved by an Approval flow whose trigger is a
-`SubmitTrigger(modelName, conditionExpression)`. The host implements one `ModelApprovalHandler` per model
-(`runtime/spi`, a Spring bean) and calls `FlowClient` from its own submit and withdraw endpoints:
+`SubmitTrigger(modelName, conditionExpression)`. Its model extends `ApprovalModel` (`entity`, in place of
+`AuditableModel`), its controller extends `ApprovalModelController` (in place of `EntityController`), and the
+host implements one `ModelApprovalHandler<T>` per model (`runtime/spi`, a Spring bean).
+`ApprovalModelController` gives every such model the same two endpoints, granted per model like any other:
+`POST /{Model}/submit?id=` and `POST /{Model}/withdraw?id=` (body `{comment}`, optional), through
+`FlowClient`. What a submission would do is answered for every model by `GET /flow/instances/preview`.
+
+Every record has a **subject**: the employee it is about, whom the organization-relative approver sources
+start from (*Approver Resolution*). It is the model's `employeeId` unless the handler's `subject()` names
+another field (`Transfer::getTransfereeId`); either way a many-to-one onto the employee model
+(`softa.flow.org.employee-model`), which the boot checks. A record whose subject is empty is not submitted.
+The submission carries it to the flow as the start variable `_subjectId`.
+
+The framework keeps the approval state, the same for every model; the handler holds what only the business
+knows:
+
+| Framework | Handler |
+|---|---|
+| The approval fields — `approvalStatus` (`ApprovalStatus`), `submitterId`, `submittedTime` — and every write of them | `validate(record)`: the checks a submission must pass — who may submit the record, what it must hold |
+| Which states a record may be submitted from; one approval of a record at a time | `submission(record)`: the instance title and the routing variables, worked out from the record alone |
+| Freezing the record while it is in approval and once it is approved (`ApprovalLockValidator`) | `afterSubmitted(record)`: what a submission sets off, such as reserving a leave balance |
+| Writing each result back, once | `afterOutcome(record, outcome)`: the follow-up actions of a result, such as deducting the balance |
+
+`approvalStatus` starts as `Draft`, becomes `Pending` on submission and then takes the result: `Approved`,
+`Rejected`, `Returned`, `Withdrawn` or `Cancelled`. `Pending` and `Approved` freeze the record; from any other
+value its submitter edits it and submits it again, which starts a new approval. What happens to a record after
+its approval — paid, in effect, voided — is not an approval status and goes in the model's own status field.
+The boot fails when a handler's model lacks the three fields in its metadata.
 
 | `FlowClient` | What happens |
 |---|---|
-| `submitRecord(modelName, rowId)` | `handler.prepare(rowId)` checks the record with the submitter's own permissions and returns the instance title and routing variables; the flow is chosen among the tenant's active flows whose submit trigger names the model and whose condition holds for the record — exactly one must match, else the submission is refused naming why; `handler.onSubmitted(rowId)` moves the record to "in approval"; the record's approval starts. All in the caller's transaction. Every submission starts a new approval from the beginning — after a return too, with the flow chosen again for the record as it is now |
-| `withdrawRecord(modelName, rowId, comment)` | Withdraws the waiting approval (the engine checks the actor is the initiator and the flow allows it). When the record's approval **failed**, its submitter takes the record back the same way — the handler is told it was withdrawn; the failed instance stays for flow monitoring. Refused when the record has no approval in progress |
+| `submitRecord(modelName, rowId)` | The submitter must read the record with their own permissions; a `Pending` or `Approved` record, or one with an approval in progress, is refused. `handler.validate` then checks the whole record as the submitter, and `handler.submission` returns the instance title and routing variables. The flow is chosen among the tenant's active flows whose submit trigger names the model and whose condition holds for the record — exactly one must match, else the submission is refused naming why. The record becomes `Pending`, with its submitter and the time, `handler.afterSubmitted` runs, and the record's approval starts. All in the caller's transaction. Every submission starts a new approval from the beginning — after a return too, with the flow chosen again for the record as it is now |
+| `withdrawRecord(modelName, rowId, comment)` | Withdraws the waiting approval (the engine checks the actor is the initiator and the flow allows it). When the record's approval **failed**, its submitter takes the record back the same way — it is written back as `Withdrawn`; the failed instance stays for flow monitoring. Refused when the record has no approval in progress |
 | `recordApprovals(modelName, rowId)` | The approval history, as `GET /flow/instances/by-record` |
 | `previewRecord(modelName, rowId)` | The approval a submission would start, as `GET /flow/instances/preview` — see below. Call it outside a transaction |
 
@@ -469,14 +517,16 @@ at most one approval in progress — `FlowInstance.openRecordId` holds the recor
 unfinished, under a unique index with the model, so a second submission is refused even when two arrive at
 once.
 
-Results reach the record through one listener, `ApprovalOutcomeListener`: when a record's approval completes,
-is rejected, returned, withdrawn or cancelled, it calls `handler.onOutcome(rowId, outcome)` with the type, the
-deciding user and their comment (none for an automatic approval) — in the action's transaction, with
-permission checks skipped, so a handler that throws vetoes the action. Failed instances write nothing; the
-submitter takes the record back by withdrawing it. A finished instance is saved again on a comment or a CC
-read; such saves are not handed on, but handlers must still be idempotent (change the record only while it is
-in approval). `onSubmitted` runs before the instance starts because a flow with no approval step completes
-while it starts. A step whose approver resolves to nobody fails at runtime under its empty-approver strategy
+Results reach the record through one listener, `ApprovalOutcomeListener`, and one writer,
+`ApprovalStatusWriter`: when a record's approval completes, is rejected, returned, withdrawn or
+cancelled, the writer sets `approvalStatus` to the result and calls `handler.afterOutcome(record, outcome)` with
+the type, the deciding user and their comment (none for an automatic approval) — in the action's transaction,
+with permission checks skipped, so a handler that throws vetoes the action. A result lands only on a record
+still `Pending`: a finished instance saved again (on a comment or a CC read) changes nothing, and
+`afterOutcome` runs once per result. Keep it to writes in this database that belong with the result; anything
+that leaves it — a payment, an external system — goes after the commit. Failed instances write nothing; the
+submitter takes the record back by withdrawing it. The record becomes `Pending` before the instance starts
+because a flow with no approval step completes while it starts. A step whose approver resolves to nobody fails at runtime under its empty-approver strategy
 (`Error` by default); the record's approval preview shows where before anyone submits.
 
 On a submit flow the submitter's own step approves itself: when a step's approvers include the submitter,
@@ -485,15 +535,32 @@ approval history — and the step's approval mode decides the rest: an any-one s
 still waits for the others. An empty step whose strategy is `AutoApprove` is recorded the same way, with no
 actor ("Auto-approved (no approver)").
 
+### The approval lock
+
+`ApprovalLockValidator` (a `ModelWriteValidator`, order 10) holds at the write roots, where every write
+lane meets — the record's form, the generic endpoints, an import, a flow's write node:
+
+- a `Pending` or `Approved` record is neither changed nor deleted, and neither is anything it owns: the records
+  of a model whose to-one field straight onto it cascades its deletion (`onDelete = CASCADE`), like an expense
+  claim's lines — nor is a new one filed under it;
+- the approval fields are the framework's: a new record is a `Draft` with no submitter, and no write changes
+  them. Sending back the stored value is not a change.
+
+Writes made with permission checks off are exempt: the writer's own, the fields an approval step lets its
+approver edit (*Approver's writes*), the handler's follow-up actions. The lock only says when nobody may change
+a record; who may change it otherwise — its owner, in which of its other states — stays with the model's own
+validator. The approval fields are not `readonly` in metadata, which would drop the framework's own writes too;
+a form shows them read-only.
+
 ### Previewing a record's approval
 
 `GET /flow/instances/preview?modelName=&rowId=` (`FlowClient.previewRecord`) answers what submitting the record
 would do now, without submitting it — for a record page that shows the approval path before anyone presses
-Submit. It makes the submission's own checks and choice of flow: `handler.prepare(rowId)` with the requester's
-own permissions, the check that no approval is in progress, the submit triggers. A refusal, no applicable flow
-or several are reported in `status` (`Refused`, `NoFlow`, `SeveralFlows`, with the flows that apply in
-`candidates`) and `message` — the message the submission would be refused with — rather than raised.
-`onSubmitted` is never called.
+Submit. It makes the submission's own checks and choice of flow: the record's approval status and its
+approvals, `handler.validate` and `handler.submission` with the requester's own permissions, the submit
+triggers. A refusal, no applicable flow or several are reported in `status` (`Refused`, `NoFlow`,
+`SeveralFlows`, with the flows that apply in `candidates`) and `message` — the message the submission would be
+refused with — rather than raised. `afterSubmitted` is never called.
 
 When one flow applies (`Ready`), `ApprovalPathPreviewer` walks it from its start node the way the engine runs it,
 every approval step assumed approved: routes are decided by `FlowGatewayRouter` over the variables the
@@ -665,7 +732,7 @@ Before enabling `flow-starter` in a real app, verify:
 - create and expose `FlowDesign` drafts through the generic model APIs
 - provide your own `ApprovalNotificationService` if you need email, SMS or IM beyond the default inbox messages
 - check the organization follows the default HR conventions, or override `softa.flow.org.*`, or provide your own `OrganizationService`
-- for business records: implement a `ModelApprovalHandler` per model, submit and withdraw through `FlowClient`, and ship each default flow as a tenant seed file
+- for business records: extend `ApprovalModel` (with an `employeeId`, or a `subject()` naming the employee field) and `ApprovalModelController`, implement a `ModelApprovalHandler<T>` per model, and ship each default flow as a tenant seed file
 - enable Pulsar topics if using triggers or async tasks
 - provide timer scheduling/publishing if using `TIMER` nodes
 - enable `CALL_SERVICE` explicitly (plus its bean-name allow-list) if flows need to invoke Spring beans; all other task node types ship working executors, conditionally registered on their capability beans

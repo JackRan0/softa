@@ -78,7 +78,8 @@ Fields published to MQ:
 
 ## Scheduling Flow
 1. One node becomes leader by holding Redis key `cron:scheduler:leader`.
-2. The leader loads all `SysCron` records from metadata storage.
+2. The leader loads all `SysCron` records from metadata storage, and the jobs of every `CronJobProvider`; while it leads,
+   it reads both again every 30 seconds.
 3. Each job is converted into a Quartz schedule and registered in the local scheduler pool.
 4. When a trigger fires, the scheduler publishes one or more `CronTaskMessage` messages.
 5. Consumers restore `message.context` and execute the real business logic.
@@ -87,17 +88,30 @@ Implementation notes:
 - Only one scheduler runs across the cluster at a time.
 - Lease duration is 60s, renewal interval is 30s.
 - Losing the lease cancels the node's scheduled jobs but keeps its scheduler, so a node that wins the lease back loads the
-  `SysCron` records again and schedules them anew.
+  `SysCron` records again and schedules them anew. A node that cannot read the records when it wins the lease gives it back.
+- While it leads, the leader reads the `SysCron` records again every 30 seconds (`REFRESH_SECONDS`, the same read that
+  refreshes the [provided jobs](#provided-jobs)). A row created, changed, switched on or off, or deleted — on an admin
+  page, by a seed load or in plain SQL, through whichever instance — therefore reaches the schedule within 30 seconds, with
+  no new election; until then it runs as it was.
+  - A row whose `name`, `cronExpression`, `limitExecution`, `remainingCount` or `tenantJobMode` changed is registered
+    again, as a new row would be: a limited one counts from its `remainingCount` again.
+  - A row deleted or switched off is cancelled; a run of it that is already firing does not schedule another.
+  - A row left as it was, or changed only in other fields (`description`, `priority`, ...), keeps its next run and, when
+    limited, the executions it has left.
+  - Records that cannot be read leave the rows on the schedule as they are until the next read.
 - A Redis error during an election round makes the leader step down rather than risk two schedulers; until its lease
   expires (60s at most) no node schedules, and every node keeps competing for the lease.
 - The scheduler uses `ZoneId.systemDefault()`.
 - Each run computes the next execution after the one it just ran, not after "now": a run that wakes a little before its
   time — its delay is cut to whole milliseconds, and the wall clock may drift from the executor's — would otherwise get
   that same execution again and fire twice.
+- A run whose trigger cannot be sent — the active tenants of a `PerTenant` row cannot be read, say — is logged, and still
+  schedules the next run.
 - A cron with `limitExecution=false` is scheduled repeatedly.
-- A cron with `limitExecution=true` is scheduled with an in-memory counter only. `remainingCount` is not persisted by the scheduler.
-- On startup, the current implementation registers jobs where `active` is NOT `true` (`null` / `false`). If your expectation is
-  "active means enabled", align data or adjust the condition in code.
+- A cron with `limitExecution=true` counts its executions with an in-memory counter, from `remainingCount`, and stops once
+  none is left; a run whose trigger cannot be sent does not count. `remainingCount` is not persisted by the scheduler, so a
+  node that takes over the schedule counts from it again.
+- Rows with `active = false` are not scheduled; any other value, `null` included, counts as active.
 
 ## Provided Jobs
 A module whose schedules live with its own data implements `CronJobProvider` (a Spring bean) instead of writing
@@ -110,14 +124,12 @@ A `CronJob` is a value — `name`, the `cronName` of its messages; `cronExpressi
 - `CronJob.perTenant(name, cronExpression)`: one message per active tenant, as a `PerTenant` row;
 - `CronJob.of(name, cronExpression)`: one message with no tenant, for a deployment without tenants.
 
-The leader reads every provider when it starts scheduling and again every 30 seconds (`PROVIDED_JOBS_REFRESH_SECONDS`).
+The leader reads every provider when it starts scheduling and again every 30 seconds, along with the `SysCron` rows.
 A job a provider adds is scheduled, one it no longer returns is cancelled — a run of it that is already firing does not
 schedule another — and one it keeps returning keeps its next run; a job whose expression or tenant changed is another
 job. A provider that throws leaves the schedule as it is until the next read, and a job whose expression cannot be
 parsed is logged and skipped. A provided job's messages carry no `cronId`; consumers recognize them by `cronName`, as
 they do the rows' messages.
-
-`SysCron` rows, unlike provided jobs, are read only when a node takes over the schedule.
 
 ## Tenant Modes
 ### Non-multi-tenant mode
@@ -220,7 +232,8 @@ Create a `SysCron` record through your admin UI or metadata console. Set `tenant
 multi-tenant fan-out or cross-tenant execution.
 
 2. Predefined data
-Seed `SysCron` records during system initialization or migrations, then activate them when the service starts.
+Seed `SysCron` records during system initialization or migrations. The leader picks them up within 30 seconds of the
+load, as it does a row saved in the UI.
 
 3. SQL insert
 Insert into the `SysCron` table directly (fields may vary by schema).

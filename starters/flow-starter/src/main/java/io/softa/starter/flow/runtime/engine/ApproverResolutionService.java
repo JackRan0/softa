@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.orm.compute.ComputeUtils;
+import io.softa.starter.flow.enums.ApproverDeptScope;
+import io.softa.starter.flow.enums.ApproverRelativeTo;
 import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
@@ -23,7 +25,11 @@ public class ApproverResolutionService {
     public static final String INITIATOR_ID_KEY = "initiatorId";
     public static final String INITIATOR_MANAGER_ID_KEY = "initiatorManagerId";
     public static final String ROLE_APPROVERS_KEY = "roleApprovers";
-    public static final String INITIATOR_DEPT_ID_KEY = "initiatorDeptId";
+    /**
+     * The start variable a record's approval carries its subject in — the id of the employee the record
+     * is about, from its handler's {@code subject()} field. Org-relative sources start from it.
+     */
+    public static final String SUBJECT_ID_KEY = "_subjectId";
 
     @Autowired(required = false)
     private OrganizationService organizationService;
@@ -122,12 +128,10 @@ public class ApproverResolutionService {
         if (organizationService == null) {
             return null;
         }
-        Long initiatorId = resolveInitiatorIdAsLong(variables);
-        if (initiatorId == null) {
-            return null;
-        }
+        ApproverRelativeTo relativeTo = ApproverRelativeTo.of(source.get("relativeTo"), ApproverRelativeTo.SUBJECT);
+        Long employeeId = relativeTo == ApproverRelativeTo.SUBJECT ? subjectEmployee(variables) : initiatorEmployee(variables);
         int level = parseIntOrDefault(source.get("level"), 1);
-        ApproverInfo supervisor = organizationService.getSupervisor(initiatorId, level);
+        ApproverInfo supervisor = organizationService.getSupervisorOfEmployee(employeeId, level);
         return supervisor == null ? null : supervisor.getUserIdAsString();
     }
 
@@ -135,30 +139,22 @@ public class ApproverResolutionService {
         if (organizationService == null) {
             return null;
         }
-        Long deptId = parseLong(source.get("deptId"));
-        if (deptId == null) {
-            deptId = resolveInitiatorDeptId(variables);
-        }
-        if (deptId == null) {
-            return null;
-        }
-        ApproverInfo leader = organizationService.getDeptLeader(deptId);
-        return leader == null ? null : leader.getUserIdAsString();
+        return departments(variables, source, ApproverDeptScope.SUBJECT_DEPT).stream()
+                .map(organizationService::getDeptLeader)
+                .filter(Objects::nonNull)
+                .map(ApproverInfo::getUserIdAsString)
+                .toList();
     }
 
     private Object resolveDeptHrbp(Map<String, Object> variables, Map<String, Object> source) {
         if (organizationService == null) {
             return null;
         }
-        Long deptId = parseLong(source.get("deptId"));
-        if (deptId == null) {
-            deptId = resolveInitiatorDeptId(variables);
-        }
-        if (deptId == null) {
-            return null;
-        }
-        ApproverInfo hrbp = organizationService.getDeptHrbp(deptId);
-        return hrbp == null ? null : hrbp.getUserIdAsString();
+        return departments(variables, source, ApproverDeptScope.SUBJECT_DEPT).stream()
+                .map(organizationService::getDeptHrbp)
+                .filter(Objects::nonNull)
+                .map(ApproverInfo::getUserIdAsString)
+                .toList();
     }
 
     private Object resolveRoleQuery(Map<String, Object> variables, Map<String, Object> source) {
@@ -180,21 +176,10 @@ public class ApproverResolutionService {
             organizationService.getUsersByRoleCodes(roleCodes).forEach(user -> holders.putIfAbsent(user.getUserId(), user));
         }
         List<ApproverInfo> users = List.copyOf(holders.values());
-        String deptScope = asString(source.get("deptScope"));
-        if ("INITIATOR_DEPT".equals(deptScope)) {
-            Long initiatorDeptId = resolveInitiatorDeptId(variables);
-            if (initiatorDeptId != null) {
-                users = users.stream()
-                        .filter(u -> initiatorDeptId.equals(u.getDeptId()))
-                        .toList();
-            }
-        } else if ("SPECIFIC_DEPT".equals(deptScope)) {
-            Long deptId = parseLong(source.get("deptId"));
-            if (deptId != null) {
-                users = users.stream()
-                        .filter(u -> deptId.equals(u.getDeptId()))
-                        .toList();
-            }
+        if (ApproverDeptScope.of(source.get("deptScope"), ApproverDeptScope.ALL) != ApproverDeptScope.ALL) {
+            // Narrowed to a department that cannot be told: nobody, never every holder.
+            List<Long> deptIds = departments(variables, source, ApproverDeptScope.ALL);
+            users = users.stream().filter(user -> deptIds.contains(user.getDeptId())).toList();
         }
         return users.stream().map(ApproverInfo::getUserIdAsString).toList();
     }
@@ -215,15 +200,8 @@ public class ApproverResolutionService {
         if (organizationService == null) {
             return null;
         }
-        String deptScope = asString(source.get("deptScope"));
-        List<Long> deptIds;
-        if ("INITIATOR_DEPT".equals(deptScope)) {
-            Long initiatorDeptId = resolveInitiatorDeptId(variables);
-            deptIds = initiatorDeptId == null ? List.of() : List.of(initiatorDeptId);
-        } else {
-            deptIds = parseLongList(source.get("deptIds"));
-        }
-        if (deptIds == null || deptIds.isEmpty()) {
+        List<Long> deptIds = departments(variables, source, ApproverDeptScope.SPECIFIC_DEPT);
+        if (deptIds.isEmpty()) {
             return null;
         }
         boolean includeSubDepts = Boolean.TRUE.equals(source.get("includeSubDepts"));
@@ -233,26 +211,47 @@ public class ApproverResolutionService {
 
     // ── Org-context helpers ───────────────────────────────────────────────
 
-    private Long resolveInitiatorIdAsLong(Map<String, Object> variables) {
-        Object val = lookupValue(variables, INITIATOR_ID_KEY);
-        return parseLong(val);
+    /**
+     * The departments a department-based source works on, by its {@code deptScope} — {@code fallback}
+     * when it names none. Empty when they cannot be told: no subject or initiator department, nothing
+     * named, an empty variable.
+     */
+    private List<Long> departments(Map<String, Object> variables, Map<String, Object> source,
+                                   ApproverDeptScope fallback) {
+        List<Long> deptIds = switch (ApproverDeptScope.of(source.get("deptScope"), fallback)) {
+            case ALL -> List.of();
+            case SUBJECT_DEPT -> listOf(organizationService.getDeptIdOfEmployee(subjectEmployee(variables)));
+            case INITIATOR_DEPT -> listOf(organizationService.getDeptIdOfEmployee(initiatorEmployee(variables)));
+            case SPECIFIC_DEPT -> {
+                List<Long> named = parseLongList(source.get("deptIds"));
+                yield named != null ? named : listOf(parseLong(source.get("deptId")));
+            }
+            case VARIABLE_DEPT -> {
+                Object value = lookupValue(variables, asString(source.get("deptVariable")));
+                List<Long> held = parseLongList(value);
+                yield held != null ? held : listOf(parseLong(value));
+            }
+        };
+        return deptIds.stream().filter(Objects::nonNull).distinct().toList();
     }
 
-    private Long resolveInitiatorDeptId(Map<String, Object> variables) {
-        Object val = lookupValue(variables, INITIATOR_DEPT_ID_KEY);
-        if (val != null) {
-            Long deptId = parseLong(val);
-            if (deptId != null) {
-                return deptId;
-            }
-        }
-        if (organizationService != null) {
-            Long initiatorId = resolveInitiatorIdAsLong(variables);
-            if (initiatorId != null) {
-                return organizationService.getUserDeptId(initiatorId);
-            }
-        }
-        return null;
+    /**
+     * The record's subject, the employee it is about ({@value #SUBJECT_ID_KEY}). An instance without a
+     * record — a debug run — has none, and starts from its initiator instead.
+     */
+    private Long subjectEmployee(Map<String, Object> variables) {
+        Long subjectId = parseLong(lookupValue(variables, SUBJECT_ID_KEY));
+        return subjectId != null ? subjectId : initiatorEmployee(variables);
+    }
+
+    /** The employee of the initiator's login account. */
+    private Long initiatorEmployee(Map<String, Object> variables) {
+        Long initiatorId = parseLong(lookupValue(variables, INITIATOR_ID_KEY));
+        return initiatorId == null ? null : organizationService.getEmployeeIdOfUser(initiatorId);
+    }
+
+    private static List<Long> listOf(Long id) {
+        return id == null ? List.of() : List.of(id);
     }
 
     private Long parseLong(Object val) {

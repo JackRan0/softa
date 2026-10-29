@@ -160,17 +160,19 @@ public class FlowInstanceController {
     @GetMapping("/{instanceId}/record")
     @Operation(summary = "Get the record an instance approves",
             description = "The business record a record's approval runs on, for its initiator and the people it "
-                    + "gives a task to: read past their own row permissions. Any other instance is refused. While "
-                    + "steps wait, the fields those steps "
-                    + "list in their field permissions (Readonly, Editable or Required); a step listing none "
-                    + "shows every field. Relations and options come as references, and masked fields are masked "
-                    + "as on every model read.")
+                    + "gives a task to: read past their own row permissions. Any other instance is refused. Every "
+                    + "field, dynamic ones included, but the sensitive ones the caller may see on no row; the field "
+                    + "permissions of the waiting steps the caller approves are laid over that — what they list as "
+                    + "Readonly, Editable or Required is shown, what they mark Hidden is not. Callers with no "
+                    + "waiting step besides the initiator also miss what any approval step hides. Relations and "
+                    + "options come as references, and masked fields are masked as on every model read.")
     @DataMask
     public ApiResponse<Map<String, Object>> getInstanceRecord(@PathVariable String instanceId) {
         return runtimeEngine.getInstance(instanceId)
                 .map(state -> {
-                    accessGuard.requireRecordGrantee(state, currentUserId());
-                    return instanceService.recordOf(state)
+                    String viewerId = currentUserId();
+                    accessGuard.requireRecordGrantee(state, viewerId);
+                    return instanceService.recordOf(state, viewerId)
                             .map(ApiResponse::success)
                             .orElseGet(() -> ApiResponse.error(ResponseCode.REQUEST_NOT_FOUND,
                                     "The record of flow instance " + instanceId + " does not exist"));

@@ -154,9 +154,9 @@ loaded (`LOADED_BY_NEWER_BUILD`). An environment's first load initializes it bef
 The files load **in one transaction**: either all of them load or none does. A failure names the file and
 the cause, and is recorded against the file. Afterwards the permission snapshots (`perm:*`) and
 entitlements (`entl:*`) cached in Redis are cleared. **No restart follows.** What the instances build in memory
-from seed rows at startup is built only from the files the build owns, which this load never touches. One thing
-still reads seed rows once: the cron leader reads the `SysCron` rows when it takes over, so a changed `SysCron`
-file takes effect at the leader's next start.
+from seed rows at startup is built only from the files the build owns, which this load never touches. The cron
+leader reads the `SysCron` rows again every 30 seconds, so a changed `SysCron` file reaches the schedule within
+that time.
 
 Loading is meant for one person, once per deploy. There is no lock beyond refusing to start while another
 seed operation is running.

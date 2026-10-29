@@ -3,12 +3,15 @@ package io.softa.starter.flow.runtime.descriptor;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import org.springframework.stereotype.Component;
 
 import io.softa.starter.flow.design.FlowNodeDescriptor;
 import io.softa.starter.flow.design.FlowNodeDescriptor.Ports;
 import io.softa.starter.flow.design.FlowNodeDescriptorProvider;
+import io.softa.starter.flow.enums.ApproverDeptScope;
+import io.softa.starter.flow.enums.ApproverRelativeTo;
 import io.softa.starter.flow.enums.FlowNodeType;
 
 /**
@@ -24,6 +27,19 @@ import io.softa.starter.flow.enums.FlowNodeType;
  */
 @Component
 public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider {
+
+    /** What the designer shows for each {@link ApproverRelativeTo}. */
+    private static final Map<String, String> RELATIVE_TO_LABELS = Map.of(
+            "SUBJECT", "The employee the record is about",
+            "INITIATOR", "The submitter");
+
+    /** What the designer shows for each {@link ApproverDeptScope}. */
+    private static final Map<String, String> DEPT_SCOPE_LABELS = Map.of(
+            "ALL", "Any department",
+            "SUBJECT_DEPT", "Department of the employee the record is about",
+            "INITIATOR_DEPT", "Submitter's department",
+            "SPECIFIC_DEPT", "A specific department",
+            "VARIABLE_DEPT", "Department held by a variable");
 
     @Override
     public List<FlowNodeDescriptor> getDescriptors() {
@@ -93,33 +109,34 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
                         ordered("type", "InitiatorManager", "label", "Initiator's manager (variable)"),
                         ordered("type", "Role", "label", "Role (variable)",
                                 "fields", ordered("roleCode", ordered("type", "string", "label", "Role code", "required", true))),
+                        // Org-relative sources start from the record's subject — the employee it is about — unless
+                        // they say the initiator, so a request filed on someone's behalf goes to their approvers.
                         ordered("type", "Supervisor", "label", "Supervisor",
-                                "fields", ordered("level", ordered("type", "number", "label", "Level", "default", 1, "min", 1))),
-                        ordered("type", "DeptLeader", "label", "Department leader",
-                                "fields", ordered("deptId", ordered("type", "deptPicker", "label", "Department (blank = initiator's)"))),
-                        ordered("type", "DeptHrbp", "label", "Department HRBP",
-                                "fields", ordered("deptId", ordered("type", "deptPicker", "label", "Department (blank = initiator's)"))),
-                        ordered("type", "RoleQuery", "label", "Role query",
                                 "fields", ordered(
+                                        "relativeTo", ordered("type", "enum", "label", "Supervisor of",
+                                                "options", enumNames(ApproverRelativeTo.values()), "default", "SUBJECT",
+                                                "optionLabels", RELATIVE_TO_LABELS),
+                                        "level", ordered("type", "number", "label", "Level", "default", 1, "min", 1))),
+                        ordered("type", "DeptLeader", "label", "Department leader",
+                                "fields", deptScopeFields(false, "SUBJECT_DEPT")),
+                        ordered("type", "DeptHrbp", "label", "Department HRBP",
+                                "fields", deptScopeFields(false, "SUBJECT_DEPT")),
+                        ordered("type", "RoleQuery", "label", "Role query",
+                                "fields", concat(ordered(
                                         // Either list, or both. Ids reach every role, the tenant's own included; codes reach
                                         // the built-in roles (admin-created ones have none) and are the same in every tenant,
                                         // so a flow seeded to many tenants names roles by code.
                                         "roleIds", ordered("type", "rolePicker", "label", "Roles", "multiple", true),
                                         "roleCodes", ordered("type", "rolePicker", "label", "Built-in roles", "multiple", true,
-                                                "valueField", "code"),
-                                        "deptScope", ordered("type", "enum", "label", "Department scope",
-                                                "options", List.of("ALL", "INITIATOR_DEPT", "SPECIFIC_DEPT"), "default", "ALL"),
-                                        "deptId", ordered("type", "deptPicker", "label", "Department",
-                                                "depends", Map.of("deptScope", "SPECIFIC_DEPT")))),
+                                                "valueField", "code")),
+                                        deptScopeFields(false, "ALL"))),
                         ordered("type", "Position", "label", "Position",
                                 "fields", ordered("positionIds", ordered("type", "positionPicker", "label", "Positions",
                                         "multiple", true, "required", true))),
                         ordered("type", "Department", "label", "Department members",
-                                "fields", ordered(
-                                        "deptIds", ordered("type", "deptPicker", "label", "Departments", "multiple", true),
-                                        "deptScope", ordered("type", "enum", "label", "Department scope",
-                                                "options", List.of("SPECIFIC", "INITIATOR_DEPT"), "default", "SPECIFIC"),
-                                        "includeSubDepts", ordered("type", "boolean", "label", "Include sub-departments", "default", false)))
+                                "fields", concat(deptScopeFields(true, "SPECIFIC_DEPT"),
+                                        ordered("includeSubDepts", ordered("type", "boolean", "label", "Include sub-departments",
+                                                "default", false))))
                 )));
         schema.put("emptyApproverStrategy", ordered("type", "enum", "label", "Empty-approver strategy",
                 "options", List.of("ERROR", "AUTO_APPROVE", "SKIP"), "default", "ERROR"));
@@ -139,6 +156,37 @@ public class BuiltinNodeDescriptorProvider implements FlowNodeDescriptorProvider
         // ── Form field permissions ────────────────────────────────────────────
         schema.put("formPermissions", ordered("type", "fieldPermissionMap", "label", "Field permissions"));
         return schema;
+    }
+
+    /**
+     * The department a department-based source works on: {@code deptScope} — {@code ALL} offered only
+     * when {@code defaultScope} is it (a role query) — with the department it names when specific (one,
+     * or several for {@code multipleDepts}) and the variable that holds it otherwise.
+     */
+    private static Map<String, Object> deptScopeFields(boolean multipleDepts, String defaultScope) {
+        List<String> scopes = Stream.of(ApproverDeptScope.values())
+                .filter(scope -> scope != ApproverDeptScope.ALL || "ALL".equals(defaultScope))
+                .map(Enum::name)
+                .toList();
+        return ordered(
+                "deptScope", ordered("type", "enum", "label", "Department", "options", scopes, "default", defaultScope,
+                        "optionLabels", DEPT_SCOPE_LABELS),
+                multipleDepts ? "deptIds" : "deptId", ordered("type", "deptPicker", "label", multipleDepts ? "Departments" : "Department",
+                        "multiple", multipleDepts, "depends", Map.of("deptScope", "SPECIFIC_DEPT")),
+                "deptVariable", ordered("type", "variableRef", "label", "Variable holding the department id",
+                        "depends", Map.of("deptScope", "VARIABLE_DEPT")));
+    }
+
+
+    /** {@code fields}, then {@code more}, in that order. */
+    private static Map<String, Object> concat(Map<String, Object> fields, Map<String, Object> more) {
+        Map<String, Object> merged = new LinkedHashMap<>(fields);
+        merged.putAll(more);
+        return merged;
+    }
+
+    private static List<String> enumNames(Enum<?>[] values) {
+        return Stream.of(values).map(Enum::name).toList();
     }
 
     private static Map<String, Object> scriptConfigSchema() {

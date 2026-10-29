@@ -75,13 +75,23 @@ public class FormPermissionService {
         return getFieldPermissions(node).get(fieldName) == FormFieldPermission.REQUIRED;
     }
 
+    /** The fields a node marks REQUIRED. */
+    public static List<String> requiredFields(CompiledFlowNode node) {
+        return getFieldPermissions(node).entrySet().stream()
+                .filter(entry -> entry.getValue() == FormFieldPermission.REQUIRED)
+                .map(Map.Entry::getKey)
+                .sorted()
+                .toList();
+    }
+
     /** Check if a field is hidden. */
     public static boolean isFieldHidden(CompiledFlowNode node, String fieldName) {
         return getFieldPermissions(node).get(fieldName) == FormFieldPermission.HIDDEN;
     }
 
     /**
-     * Validate form data against node permissions.
+     * Validate the values a node's REQUIRED fields will hold against node permissions: pass the
+     * approver's edits over the values the row stores.
      *
      * @return list of validation error messages (empty if valid)
      */

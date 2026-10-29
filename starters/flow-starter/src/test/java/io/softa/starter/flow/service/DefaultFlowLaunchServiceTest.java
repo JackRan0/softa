@@ -59,7 +59,7 @@ class DefaultFlowLaunchServiceTest {
     // Record submission's and its preview's collaborators stay null: these tests cover publish-and-start only.
     private final FlowLaunchServiceImpl launchService =
             new FlowLaunchServiceImpl(publishService, runtimeEngine, bundleRegistry, new DefaultFlowCompiler(),
-                    null, null, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null);
 
     @Test
     void shouldPublishAndStartExactRevision() {

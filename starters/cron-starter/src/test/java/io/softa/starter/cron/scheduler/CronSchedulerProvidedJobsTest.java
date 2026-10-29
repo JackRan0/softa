@@ -119,7 +119,7 @@ class CronSchedulerProvidedJobsTest {
         ScheduledRun runOfB = scheduledRuns.get(1);
 
         providedJobs = List.of(FLOW_B, FLOW_C);
-        cronScheduler.refreshProvidedJobs();
+        cronScheduler.refresh();
 
         assertTrue(runOfA.future().isCancelled());
         assertFalse(runOfB.future().isCancelled());
@@ -137,7 +137,7 @@ class CronSchedulerProvidedJobsTest {
         CronJob rescheduled = CronJob.ofTenant(FLOW_A.name(), "0 30 2 1 1 ?", FLOW_A.tenantId());
 
         providedJobs = List.of(rescheduled);
-        cronScheduler.refreshProvidedJobs();
+        cronScheduler.refresh();
 
         assertTrue(scheduledRuns.get(0).future().isCancelled());
         assertEquals(2, scheduledRuns.size());
@@ -155,7 +155,7 @@ class CronSchedulerProvidedJobsTest {
         when(tenantInfoService.isTenantActive(7L)).thenReturn(true);
 
         providedJobs = List.of();
-        cronScheduler.refreshProvidedJobs();
+        cronScheduler.refresh();
         firingRun.run();
 
         verify(cronTaskProducer).sendCronTask(any());
@@ -186,9 +186,9 @@ class CronSchedulerProvidedJobsTest {
         cronScheduler.start();
 
         providedJobs = null;
-        cronScheduler.refreshProvidedJobs();
+        cronScheduler.refresh();
         providedJobs = List.of(FLOW_A);
-        cronScheduler.refreshProvidedJobs();
+        cronScheduler.refresh();
 
         assertFalse(scheduledRuns.getFirst().future().isCancelled());
         assertEquals(1, scheduledRuns.size());
@@ -205,7 +205,7 @@ class CronSchedulerProvidedJobsTest {
         assertTrue(scheduledRuns.isEmpty());
 
         providedJobs = List.of(FLOW_A);
-        cronScheduler.refreshProvidedJobs();
+        cronScheduler.refresh();
 
         assertEquals(1, scheduledRuns.size());
     }
@@ -219,7 +219,7 @@ class CronSchedulerProvidedJobsTest {
         cronScheduler.start();
 
         cronScheduler.stop();
-        cronScheduler.refreshProvidedJobs();
+        cronScheduler.refresh();
 
         assertTrue(scheduledRuns.getFirst().future().isCancelled());
         assertEquals(1, scheduledRuns.size());
@@ -235,7 +235,7 @@ class CronSchedulerProvidedJobsTest {
         providedJobs = List.of(broken, FLOW_A);
 
         cronScheduler.start();
-        cronScheduler.refreshProvidedJobs();
+        cronScheduler.refresh();
 
         assertEquals(1, scheduledRuns.size());
         assertDueAtNextExecutionOf(FLOW_A, scheduledRuns.getFirst());

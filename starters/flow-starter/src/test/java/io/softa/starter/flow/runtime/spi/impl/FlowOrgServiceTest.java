@@ -43,6 +43,8 @@ class FlowOrgServiceTest {
         employee(2L, 1002L, "Bob", 10L, 3L);
         employee(3L, null, "Carol", 1L, null);
         employee(4L, 1004L, "Dora", 1L, null);
+        // A new hire: no account yet, a supervisor already.
+        employee(5L, null, "Eve", 10L, 2L);
         department(1L, null, 4L, 4L);
         department(10L, 1L, 3L, null);
         row("Role", Map.of("id", 50L, "code", "HR_ADMIN"));
@@ -52,8 +54,16 @@ class FlowOrgServiceTest {
 
     @Test
     void theSupervisorChainEndsAtAnEmployeeWithoutAccount() {
-        assertEquals(1002L, org.getSupervisor(1001L, 1).getUserId());
-        assertNull(org.getSupervisor(1001L, 2));
+        assertEquals(1L, org.getEmployeeIdOfUser(1001L));
+        assertEquals(1002L, org.getSupervisorOfEmployee(1L, 1).getUserId());
+        assertNull(org.getSupervisorOfEmployee(1L, 2));
+    }
+
+    @Test
+    void anEmployeeWithoutAnAccountStillHasASupervisorAndADepartment() {
+        assertEquals(1002L, org.getSupervisorOfEmployee(5L, 1).getUserId());
+        assertEquals(10L, org.getDeptIdOfEmployee(5L));
+        assertNull(org.getEmployeeIdOfUser(1099L));
     }
 
     @Test
@@ -76,12 +86,13 @@ class FlowOrgServiceTest {
         List<ApproverInfo> members = org.getUsersByDeptIds(List.of(1L), true);
 
         assertEquals(Set.of(1001L, 1002L, 1004L), members.stream().map(ApproverInfo::getUserId).collect(java.util.stream.Collectors.toSet()));
-        assertEquals(10L, org.getUserDeptId(1001L));
+        assertEquals(10L, org.getDeptIdOfEmployee(1L));
     }
 
     @Test
     void everyReadSkipsTheCallersPermissionChecks() {
-        org.getSupervisor(1001L, 1);
+        org.getEmployeeIdOfUser(1001L);
+        org.getSupervisorOfEmployee(1L, 1);
         org.getUsersByRoleCodes(List.of("HR_ADMIN"));
 
         assertFalse(permissionChecksSkipped.isEmpty());

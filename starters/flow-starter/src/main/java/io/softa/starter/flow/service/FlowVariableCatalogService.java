@@ -10,6 +10,7 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.flow.api.CompileDiagnostic;
@@ -18,8 +19,10 @@ import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphEdge;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.design.trigger.EntityChangeTrigger;
+import io.softa.starter.flow.design.trigger.SubmitTrigger;
 import io.softa.starter.flow.dto.FlowVariableView;
 import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.runtime.engine.ApproverResolutionService;
 
 /**
  * Computes the variables visible to a node's expressions: trigger payload keys,
@@ -41,6 +44,9 @@ public class FlowVariableCatalogService {
     private static final List<String> BUILTIN_VARIABLES =
             List.of("_triggerType", "_sourceModel", "_sourceRowId");
 
+    /** Carried by a record's approval only: the employee the record is about. */
+    private static final String SUBJECT_VARIABLE = ApproverResolutionService.SUBJECT_ID_KEY;
+
     private static final String TYPE_STRING = "String";
     private static final String TYPE_OBJECT = "Object";
     private static final String TYPE_LIST = "List";
@@ -58,6 +64,11 @@ public class FlowVariableCatalogService {
             byName.putIfAbsent(builtin, new FlowVariableView(
                     builtin, FlowVariableView.Source.BUILTIN, null, "Trigger metadata",
                     TYPE_STRING, null));
+        }
+        if (definition != null && definition.getTrigger() instanceof SubmitTrigger) {
+            byName.putIfAbsent(SUBJECT_VARIABLE, new FlowVariableView(
+                    SUBJECT_VARIABLE, FlowVariableView.Source.BUILTIN, null, "The employee the record is about",
+                    FieldType.LONG.getType(), null));
         }
         if (definition != null && definition.getGraph() != null && nodeId != null) {
             collectUpstreamOutputs(definition, nodeId, byName);

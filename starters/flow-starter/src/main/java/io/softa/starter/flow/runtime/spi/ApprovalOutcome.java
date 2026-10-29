@@ -3,7 +3,7 @@ package io.softa.starter.flow.runtime.spi;
 import io.softa.starter.flow.enums.ApprovalOutcomeType;
 
 /**
- * The result of a record's approval, handed to {@link ModelApprovalHandler#onOutcome}.
+ * The result of a record's approval, handed to {@link ModelApprovalHandler#afterOutcome}.
  *
  * @param type       how the approval ended
  * @param instanceId the approval instance

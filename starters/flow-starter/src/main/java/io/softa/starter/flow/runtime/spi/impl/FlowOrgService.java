@@ -110,11 +110,20 @@ public class FlowOrgService implements OrganizationService {
     }
 
     @Override
-    public ApproverInfo getSupervisor(Long userId, int level) {
-        if (userId == null || level < 1) {
+    public Long getEmployeeIdOfUser(Long userId) {
+        if (userId == null) {
             return null;
         }
         Map<String, Object> employee = employeeOfAccount(userId);
+        return employee == null ? null : toLong(employee.get(ModelConstant.ID));
+    }
+
+    @Override
+    public ApproverInfo getSupervisorOfEmployee(Long employeeId, int level) {
+        if (employeeId == null || level < 1) {
+            return null;
+        }
+        Map<String, Object> employee = employeeById(employeeId);
         for (int i = 0; i < level && employee != null; i++) {
             Long supervisorId = toLong(employee.get(props.getSupervisorIdField()));
             employee = supervisorId == null ? null : employeeById(supervisorId);
@@ -133,11 +142,11 @@ public class FlowOrgService implements OrganizationService {
     }
 
     @Override
-    public Long getUserDeptId(Long userId) {
-        if (userId == null) {
+    public Long getDeptIdOfEmployee(Long employeeId) {
+        if (employeeId == null) {
             return null;
         }
-        Map<String, Object> employee = employeeOfAccount(userId);
+        Map<String, Object> employee = employeeById(employeeId);
         return employee == null ? null : toLong(employee.get(props.getDeptIdField()));
     }
 

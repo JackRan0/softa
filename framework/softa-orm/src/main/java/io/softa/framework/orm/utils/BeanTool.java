@@ -25,6 +25,7 @@ import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Cast;
 import io.softa.framework.base.utils.DateUtils;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.Orders;
 import io.softa.framework.orm.dto.DTOFieldObject;
@@ -379,6 +380,9 @@ public class BeanTool {
             value = formatListProperty(fieldName, Cast.of(valueList), entityClass, modelName);
         } else if (value instanceof Map<?,?> mapValue && AbstractModel.class.isAssignableFrom(fieldTypeClass)) {
             value = mapToObject(Cast.of(mapValue), fieldTypeClass);
+        } else if (value != null && AbstractModel.class.isAssignableFrom(fieldTypeClass) && !fieldTypeClass.isInstance(value)) {
+            // A to-one held as its model's object, read without expanding it: the row carries only the id.
+            value = mapToObject(Map.of(ModelConstant.ID, value), fieldTypeClass);
         }
         return value;
     }

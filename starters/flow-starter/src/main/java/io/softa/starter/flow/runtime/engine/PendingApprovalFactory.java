@@ -15,7 +15,6 @@ import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
 import io.softa.starter.flow.runtime.exception.FlowRuntimeException;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 import io.softa.starter.flow.runtime.spi.ApprovalTimeoutConfig;
-import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.PendingApproval;
@@ -31,9 +30,6 @@ public class PendingApprovalFactory {
 
     @Autowired(required = false)
     private AutoDelegationService autoDelegationService;
-
-    @Autowired(required = false)
-    private OrganizationService organizationService;
 
     public PendingApprovalFactory(ApproverResolutionService approverResolutionService,
                                   ApprovalAuditReader auditReader) {
@@ -154,18 +150,6 @@ public class PendingApprovalFactory {
                 resolved.getOrDefault(ApproverResolutionService.INITIATOR_MANAGER_ID_KEY, null));
         approverContext.put(ApproverResolutionService.ROLE_APPROVERS_KEY,
                 resolved.getOrDefault(ApproverResolutionService.ROLE_APPROVERS_KEY, Map.of()));
-
-        // Enrich with org data when OrganizationService is available
-        if (organizationService != null && initiatorId != null) {
-            try {
-                Long initiatorIdLong = Long.parseLong(initiatorId);
-                Long deptId = organizationService.getUserDeptId(initiatorIdLong);
-                approverContext.put(ApproverResolutionService.INITIATOR_DEPT_ID_KEY, deptId);
-            } catch (NumberFormatException ignored) {
-                // initiatorId is not a numeric Long; skip org enrichment
-            }
-        }
-
         resolved.put(ApproverResolutionService.APPROVER_CONTEXT_KEY, approverContext);
         return resolved;
     }

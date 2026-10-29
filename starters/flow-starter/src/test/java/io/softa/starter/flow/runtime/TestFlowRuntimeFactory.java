@@ -99,7 +99,7 @@ public final class TestFlowRuntimeFactory {
 
         return new FlowRuntimeFacade(contextService, orchestrator, instanceStore, autoCcService,
                 new ApproveActionHandler(contextService, actorValidator, lifecycleService, auditService, orchestrator, notificationService,
-                        new ApprovalFormWriteService(recordModelService), replayGuard),
+                        new ApprovalFormWriteService(recordModelService, ModelApprovalHandlerRegistry.of(List.of())), replayGuard),
                 new RejectActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService, replayGuard),
                 new TransferActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService),
                 new DelegateActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService),

@@ -2,7 +2,7 @@ package io.softa.starter.cron.scheduler;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Future;
+import java.util.concurrent.RunnableScheduledFuture;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -151,9 +151,12 @@ class CronSchedulerLeadershipTest {
         assertEquals(0, pendingRuns());
     }
 
-    /** Tasks the executor still holds that have not been cancelled, one per scheduled job */
+    /** Runs the executor still holds that have not been cancelled, one per scheduled job: the periodic refresh is not one */
     private long pendingRuns() {
-        return scheduler.getQueue().stream().filter(task -> !((Future<?>) task).isCancelled()).count();
+        return scheduler.getQueue().stream()
+                .map(task -> (RunnableScheduledFuture<?>) task)
+                .filter(task -> !task.isCancelled() && !task.isPeriodic())
+                .count();
     }
 
     private static SysCron activeCron(Long id, String name, String cronExpression) {
